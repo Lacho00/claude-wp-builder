@@ -2,16 +2,29 @@
 
 ## [Unreleased]
 
-### Fixed
-- **SELinux trap on Fedora/RHEL/CentOS**: when an nginx/apache vhost config was staged in `/tmp` and moved into `/etc/nginx/conf.d/` with `sudo mv`, the file inherited the `user_tmp_t` SELinux label. Confined nginx/apache domains cannot read `user_tmp_t`, so `systemctl reload` failed with `[emerg] open() "..." failed (13: Permission denied)` — even though `ls -la` showed `-rw-r--r--` root:root. The error was confusing because chmod/chown looked correct.
+---
+
+## [1.4.0] - 2026-06-04
 
 ### Added
-- `vhost-install` command in `bin/wp-env-setup.sh`: atomically installs a generated vhost config from a source path to the web server's `conf.d` directory with correct mode (644), owner (root:root), and SELinux context (`restorecon -F`). Safe on systems without SELinux (no-op when `getenforce`/`restorecon` are absent).
-- `native-setup` now accepts `--vhost-src=/tmp/x.conf` and calls `vhost-install` automatically as part of the native setup flow.
-- `commands/wp-create.md`: documented the correct vhost installation pattern and added a Failure Handling row for the SELinux permission-denied error.
+- **Tailwind CSS starter theme** (`starter-theme/__tailwind__/`): full theme scaffold with Tailwind CSS v4, WordPress Scripts build pipeline, BrowserSync, `package.json`, and all standard template parts.
+- **`/wp-tailwindify` command**: converts an existing HTML/CSS demo into Tailwind-native HTML using utility classes, mapping colors to the project's `@theme` variables.
+- **`wp-tailwind` agent**: handles CSS-to-Tailwind demo conversion with `@theme` variable mapping and responsive breakpoint prefix translation.
+- **Template selection in `/wp-init`**: step 0.5 now asks whether to scaffold a Basic (CSS variables + BEM) or Tailwind starter theme; step 0.6 asks for SCF vs ACF Pro.
+- **`vhost-install` command** in `bin/wp-env-setup.sh`: atomically installs a generated vhost config with correct mode (644), owner (root:root), and SELinux context (`restorecon -F`). Safe no-op on systems without SELinux.
+- **`--vhost-src` flag for `native-setup`**: pass a staged config path and `vhost-install` runs automatically as part of the setup flow.
+- Failure Handling entry in `commands/wp-create.md` for the SELinux `(13: Permission denied)` error on Fedora/RHEL/CentOS.
+
+### Fixed
+- **SELinux trap on Fedora/RHEL/CentOS**: vhost configs staged in `/tmp` and moved with `sudo mv` inherited the `user_tmp_t` label, causing nginx/apache reload to fail with `(13: Permission denied)` despite correct `ls -la` ownership. `vhost-install` and `--vhost-src` prevent this entirely.
+- **Caddy + `--vhost-src`**: passing `--vhost-src` to `native-setup` for a caddy server no longer silently skips install and reloads an unconfigured server — it now aborts with a clear error.
+- **ABSPATH guards**: added `defined('ABSPATH') || exit` to all PHP template files in `starter-theme/__starter__` for direct-file-access protection.
+
+### Security
+- All starter theme PHP template files now guard against direct file access.
 
 ### Migration
-- No breaking changes. Existing flows that call `native-setup` without `--vhost-src` still work and print updated guidance pointing at `vhost-install`.
+- No breaking changes. Existing `native-setup` calls without `--vhost-src` continue to work with updated guidance printed to the terminal.
 
 ---
 

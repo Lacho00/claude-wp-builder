@@ -49,8 +49,8 @@ Ensuring the WordPress output matches the demo HTML 1:1 in appearance and conten
 - [ ] **Load fonts from the demo** `NEW`
   Detect which fonts the demo uses (Google Fonts, self-hosted, system), download or enqueue them, and add proper `@font-face` declarations and preload hints.
 
-- [ ] **Detect and support Tailwind CSS** `NEW`
-  If the demo HTML uses Tailwind utility classes, detect this during `/wp-demo` or `/wp-polish` and set up a Tailwind build pipeline in the theme instead of converting to vanilla CSS.
+- [x] **Detect and support Tailwind CSS** `DONE`
+  Added `__tailwind__` starter theme with Tailwind CSS v4 build pipeline, `/wp-tailwindify` command for CSS-to-Tailwind conversion, and template selection in `/wp-init`. Shipped in v1.4.0.
 
 - [ ] **Visual regression testing with Playwright** `NEW`
   After each section build, take screenshots at key viewports and compare against the demo. Loop fixes until the section matches the demo visually. Could be a new `/wp-test` command or integrated into `/wp-section`.

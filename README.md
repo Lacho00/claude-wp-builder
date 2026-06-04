@@ -4,7 +4,7 @@
 
 **Demo HTML to production WordPress theme — automated.**
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet.svg)](https://docs.anthropic.com/en/docs/claude-code)
@@ -376,7 +376,7 @@ See [BACKLOG.md](BACKLOG.md) for the full product backlog. Key areas of active d
 - Visual regression testing with Playwright (demo vs WordPress comparison)
 - Multi-page demo support and custom post type auto-detection
 - JavaScript specialist agent for sliders, animations, and interactivity
-- Tailwind CSS detection and build pipeline integration
+- ~~Tailwind CSS starter theme and build pipeline integration~~ ✓ shipped in v1.4.0
 
 ## Contributing
 
