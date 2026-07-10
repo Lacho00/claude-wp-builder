@@ -1,7 +1,7 @@
 ---
 description: Seed WordPress content from demo HTML — parses sections, creates pages, imports media, populates ACF fields, builds menus, supports bilingual content
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob
-argument-hint: "[demo-file.html]"
+argument-hint: "[demo-file.html] [--exclude-slugs <slug,slug,...>]"
 ---
 
 # WP Seed — Content Seeding from Demo HTML
@@ -38,9 +38,17 @@ If this fails, abort with a message suggesting the user check that the WordPress
 
 ## Phase 1: Parse Demo HTML
 
+### Parse arguments
+
+- **First non-flag word** = demo file path (optional). If provided and it points to a file, use that file.
+- **`--exclude-slugs <slug,slug,...>`** = optional comma-separated list of page slugs to
+  **skip** when creating WP Pages in Phase 2 (default: none — existing behavior unchanged).
+  Use this to avoid creating a WP Page for a slug that is served by a CPT archive
+  (`archive-<slug>.php` / `has_archive`), which would otherwise collide.
+
 ### Locate the demo file
 
-- If `$ARGUMENTS` is provided and points to a file, use that file.
+- If a demo file path was provided in `$ARGUMENTS`, use that file.
 - Otherwise, check for `demo/index.html` in the current working directory.
 - If no demo file is found, abort with:
   > "No demo file found. Provide a path as argument or ensure `demo/index.html` exists."
@@ -115,7 +123,7 @@ Languages:      en (primary), es (additional)
 
 ## Phase 2: Create Pages
 
-Create a WordPress page for each page found in the navigation (or each HTML file in multi-page demos).
+Create a WordPress page for each page found in the navigation (or each HTML file in multi-page demos). **Skip any slug listed in `--exclude-slugs`** — do not create a WP Page for it (its URL is provided by a CPT archive via `has_archive`, and a WP Page would collide with `archive-<slug>.php`).
 
 ```bash
 # Create each page and capture its ID
