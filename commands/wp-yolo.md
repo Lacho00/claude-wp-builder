@@ -45,6 +45,17 @@ page, resolves shared header/footer, splits sections, classifies content types
 
 Read `demo/.yolo-manifest.json` back once the agent completes.
 
+## Step 2.5: Phase 1.5 — Load & reconcile scope
+
+If `docs/.scope-manifest.json` exists, read it and reconcile with the `wp-normalize`
+manifest by matching pages on slug/name. Annotate each page with `delivery`, `inScope`,
+`approved` from the scope manifest. Determine, per page:
+- in-scope + demo HTML + `delivery: theme` → normal build.
+- in-scope + `delivery: idx` or `plugin` → build a styled shell with `/wp-page embed <slug> --provider <provider>` (NOT a normal section build).
+- in-scope + NO demo HTML → do not build; add to Review: "approved/designed but no HTML — needs demo."
+- demo page NOT in scope → skip; add to Review: "in demo but out of scope — skipped."
+Fold `constraints` into the guidance passed to every dispatched agent (e.g. forms = email-only, no mobile designs, SEO scope). If `docs/.scope-manifest.json` is absent, proceed demo-governed (existing behavior).
+
 ## Step 3: Checkpoint (skipped under --yolo)
 
 Unless `--yolo` is set, print the detected map from the manifest:
@@ -52,6 +63,9 @@ Unless `--yolo` is set, print the detected map from the manifest:
   confidence where < 1.0)
 - Shared header/footer flags and any divergent pages
 - Content-type classifications (`contentTypes[]`) with field lists
+- **Scope annotations** (if `docs/.scope-manifest.json` was loaded): each page's
+  `delivery` (theme/idx/plugin), out-of-scope pages skipped, and approved-but-missing-HTML
+  pages awaiting a demo
 - The full `review[]` list of low-confidence decisions
 
 Ask the user to **approve / edit / abort**:
@@ -87,10 +101,13 @@ Drive the existing commands/agents in this exact order, reading everything from 
      `front-page.php` by that CPT's `/wp-cpt` run in step 2. Note it in the report as
      "teaser for `<cpt>`, built by /wp-cpt".
    - `kind: "contact"` → `/wp-section <name> --cf7`.
-6. **Inner pages** — for every `pages[role=inner]` entry: run `/wp-page custom <slug>`,
-   then build its `sections[]` — but each inner section must read from its OWN demo page
-   and inject into its OWN page template, so pass `--page <slug> --target page-<slug>.php`
-   on every dispatch:
+6. **Inner pages** — for every `pages[role=inner]` entry: if the scope reconciliation
+   (Step 2.5) marked this page `delivery: idx` or `delivery: plugin`, skip the normal
+   page/section flow entirely and instead run
+   `/wp-page embed <slug> --provider <provider>` — a styled shell, not a section build.
+   Otherwise, run `/wp-page custom <slug>`, then build its `sections[]` — but each inner
+   section must read from its OWN demo page and inject into its OWN page template, so pass
+   `--page <slug> --target page-<slug>.php` on every dispatch:
    - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php`.
    - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php`.
    - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
@@ -135,12 +152,15 @@ CPTs registered:   <name list, with archive/single status and seed count>
 CF7 forms:         <count, if any contact sections were found>
 Media imported:    <count>
 Mandatory pages:   404, search (always built)
+Embed/IDX pages:   <slug list — "install & configure <provider>" for each delivery: idx|plugin page>
 
 Review:
   - <every review[] entry from the manifest — low-confidence splits, CPT-vs-repeater
     verdicts, ambiguous fields>
   - <untranslated secondary-language strings, if any>
   - <anything skipped — e.g. JS-only interactivity not reproducible in static templates>
+  - <out-of-scope pages skipped: "in demo but out of scope — skipped">
+  - <approved-but-missing-HTML pages: "approved/designed but no HTML — needs demo">
 ```
 
 Note for the user: `--yolo` is best used **after** one checkpointed dry-run of the same
