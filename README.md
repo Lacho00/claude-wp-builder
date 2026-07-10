@@ -89,11 +89,40 @@ Detects available tools (Docker, DDEV, Lando, Nginx, Apache, Caddy, PHP versions
 
 Prompts for project name, slug, languages, industry. Copies the starter theme, replaces placeholders, generates `.claude/CLAUDE.md` with project config. When `.wp-create.json` exists, skips redundant questions and activates the theme via WP-CLI.
 
-**Scope Management:** If a `docs/` folder exists with scope spreadsheets, design PDFs, or estimate markdown, `/wp-init` automatically runs `/wp-context` to extract a scope manifest and project constraints. Re-run manually after updating docs:
+### 1b. Gather project scope from `docs/`
+
+If the project has a `docs/` folder with client documents, `/wp-init` automatically runs
+`/wp-context` to read them. You can also run it (or re-run it after docs change) manually:
 
 ```
-/wp-context
+/wp-context            # reads ./docs
+/wp-context path/to/docs
 ```
+
+**What to put in `docs/`** — any mix of: scope spreadsheets (`.xlsx` / `.ods`), the design
+package (`.pdf`), estimate/scope notes (`.md`), emails, and link lists (`.txt`). Example:
+a "Pages in scope / Design provided" table, an IDX provider requirement, and hosting/forms/SEO
+constraints.
+
+**What it produces** — two artifacts consumed by the rest of the pipeline:
+
+1. A `## Project Constraints` section written into `.claude/CLAUDE.md` (integrations, forms,
+   SEO, hosting, responsive/migration notes) — every later command reads it as guidance.
+2. `docs/.scope-manifest.json` — a structured page list where each page is tagged
+   `inScope`, `designProvided`, `approved`, and `delivery` = `theme | idx | plugin`.
+
+**How it drives the build** — when you later run `/wp-yolo`, scope governs *what* and *how*,
+the demo fills *content*:
+
+| Scope says | `/wp-yolo` does |
+|------------|-----------------|
+| in-scope, `delivery: theme`, has demo HTML | builds the page normally |
+| in-scope, `delivery: idx` or `plugin` | builds a styled **shell** (`/wp-page embed`) with a marked insertion point for the provider's shortcode (e.g. Showcase IDX) — not a normal template |
+| in-scope but no demo HTML | reports "approved/designed but no HTML — needs demo" |
+| in the demo but not in scope | skips it and notes it |
+
+Re-run `/wp-context` any time the client updates the scope or design docs — it replaces the
+constraints block and overwrites the manifest idempotently.
 
 ### 2. Create the demo
 
