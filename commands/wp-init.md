@@ -266,6 +266,7 @@ Create `.claude/CLAUDE.md` at the **project root** (the directory containing `wp
 2. `/wp-header` — Build header.php from the demo
 3. `/wp-footer` — Build footer.php from the demo
 4. `/wp-section <name>` — Build each section (ACF fields + template + CSS)
+Or: `/wp-yolo <demo-folder>` — build the whole site from an existing HTML demo in one pass.
 5. `/wp-page <type>` — Generate page templates (blog, generic, legal, 404)
 6. `/wp-settings` — Extend the settings/options page
 7. `/wp-responsive-check <url>` — Validate responsive design

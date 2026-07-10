@@ -132,11 +132,19 @@ Each reads the demo, dispatches specialized agents (`wp-template`, `wp-css`, `wp
 
 ### 4. Build sections
 
+Build sections one at a time:
+
 ```
 /wp-section hero
 /wp-section services
 /wp-section values
 /wp-section contact
+```
+
+**Or, build the entire site from an existing HTML demo in one pass:**
+
+```
+/wp-yolo /path/to/demo-folder
 ```
 
 Each command generates three files in parallel:
@@ -226,7 +234,9 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 | `/wp-header` | Build header with nav, logo, language switcher |
 | `/wp-footer` | Build footer from settings page fields |
 | `/wp-section <name>` | One-shot section: ACF fields + template + CSS |
-| `/wp-page <type>` | Page template generator (blog, legal, 404, generic, custom) |
+| `/wp-page <type>` | Page template generator (blog, legal, 404, generic, custom, search) |
+| `/wp-cpt <name>` | Custom post type builder — generates fields, archive, single, seed helper |
+| `/wp-yolo <demo-folder>` | Convert complete demo folder to WordPress theme in one pass |
 | `/wp-settings` | Extend the settings page with new fields |
 | `/wp-responsive-check` | Responsive validation at 5 viewports |
 | `/wp-finalize` | Pre-delivery validation checklist |
