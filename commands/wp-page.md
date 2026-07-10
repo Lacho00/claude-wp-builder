@@ -12,7 +12,8 @@ Generate complete page templates with associated ACF fields and CSS based on the
 
 Parse `$ARGUMENTS`:
 - **First word** = page type (required): `blog`, `generic`, `legal`, `404`, `search`, `embed`, or `custom`
-- **Second word** = name (required only for `custom` type)
+- **Second word** = name/slug (required for `custom` AND `embed` types)
+- **`--provider <name>`** (used by `embed`) = sets the provider name; strip this flag and its value from the arguments before resolving the screenshot path, so it is never treated as the screenshot path
 - **Remaining words** = screenshot path (optional)
 
 If no type is provided, print an error:
@@ -201,9 +202,14 @@ Dispatch **wp-css** agent:
 
 For provider-delivered pages (IDX, booking, tours) that are NOT built as normal templates — the third-party plugin supplies the functionality; we supply a styled page with a clear insertion point.
 
+If `<slug>` is `home` or `front` (the site's front page), the generated template file is
+**`front-page.php`** (WordPress never uses `page-home.php` for a static front page);
+otherwise the file is `page-<slug>.php`. The marked insertion point and container go into
+whichever file applies.
+
 Dispatch **wp-template** agent:
 
-> Generate `page-<slug>.php`:
+> Generate `front-page.php` (if `<slug>` is `home`/`front`) or `page-<slug>.php` (otherwise):
 > - `get_header()`
 > - Optional page title/intro from `prefix_get_field()` (chrome only)
 > - A styled container `<div class="embed-<slug>">` containing a clearly-marked insertion point:
