@@ -1,7 +1,7 @@
 ---
 description: One-shot section builder — generates ACF fields + template part + CSS for a section from the demo
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent
-argument-hint: "<section-name> [screenshot-path] [--cf7]"
+argument-hint: "<section-name> [screenshot-path] [--cf7] [--page <slug>] [--target <template>]"
 ---
 
 # WP Section — One-Shot Section Builder
@@ -12,16 +12,19 @@ Generate ACF field definitions, a template part, and CSS for a single section �
 
 Parse `$ARGUMENTS`:
 - **First word** = section name (required, e.g., `hero`, `services`, `about`, `contact`)
-- **Remaining words** = screenshot path (optional)
+- **Remaining non-flag word** = screenshot path (optional; a flag token or its value is never treated as the screenshot path)
 - **`--cf7` flag** = force CF7 contact form integration (optional)
+- **`--page <slug>`** = read the section from `demo/<slug>.html` instead of `demo/index.html` (optional, **default `index`** — existing behavior unchanged when omitted)
+- **`--target <template>`** = inject the `get_template_part` call into `<template>` (e.g. `page-about.php`) instead of `front-page.php` (optional, **default `front-page.php`** — existing behavior unchanged when omitted)
 
 If no section name is provided, print an error:
 ```
 Error: Section name is required.
-Usage: /wp-section <section-name> [screenshot-path] [--cf7]
+Usage: /wp-section <section-name> [screenshot-path] [--cf7] [--page <slug>] [--target <template>]
 Example: /wp-section hero
          /wp-section services /path/to/screenshot.png
          /wp-section contact --cf7
+         /wp-section about-story --page about --target page-about.php
 ```
 
 ## Step 2: Read Project Context
@@ -34,7 +37,9 @@ Read `.claude/CLAUDE.md` to extract:
 
 ## Step 3: Read Demo Section
 
-Read `demo/index.html` and extract the section matching:
+Read the demo page for this section — `demo/<slug>.html` where `<slug>` is the `--page`
+value (**default `index`**, i.e. `demo/index.html` when `--page` is omitted) — and extract
+the section matching:
 ```
 <!-- ============ SECTION: <Name> ============ -->
 ...
@@ -61,7 +66,7 @@ If any condition is true, set `is_contact_section = true`. This changes the disp
 
 ## Step 4: Determine Target Page Template
 
-The section will be included in a page template. Default is `front-page.php`. If the user specifies a different target, use that instead.
+The section will be included in a page template. Default is `front-page.php`. If `--target <template>` is provided, inject into that template instead (e.g. `page-about.php`). Everywhere below that names `front-page.php` refers to this resolved target template.
 
 ## Step 5: Dispatch Agents
 
@@ -228,7 +233,7 @@ Wait for all Phase 1 agents to complete. Extract form IDs from wp-cf7 output.
 
 ## Step 6: Add to Page Template
 
-After all agents complete, check if the target page template (e.g., `front-page.php`) already includes this section:
+After all agents complete, check if the resolved target page template (the `--target` value, default `front-page.php`) already includes this section:
 
 ```php
 get_template_part('template-parts/section', '<name>');

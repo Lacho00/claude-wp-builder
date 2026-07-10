@@ -89,6 +89,11 @@ classified **static-repeater** → that section's `kind: "static"`; a group clas
 custom-post-type → the teaser block's section `kind: "cpt-teaser"`, plus a
 `contentTypes[]` entry and (if a dedicated listing page exists) a `cpt-archive` page.
 
+**Contact detection** (mirrors `commands/wp-section.md` Step 3.5): a section is
+`kind: "contact"` when it contains a `<form>` with both `<input type="email">` and a
+`<textarea>`, OR its name matches `contact` / `contact-us` / `contacto` / `get-in-touch`
+(case-insensitive). This takes precedence over static/cpt classification for that section.
+
 ## Cross-page linkage rules
 
 - A demo page like `team.html` → recognized as the **archive** of CPT `team`

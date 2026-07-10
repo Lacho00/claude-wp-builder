@@ -71,19 +71,30 @@ Drive the existing commands/agents in this exact order, reading everything from 
    from the header/footer/contact content found by `wp-normalize`.
 2. **CPTs first** — for every entry in `contentTypes[]`, run `/wp-cpt <name>` (using its
    `fields[]` and `seed[]` as the `--from-demo` hints). This must complete before any
-   section queries that CPT.
+   section queries that CPT. **`/wp-cpt` OWNS this CPT's teaser** (`template-parts/section-<name>.php`,
+   named for the CPT — never the manifest section name — injected into `front-page.php`).
+   Pass **`--no-teaser`** when the contentType has `hasTeaser: false`, OR when no
+   `sections[].kind == "cpt-teaser"` with `cpt == <name>` exists anywhere in the manifest —
+   otherwise let `/wp-cpt` build the teaser.
 3. **`/wp-header`** — the shared header → `header.php` + nav-walker + registered menus.
 4. **`/wp-footer`** — the shared footer → `footer.php`.
 5. **Home page sections** — for the `pages[role=home]` entry, walk its `sections[]` in
-   order and run the `/wp-section` procedure per section:
+   order and run the `/wp-section` procedure per section (defaults: `--page index`,
+   `--target front-page.php`, so no flags are needed for home):
    - `kind: "static"` → normal `/wp-section <name>` (three-agent parallel dispatch).
-   - `kind: "cpt-teaser"` → `/wp-section <name>` scoped to query the section's `cpt` via
-     `WP_Query` rather than holding repeater fields (per that CPT's teaser, already
-     scaffolded by its `/wp-cpt` run in step 2 — do not duplicate fields).
+   - `kind: "cpt-teaser"` → **SKIP** — do NOT dispatch `/wp-section` for these. The CPT's
+     teaser `template-parts/section-<cpt>.php` was already built and injected into
+     `front-page.php` by that CPT's `/wp-cpt` run in step 2. Note it in the report as
+     "teaser for `<cpt>`, built by /wp-cpt".
    - `kind: "contact"` → `/wp-section <name> --cf7`.
 6. **Inner pages** — for every `pages[role=inner]` entry: run `/wp-page custom <slug>`,
-   then its `sections[]` through the same per-kind logic as step 5. Under `--careful`,
-   confirm with the user before building each inner page.
+   then build its `sections[]` — but each inner section must read from its OWN demo page
+   and inject into its OWN page template, so pass `--page <slug> --target page-<slug>.php`
+   on every dispatch:
+   - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php`.
+   - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php`.
+   - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
+   Under `--careful`, confirm with the user before building each inner page.
 7. **`cpt-archive` pages** — no WP Page is created for these (their archive URL is
    `has_archive`, already wired by `/wp-cpt` in step 2). Skip page creation; note them in
    the final report as "archive of `<cpt>`, built by /wp-cpt".
@@ -98,14 +109,21 @@ Drive the existing commands/agents in this exact order, reading everything from 
 ## Step 5: Phase 3 — Seed & Finish
 
 Run, in order:
-1. **`/wp-seed`** — create WP Pages with matching slugs (so `page-<slug>.php` auto-applies),
-   populate ACF fields from extracted text in the **primary language only** (flag secondary-
-   language strings as untranslated), sideload images into the media library and wire them
-   to fields, build menus from the nav, and create CPT seed posts from each `contentTypes[]`
-   entry's `seed[]`.
-2. **`/wp-finalize`**
-3. **`/wp-polish`**
-4. **`/wp-responsive-check`**
+1. **`/wp-seed --exclude-slugs <slugs>`** — create WP Pages with matching slugs (so
+   `page-<slug>.php` auto-applies), populate ACF fields from extracted text in the
+   **primary language only** (flag secondary-language strings as untranslated), sideload
+   images into the media library and wire them to fields, and build menus from the nav.
+   Set `--exclude-slugs` to the comma-joined slugs of every `pages[role=cpt-archive]` entry
+   (e.g. `--exclude-slugs team`) so no stray WP Page is created for an archive slug — its
+   URL comes from `has_archive`, and a WP Page would collide with `archive-<cpt>.php`.
+2. **Create CPT posts** — `/wp-seed` does not create CPT posts, so after it, for each
+   `contentTypes[]` entry execute its seeder `inc/seed/<name>.php` (emitted by that CPT's
+   `/wp-cpt` run in Phase 2) via the project's WP-CLI wrapper — e.g.
+   `$WP eval-file inc/seed/team.php` — to create that type's posts from its `seed[]`.
+   **Primary language only.**
+3. **`/wp-finalize`**
+4. **`/wp-polish`**
+5. **`/wp-responsive-check`**
 
 ## Step 6: Report
 

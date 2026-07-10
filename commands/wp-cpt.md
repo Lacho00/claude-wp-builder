@@ -72,9 +72,13 @@ Dispatch **wp-template** + **wp-acf** + **wp-css** (mirror the /wp-section flow)
 
 ## Step 6: Seed helper
 
-Append to the theme's seed routine (or emit `inc/seed/<name>.php`) WP-CLI calls to create N `<name>` posts
-from the demo cards / detail pages: `wp post create --post_type=<name> --post_title='...' --porcelain`,
-then set ACF fields and sideload the card image into the media library and set the thumbnail.
+**Always emit `inc/seed/<name>.php`** — a single runnable seeder that creates the N `<name>`
+posts from the demo cards / detail pages. It must be executable standalone via the project's
+WP-CLI wrapper (`$WP eval-file inc/seed/<name>.php`) so a later `/wp-yolo` Phase 3 (or a
+manual run) can create the posts deterministically. For each post: create it
+(`wp_insert_post` with `post_type => '<name>'`), set its ACF fields, and sideload the card
+image (`media_sideload_image`) into the media library and set it as the thumbnail.
+Make it idempotent where practical (skip if a post with the same title already exists).
 Primary language only; flag secondary.
 
 ## Step 7: Print Summary
