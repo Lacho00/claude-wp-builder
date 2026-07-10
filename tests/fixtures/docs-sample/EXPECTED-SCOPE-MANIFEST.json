@@ -1,0 +1,57 @@
+{
+  "source": "tests/fixtures/docs-sample",
+  "pages": [
+    {
+      "name": "Home",
+      "slug": "home",
+      "inScope": true,
+      "designProvided": true,
+      "delivery": "theme",
+      "approved": true
+    },
+    {
+      "name": "Home Search",
+      "slug": "home-search",
+      "inScope": true,
+      "designProvided": false,
+      "delivery": "idx",
+      "provider": "Showcase IDX",
+      "approved": true,
+      "notes": "native IDX widget, no custom mockup needed"
+    },
+    {
+      "name": "Contact",
+      "slug": "contact",
+      "inScope": true,
+      "designProvided": true,
+      "delivery": "theme",
+      "approved": true
+    },
+    {
+      "name": "About",
+      "slug": "about",
+      "inScope": true,
+      "designProvided": false,
+      "delivery": "theme",
+      "approved": false,
+      "notes": "no mockup on file; approval pending"
+    }
+  ],
+  "integrations": [
+    {
+      "name": "Showcase IDX",
+      "type": "idx",
+      "provider": "Showcase IDX",
+      "notes": "home search — native functionality, styled to design within platform limits"
+    }
+  ],
+  "constraints": {
+    "forms": "email-notification only, no CRM integration",
+    "seo": "on-page structure + XML sitemap",
+    "hosting": "client-hosted production; staging by us; one deploy at launch",
+    "responsive": "tablet/mobile interpreted from desktop — no mobile designs provided"
+  },
+  "review": [
+    "About page has no design provided and is not marked approved — treated as in-scope but unbuilt-ready pending client approval."
+  ]
+}
