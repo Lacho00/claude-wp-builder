@@ -51,10 +51,13 @@ If `docs/.scope-manifest.json` exists, read it and reconcile with the `wp-normal
 manifest by matching pages on slug/name. Annotate each page with `delivery`, `inScope`,
 `approved` from the scope manifest. Determine, per page:
 - in-scope + demo HTML + `delivery: theme` → normal build.
-- in-scope + `delivery: idx` or `plugin` → build a styled shell with `/wp-page embed <slug> --provider <provider>` (NOT a normal section build).
-- in-scope + NO demo HTML → do not build; add to Review: "approved/designed but no HTML — needs demo."
+- in-scope + `delivery: idx` or `plugin` → build a styled shell with `/wp-page embed <slug> --provider <provider>` (NOT a normal section build), regardless of whether demo HTML exists.
+- in-scope + `delivery: theme` + NO demo HTML → do not build; add to Review: "approved/designed but no HTML — needs demo."
 - demo page NOT in scope → skip; add to Review: "in demo but out of scope — skipped."
 Fold `constraints` into the guidance passed to every dispatched agent (e.g. forms = email-only, no mobile designs, SEO scope). If `docs/.scope-manifest.json` is absent, proceed demo-governed (existing behavior).
+
+These rules are evaluated in priority order — `delivery` decides first, so the `idx`/`plugin`
+rule always wins over the no-demo-HTML rule.
 
 ## Step 3: Checkpoint (skipped under --yolo)
 
