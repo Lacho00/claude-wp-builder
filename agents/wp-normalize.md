@@ -62,7 +62,6 @@ For every repeating card group found on a page, decide `static-repeater` vs
 **Signals → CPT** (any one strong signal, or several weak signals together):
 
 1. A **"Show more / View all / See all"** link leaving the section to another page
-   (matches View all|Show more|See all; kind static-repeater|repeater).
 2. Cards **link to individual detail pages** (`team/john.html`, `member-*.html`).
 3. A **dedicated listing page exists** in the demo (a full grid of the same card type).
 4. **Collection-noun naming**: team, staff, services, projects, portfolio, products,
@@ -84,6 +83,11 @@ For every repeating group, emit in the manifest:
 Always include `confidence` (0–1) and `rationale` (one sentence, cite the concrete signal
 observed) for every classification that isn't a slam-dunk match on a single unambiguous
 signal — the checkpoint reader relies on this text.
+
+When emitting the manifest, map the verdict to the `sections[].kind` enum: a group
+classified **static-repeater** → that section's `kind: "static"`; a group classified
+custom-post-type → the teaser block's section `kind: "cpt-teaser"`, plus a
+`contentTypes[]` entry and (if a dedicated listing page exists) a `cpt-archive` page.
 
 ## Cross-page linkage rules
 
