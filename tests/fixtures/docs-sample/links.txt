@@ -1,0 +1,2 @@
+Existing site: https://example-old-site.test/
+IDX portal: https://showcaseidx.example.com/portal/demo-client

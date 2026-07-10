@@ -1,7 +1,7 @@
 ---
-description: Generate page templates — blog, generic, legal, 404, search, or custom page types
+description: Generate page templates — blog, generic, legal, 404, search, embed, or custom page types
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent
-argument-hint: "<type> [name] [screenshot-path]"
+argument-hint: "<type> [name] [screenshot-path] [--provider <name>]"
 ---
 
 # WP Page — Page Template Generator
@@ -11,21 +11,23 @@ Generate complete page templates with associated ACF fields and CSS based on the
 ## Step 1: Parse Arguments
 
 Parse `$ARGUMENTS`:
-- **First word** = page type (required): `blog`, `generic`, `legal`, `404`, `search`, or `custom`
-- **Second word** = name (required only for `custom` type)
+- **First word** = page type (required): `blog`, `generic`, `legal`, `404`, `search`, `embed`, or `custom`
+- **Second word** = name/slug (required for `custom` AND `embed` types)
+- **`--provider <name>`** (used by `embed`) = sets the provider name; strip this flag and its value from the arguments before resolving the screenshot path, so it is never treated as the screenshot path
 - **Remaining words** = screenshot path (optional)
 
 If no type is provided, print an error:
 ```
 Error: Page type is required.
 Usage: /wp-page <type> [name] [screenshot-path]
-Types: blog, generic, legal, 404, search, custom
+Types: blog, generic, legal, 404, search, embed, custom
 Examples:
   /wp-page blog
   /wp-page generic
   /wp-page legal
   /wp-page 404
   /wp-page search
+  /wp-page embed home-search --provider "Showcase IDX"
   /wp-page custom pricing
 ```
 
@@ -193,6 +195,37 @@ Dispatch **wp-css** agent:
 
 > Add search-results + no-results state CSS to the theme stylesheet within delimiters,
 > using the project's design-system custom properties (no new colors).
+
+---
+
+### Type: embed
+
+For provider-delivered pages (IDX, booking, tours) that are NOT built as normal templates — the third-party plugin supplies the functionality; we supply a styled page with a clear insertion point.
+
+If `<slug>` is `home` or `front` (the site's front page), the generated template file is
+**`front-page.php`** (WordPress never uses `page-home.php` for a static front page);
+otherwise the file is `page-<slug>.php`. The marked insertion point and container go into
+whichever file applies.
+
+Dispatch **wp-template** agent:
+
+> Generate `front-page.php` (if `<slug>` is `home`/`front`) or `page-<slug>.php` (otherwise):
+> - `get_header()`
+> - Optional page title/intro from `prefix_get_field()` (chrome only)
+> - A styled container `<div class="embed-<slug>">` containing a clearly-marked insertion point:
+>   `<!-- EMBED: <provider> shortcode/block goes here -->`
+> - `get_footer()`
+> - Escape all output; BEM class `.embed-<slug>__*`
+
+Dispatch **wp-acf** agent (optional, chrome only):
+
+> Generate `fields/<slug>.php`: heading/intro/notes fields bound to the `<Slug> Page` template. NOT the provider data. Group key `group_<slug>`.
+
+Dispatch **wp-css** agent:
+
+> Add `.embed-<slug>` container + placeholder styling within delimiters, using design-system custom properties (no new colors).
+
+Print in the summary: `Requires plugin: <provider> — install and configure, then insert its shortcode/block at the marked insertion point.`
 
 ---
 
