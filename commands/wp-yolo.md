@@ -92,9 +92,15 @@ Drive the existing commands/agents in this exact order, reading everything from 
    otherwise let `/wp-cpt` build the teaser.
 3. **`/wp-header`** — the shared header → `header.php` + nav-walker + registered menus.
 4. **`/wp-footer`** — the shared footer → `footer.php`.
-5. **Home page sections** — for the `pages[role=home]` entry, walk its `sections[]` in
-   order and run the `/wp-section` procedure per section (defaults: `--page index`,
-   `--target front-page.php`, so no flags are needed for home):
+5. **Home page sections** — for the `pages[role=home]` entry: if the scope reconciliation
+   (Step 2.5) marked it `delivery: idx` or `delivery: plugin` (rare — e.g. an all-IDX
+   homepage), build it as a styled embed shell instead of assembling sections: dispatch
+   `/wp-page embed home --provider <provider>` (its insertion point lives in
+   `front-page.php`), skip the `sections[]` walk for this page, and note it in the
+   report. Otherwise (`delivery: theme` or no scope manifest), proceed with the normal
+   section walk: walk its `sections[]` in order and run the `/wp-section` procedure per
+   section (defaults: `--page index`, `--target front-page.php`, so no flags are needed
+   for home):
    - `kind: "static"` → normal `/wp-section <name>` (three-agent parallel dispatch).
    - `kind: "cpt-teaser"` → **SKIP** — do NOT dispatch `/wp-section` for these. The CPT's
      teaser `template-parts/section-<cpt>.php` was already built and injected into
