@@ -11,7 +11,7 @@ Generate complete page templates with associated ACF fields and CSS based on the
 ## Step 1: Parse Arguments
 
 Parse `$ARGUMENTS`:
-- **First word** = page type (required): `blog`, `generic`, `legal`, `404`, `search`, or `custom`
+- **First word** = page type (required): `blog`, `generic`, `legal`, `404`, `search`, `embed`, or `custom`
 - **Second word** = name (required only for `custom` type)
 - **Remaining words** = screenshot path (optional)
 

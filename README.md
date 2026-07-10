@@ -89,6 +89,12 @@ Detects available tools (Docker, DDEV, Lando, Nginx, Apache, Caddy, PHP versions
 
 Prompts for project name, slug, languages, industry. Copies the starter theme, replaces placeholders, generates `.claude/CLAUDE.md` with project config. When `.wp-create.json` exists, skips redundant questions and activates the theme via WP-CLI.
 
+**Scope Management:** If a `docs/` folder exists with scope spreadsheets, design PDFs, or estimate markdown, `/wp-init` automatically runs `/wp-context` to extract a scope manifest and project constraints. Re-run manually after updating docs:
+
+```
+/wp-context
+```
+
 ### 2. Create the demo
 
 ```
@@ -229,12 +235,13 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 | Command | Description |
 |---------|-------------|
 | `/wp-init` | Scaffold new project from starter theme |
+| `/wp-context` | Extract scope manifest from `docs/` folder and update project constraints |
 | `/wp-demo` | Create demo HTML for client approval |
 | `/wp-polish [path]` | Normalize external HTML into plugin-compatible demo |
 | `/wp-header` | Build header with nav, logo, language switcher |
 | `/wp-footer` | Build footer from settings page fields |
 | `/wp-section <name>` | One-shot section: ACF fields + template + CSS |
-| `/wp-page <type>` | Page template generator (blog, legal, 404, generic, custom, search) |
+| `/wp-page <type>` | Page template generator (blog, legal, 404, generic, custom, search, embed) |
 | `/wp-cpt <name>` | Custom post type builder — generates fields, archive, single, seed helper |
 | `/wp-yolo <demo-folder>` | Convert complete demo folder to WordPress theme in one pass |
 | `/wp-settings` | Extend the settings page with new fields |
