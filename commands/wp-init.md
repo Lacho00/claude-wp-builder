@@ -303,7 +303,14 @@ With:
 1. ~~`/wp-demo`~~ — Demo already exists, skip to /wp-header
 ```
 
-## Step 8: Activate Theme and Install Dependencies
+## Step 8: Gather project docs (if present)
+
+Check if a docs folder exists in the project root. If docs directory exists, run `/wp-context` to extract project
+constraints and the scope manifest now (so every later command — especially `/wp-yolo` —
+builds with the client's approved scope, integrations like IDX, and constraints in context).
+If there is no `docs/` folder, skip this step silently.
+
+## Step 9: Activate Theme and Install Dependencies
 
 ### Custom Fields Plugin
 
@@ -355,7 +362,7 @@ cd <theme-dir> && npm install && npm run build
 ```
 This generates `assets/css/dist/main.css` and `assets/js/dist/index.js` needed for the theme to function.
 
-## Step 9: Print Summary
+## Step 10: Print Summary
 
 Print a summary:
 
