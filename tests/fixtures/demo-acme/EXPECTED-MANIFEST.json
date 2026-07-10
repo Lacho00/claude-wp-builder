@@ -1,0 +1,176 @@
+{
+  "source": "tests/fixtures/demo-acme",
+  "pages": [
+    {
+      "slug": "index",
+      "role": "home",
+      "file": "demo/index.html",
+      "sections": [
+        {
+          "name": "hero",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "hero_title", "type": "text" },
+            { "name": "hero_subtitle", "type": "textarea" }
+          ],
+          "assets": []
+        },
+        {
+          "name": "about-teaser",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "about_heading", "type": "text" },
+            { "name": "about_intro", "type": "textarea" }
+          ],
+          "assets": []
+        },
+        {
+          "name": "team-teaser",
+          "kind": "cpt-teaser",
+          "cpt": "team",
+          "confidence": 0.95,
+          "rationale": "'View all team' link -> team.html; dedicated team.html full grid exists; collection-noun 'team'; cards have rich per-item data (photo+name+role); same card type appears on 2 pages (home teaser + team.html archive)",
+          "fields": [
+            { "name": "team_heading", "type": "text" },
+            { "name": "team_intro", "type": "textarea" }
+          ],
+          "assets": [
+            "assets/team/john.jpg",
+            "assets/team/jane.jpg",
+            "assets/team/mo.jpg"
+          ]
+        },
+        {
+          "name": "services",
+          "kind": "static",
+          "confidence": 0.85,
+          "rationale": "only 3 fixed cards, no outbound links to detail pages, no dedicated per-card listing separate from services.html's own static sections -- structural feature-card group, not a collection",
+          "fields": [
+            { "name": "services_heading", "type": "text" },
+            { "name": "service_card_title", "type": "text" },
+            { "name": "service_card_text", "type": "textarea" }
+          ],
+          "assets": []
+        }
+      ]
+    },
+    {
+      "slug": "about",
+      "role": "inner",
+      "file": "demo/about.html",
+      "sections": [
+        {
+          "name": "about-story",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "about_story_title", "type": "text" },
+            { "name": "about_story_body", "type": "textarea" }
+          ],
+          "assets": []
+        },
+        {
+          "name": "about-values",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "about_values_heading", "type": "text" },
+            { "name": "about_values_body", "type": "textarea" }
+          ],
+          "assets": []
+        }
+      ]
+    },
+    {
+      "slug": "services",
+      "role": "inner",
+      "file": "demo/services.html",
+      "sections": [
+        {
+          "name": "services-detail",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "services_detail_title", "type": "text" },
+            { "name": "services_detail_body", "type": "textarea" }
+          ],
+          "assets": []
+        },
+        {
+          "name": "services-process",
+          "kind": "static",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "services_process_heading", "type": "text" },
+            { "name": "services_process_body", "type": "textarea" }
+          ],
+          "assets": []
+        }
+      ]
+    },
+    {
+      "slug": "contact",
+      "role": "inner",
+      "file": "demo/contact.html",
+      "sections": [
+        {
+          "name": "contact",
+          "kind": "contact",
+          "confidence": 1.0,
+          "fields": [
+            { "name": "contact_heading", "type": "text" },
+            { "name": "contact_email_field_label", "type": "text" },
+            { "name": "contact_message_field_label", "type": "text" }
+          ],
+          "assets": []
+        }
+      ]
+    },
+    {
+      "slug": "team",
+      "role": "cpt-archive",
+      "file": "demo/team.html",
+      "cpt": "team",
+      "sections": []
+    }
+  ],
+  "shared": {
+    "header": true,
+    "footer": true,
+    "headerDivergentPages": [],
+    "footerDivergentPages": []
+  },
+  "contentTypes": [
+    {
+      "name": "team",
+      "fields": [
+        { "name": "photo", "type": "image" },
+        { "name": "role", "type": "text" },
+        { "name": "bio", "type": "textarea" }
+      ],
+      "hasTeaser": true,
+      "seed": [
+        { "name": "John Smith", "role": "Founder", "photo": "assets/team/john.jpg",
+          "bio": "John started Acme Co in 1998 with a single workshop.", "source": "team.html" },
+        { "name": "Jane Doe", "role": "Lead Designer", "photo": "assets/team/jane.jpg",
+          "bio": "Jane leads all brand and product design work.", "source": "team.html" },
+        { "name": "Mo Ali", "role": "Operations", "photo": "assets/team/mo.jpg",
+          "bio": "Mo keeps projects on time and on budget.", "source": "team.html" },
+        { "name": "Sara Lee", "role": "Senior Consultant", "photo": "assets/team/sara.jpg",
+          "bio": "Sara advises clients on long-term strategy.", "source": "team.html" },
+        { "name": "Tom Reyes", "role": "Support Lead", "photo": "assets/team/tom.jpg",
+          "bio": "Tom runs our client support and care plans.", "source": "team.html" },
+        { "name": "Amy Chen", "role": "Designer", "photo": "assets/team/amy.jpg",
+          "bio": "Amy works across brand and digital design.", "source": "team.html" }
+      ]
+    }
+  ],
+  "review": [
+    "home 'team' section classified cpt-teaser at confidence 0.95 -- 'View all team' link plus dedicated team.html archive make this a slam-dunk, listed for visibility only",
+    "home 'services' section classified static-repeater at confidence 0.85 -- only 3 fixed cards with no outbound detail links, but flagged because it sits next to a CPT-classified group on the same page and the boundary is a judgment call",
+    "all sections on inner pages (about, services, contact) derived from heuristic segmentation of implicit <section> boundaries rather than explicit id/class naming beyond the section element itself -- field names are inferred, not literal",
+    "contentTypes.team.fields omits a 'name' field because the person's name maps to the WP post title (wp-cpt.md: 'usually the post title, skip if so') -- confirm at checkpoint that no separate name field is wanted"
+  ]
+}
