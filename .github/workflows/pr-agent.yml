@@ -26,7 +26,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Your LiteLLM virtual key (the ONLY secret). Add it in repo Settings →
           # Secrets and variables → Actions → New repository secret → name OPENAI_KEY.
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          # Double underscore maps to openai.key in PR-Agent's config (dynaconf),
+          # matching OPENAI__API_BASE below. Single-underscore OPENAI_KEY is NOT
+          # picked up and the tool silently falls back to a 'dummy_key' → LiteLLM 401.
+          OPENAI__KEY: ${{ secrets.OPENAI_KEY }}
           # Model + endpoint are also read from the committed .pr_agent.toml, but
           # setting them here too makes the workflow self-contained and overrides
           # the file if they ever drift. Double-underscore = nested config key.
