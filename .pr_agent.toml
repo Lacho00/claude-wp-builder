@@ -32,7 +32,7 @@ max_model_tokens = 48000
 # Your LiteLLM proxy. This is a private NetBird address, not a secret, so it's
 # fine to commit. If the Action container can't reach it, see the networking
 # troubleshooting section in README.md.
-api_base = "http://172.17.0.1:8788/v1"
+api_base = "http://172.17.0.1:4000/v1"
 # api_key is intentionally absent here — provided via OPENAI_KEY secret / env.
 
 [pr_reviewer]

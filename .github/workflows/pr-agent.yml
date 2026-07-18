@@ -37,10 +37,9 @@ jobs:
           CONFIG__FALLBACK_MODELS: '["openai/coder"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"
           CONFIG__MAX_MODEL_TOKENS: "48000"
-          # 172.17.0.1 = Docker bridge gateway ("the host" from the action's container).
-          # NOT a machine-specific IP — identical on every Docker host, leaks nothing.
-          # Runner is on the rig, so this is a direct, fast path to Headroom.
-          # (NetBird overlay 100.124.103.120 also works but its tunnel is ~1000x slower
-          #  on large PR diffs → client timeout → "Connection error". Use it only if the
-          #  runner is on a DIFFERENT machine reaching the rig over NetBird.)
-          OPENAI__API_BASE: "http://172.17.0.1:8788/v1"
+          # LiteLLM directly (NOT via Headroom :8788). Headroom short-circuits pr-agent's
+          # request shape (returns empty 200, never forwards) — and since pr-agent uses the
+          # LOCAL free Qwen, Headroom's token compression saves no cost here anyway.
+          # 172.17.0.1 = Docker bridge gateway ("the host" from the action's container):
+          # not a machine-specific IP, identical on every Docker host, leaks nothing.
+          OPENAI__API_BASE: "http://172.17.0.1:4000/v1"
