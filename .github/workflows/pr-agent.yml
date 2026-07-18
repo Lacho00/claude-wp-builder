@@ -20,7 +20,7 @@ jobs:
     name: PR-Agent review
     steps:
       - name: Run PR-Agent
-        uses: qodo-ai/pr-agent@main
+        uses: the-pr-agent/pr-agent@main   # community-maintained OSS PR-Agent (Qodo donated it)
         env:
           # Auto-provided by GitHub; lets the bot read the diff and post comments.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,8 +37,10 @@ jobs:
           CONFIG__FALLBACK_MODELS: '["openai/coder"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"
           CONFIG__MAX_MODEL_TOKENS: "48000"
-          # Host LAN IP (runner is on the rig): direct, full-MTU path to Headroom.
-          # The NetBird overlay IP (100.124.103.120) also works but its tunnel is
-          # ~1000x slower on large PR diffs → pr-agent client timeout → "Connection error".
-          # Use the overlay IP only if the runner is on a DIFFERENT machine.
-          OPENAI__API_BASE: "http://192.168.0.20:8788/v1"
+          # 172.17.0.1 = Docker bridge gateway ("the host" from the action's container).
+          # NOT a machine-specific IP — identical on every Docker host, leaks nothing.
+          # Runner is on the rig, so this is a direct, fast path to Headroom.
+          # (NetBird overlay 100.124.103.120 also works but its tunnel is ~1000x slower
+          #  on large PR diffs → client timeout → "Connection error". Use it only if the
+          #  runner is on a DIFFERENT machine reaching the rig over NetBird.)
+          OPENAI__API_BASE: "http://172.17.0.1:8788/v1"
