@@ -37,4 +37,8 @@ jobs:
           CONFIG__FALLBACK_MODELS: '["openai/coder"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"
           CONFIG__MAX_MODEL_TOKENS: "48000"
-          OPENAI__API_BASE: "http://100.124.103.120:8788/v1"
+          # Host LAN IP (runner is on the rig): direct, full-MTU path to Headroom.
+          # The NetBird overlay IP (100.124.103.120) also works but its tunnel is
+          # ~1000x slower on large PR diffs → pr-agent client timeout → "Connection error".
+          # Use the overlay IP only if the runner is on a DIFFERENT machine.
+          OPENAI__API_BASE: "http://192.168.0.20:8788/v1"
