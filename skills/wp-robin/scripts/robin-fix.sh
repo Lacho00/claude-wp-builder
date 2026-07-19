@@ -57,8 +57,8 @@ UPLOAD_DIR="$WP_ROOT/wp-content/uploads"
 info "DB: ${DB_NAME}@${DB_HOST} | prefix=${TABLE_PREFIX}"
 
 # DB query helpers
-db_q()  { mariadb -u "$DB_USER" -p"$DB_PASSWORD" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
-db_v()  { mariadb -u "$DB_USER" -p"$DB_PASSWORD" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
+db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
+db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
 
 # ── Check / install WP-CLI ──────────────────────────────────────────────────
 WP_CLI=""
