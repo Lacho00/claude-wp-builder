@@ -20,14 +20,42 @@ require_once __STARTER___DIR . '/inc/template-functions.php';
 require_once __STARTER___DIR . '/inc/performance.php';
 
 /**
- * Auto-load ACF/SCF field definitions from fields/ directory.
+ * Field groups use ACF/SCF Local JSON (acf-json/) as the single source of truth
+ * so they stay editable in the dashboard AND versioned in code — dashboard edits
+ * (including manually added fields) sync back to the JSON files.
+ *
+ * fields/*.php are a one-time bootstrap: on the first load with no JSON yet, they
+ * register the groups and get persisted to acf-json/. Once JSON exists it is the
+ * only source loaded — re-running the PHP would re-register the same keys as
+ * read-only PHP-local groups and shadow the editable JSON copies.
  */
 add_action( 'acf/init', function() {
+    $json_dir   = __STARTER___DIR . '/acf-json';
     $fields_dir = __STARTER___DIR . '/fields';
-    if ( is_dir( $fields_dir ) ) {
-        foreach ( glob( $fields_dir . '/*.php' ) as $file ) {
-            require_once $file;
+    if ( ! is_dir( $fields_dir ) ) { return; }
+    if ( ! is_dir( $json_dir ) ) { wp_mkdir_p( $json_dir ); }
+
+    // Bootstrap each group from PHP only if it isn't already Local JSON. A group
+    // that has a acf-json/<key>.json is the source of truth (dashboard edits sync
+    // there); re-running its PHP would re-register it read-only and shadow edits.
+    foreach ( glob( $fields_dir . '/*.php' ) as $file ) {
+        $src = file_get_contents( $file );
+        if ( preg_match_all( "/'key'\\s*=>\\s*'(group_[A-Za-z0-9_]+)'/", $src, $m ) ) {
+            $pending = false;
+            foreach ( $m[1] as $key ) {
+                if ( ! file_exists( "$json_dir/$key.json" ) ) { $pending = true; break; }
+            }
+            if ( ! $pending ) { continue; } // every group in this file already has JSON
         }
+        require_once $file;
+    }
+
+    // Persist any freshly-registered PHP-local group to Local JSON (editable).
+    foreach ( acf_get_field_groups() as $g ) {
+        if ( ( $g['local'] ?? '' ) !== 'php' ) { continue; }
+        if ( file_exists( "$json_dir/{$g['key']}.json" ) ) { continue; }
+        $g['fields'] = acf_get_fields( $g );
+        acf_write_json_field_group( acf_prepare_field_group_for_export( $g ) );
     }
 });
 
