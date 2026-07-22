@@ -17,6 +17,7 @@ require_once __STARTER___DIR . '/inc/cf7-helpers.php';
 require_once __STARTER___DIR . '/inc/nav-walker.php';
 require_once __STARTER___DIR . '/inc/template-tags.php';
 require_once __STARTER___DIR . '/inc/template-functions.php';
+require_once __STARTER___DIR . '/inc/performance.php';
 
 /**
  * Auto-load ACF/SCF field definitions from fields/ directory.
