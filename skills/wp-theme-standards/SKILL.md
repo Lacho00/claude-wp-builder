@@ -56,8 +56,14 @@ theme-name/
 ├── inc/
 │   ├── theme-setup.php         # Theme supports, nav menus, content width
 │   ├── i18n.php                # Internationalization helpers (if bilingual)
-│   ├── performance.php         # WebP delivery + prefix_image() right-size helper
-│   └── scf-fields.php          # SCF/ACF custom field definitions
+│   └── performance.php         # WebP delivery + prefix_image() right-size helper
+├── fields/                     # SCF/ACF field definitions — one file per group
+│   ├── hero.php                #   BARE acf_add_local_field_group() calls (seed only)
+│   ├── settings.php
+│   └── ...
+├── acf-json/                   # SCF/ACF Local JSON — the field SOURCE OF TRUTH
+│   ├── group_hero.json         #   auto-written from fields/*.php on first load,
+│   └── ...                     #   dashboard-editable, edits sync back here
 ├── template-parts/
 │   ├── section-hero.php        # Reusable section templates
 │   ├── section-services.php
@@ -70,6 +76,22 @@ theme-name/
 ├── style.css                   # Theme declaration (headers only)
 └── screenshot.png              # Theme preview image
 ```
+
+### SCF/ACF field model — Local JSON is the source of truth
+
+Field groups are **not** left as pure PHP `acf_add_local_field_group()` registrations:
+a PHP-local group has no post (`ID=0`), never appears in **Custom Fields → Field
+Groups**, and can't be edited or extended by the client. Instead the `acf/init`
+loader in `functions.php` treats `fields/*.php` as a **one-time bootstrap** — it
+registers each group once, writes it to `acf-json/<key>.json`, then loads only the
+Local JSON thereafter. ACF/SCF auto-loads `acf-json/`, so groups are visible,
+editable, and two-way synced (dashboard edits — including manually added fields —
+are written back to the JSON files and stay in version control).
+
+To **redefine** an existing group in code, edit its `fields/*.php` and delete the
+matching `acf-json/<key>.json` (plus `acf_delete_field_group('<key>')` if imported
+to the DB) so it re-bootstraps. Never point `save_json`/`load_json` elsewhere —
+ACF already defaults to the theme's `acf-json/`.
 
 ---
 
