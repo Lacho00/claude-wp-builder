@@ -79,7 +79,7 @@ elif [[ -n "$WP_CLI" ]]; then
 	info "Installing Robin Image Optimizer via wp-cli..."
 	(cd "$WP_ROOT" && $WP_CLI plugin install robin-image-optimizer --activate --allow-root 2>&1) || {
 		warn "wp-cli install failed (maybe no admin access). Trying direct download..."
-		TMP_ZIP="/tmp/robin-image-optimizer.zip"
+		TMP_ZIP="$(mktemp /tmp/robin-image-optimizer.XXXXXX.zip)"
 		curl -sL "https://downloads.wordpress.org/plugin/robin-image-optimizer.latest-stable.zip" -o "$TMP_ZIP"
 		if [[ -f "$TMP_ZIP" ]]; then
 			unzip -o "$TMP_ZIP" -d "$WP_ROOT/wp-content/plugins/" 2>&1
