@@ -147,6 +147,12 @@ fi
 SETTINGS[allowed_sizes_thumbnail]="$ALL_SIZES"
 info "  Thumbnails: $ALL_SIZES"
 
+# Single source of truth for which mime types get converted. Robin queries the
+# same allowed_formats option, so the script must not keep a second list that
+# drifts from it. image/webp is deliberately absent: those images are already
+# WebP, and appending .webp to them produces foo.webp.webp.
+ALLOWED_SQL="'$(echo "${SETTINGS[allowed_formats]}" | sed "s/,/','/g")'"
+
 for key in "${!SETTINGS[@]}"; do
 	val="${SETTINGS[$key]}"
 	db_q "INSERT INTO ${TABLE_PREFIX}options (option_name, option_value) VALUES ('wbcr_io_${key}', '${val}') ON DUPLICATE KEY UPDATE option_value='${val}';" || true
@@ -230,7 +236,7 @@ if [[ "${ATTACH_COUNT:-0}" -eq 0 ]]; then
 		LEFT JOIN ${TABLE_PREFIX}postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
 		WHERE p.post_type = 'attachment'
 		  AND p.post_status = 'inherit'
-		  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
+		  AND p.post_mime_type IN (${ALLOWED_SQL})
 		  AND p.ID NOT IN (SELECT object_id FROM ${QUEUE_TABLE} WHERE item_type='attachment')
 		ORDER BY p.ID;
 	" | php -r '
@@ -255,8 +261,6 @@ fi
 # ── Step 5: Sync missing webp entries ───────────────────────────────────────
 echo ""
 info "━━━ Syncing missing webp entries ━━━"
-
-ALLOWED_SQL="'image/png','image/jpeg','image/jpg','image/gif','image/webp'"
 
 MISSING=$(db_q "
 	SELECT DISTINCT posts.ID
@@ -313,6 +317,10 @@ else
 		for entry in "${ENTRIES[@]}"; do
 			IFS='|' read -r s_name s_path s_url s_bytes <<< "$entry"
 			[[ -z "$s_url" || "$s_bytes" -eq 0 ]] && continue
+			# WordPress can emit .webp sub-sizes for a JPEG original, so an entry
+			# may already be WebP even when the parent mime is not. Nothing to
+			# convert, and appending .webp would create foo.webp.webp.
+			[[ "${s_path,,}" == *.webp ]] && continue
 
 			# Standard hash: sha256("$url|webp")
 			ITEM_HASH=$(echo -n "${s_url}|webp" | sha256sum | awk '{print $1}')
