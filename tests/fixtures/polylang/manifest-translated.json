@@ -1,0 +1,35 @@
+{
+  "source_lang": "es",
+  "target_lang": "en",
+  "site_url": "http://example.test",
+  "items": [
+    {
+      "id": "post:999001",
+      "kind": "post",
+      "post_type": "page",
+      "source_id": 999001,
+      "target_id": null,
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fields": {
+        "post_title": "About us",
+        "post_content": "We build things.",
+        "post_excerpt": "",
+        "post_name": "about-us"
+      },
+      "acf": {}
+    },
+    {
+      "id": "term:category:999002",
+      "kind": "term",
+      "taxonomy": "category",
+      "source_id": 999002,
+      "target_id": null,
+      "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "fields": {
+        "name": "News",
+        "description": "Company news.",
+        "slug": "news"
+      }
+    }
+  ]
+}
