@@ -52,6 +52,13 @@ foreach ($m["items"] as $it) {
     fwrite(STDERR, "FAIL: unknown kind {$it["kind"]}\n"); exit(1);
   }
 }
+$has_attachment = false;
+foreach ($m["items"] as $it) {
+  if (($it["post_type"] ?? "") === "attachment") { $has_attachment = true; break; }
+}
+if (!$has_attachment) {
+  fwrite(STDERR, "FAIL: no attachment in the manifest -- 'inherit' status regression?\n"); exit(1);
+}
 echo "  items: ", count($m["items"]), "\n";
 ' "$MAN" "$SRC" "$DST" || exit 1
 

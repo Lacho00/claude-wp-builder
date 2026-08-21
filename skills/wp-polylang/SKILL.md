@@ -110,6 +110,25 @@ table. Do not conflate the two.
 
 ## Activation behaviour
 
-Activating Polylang assigns every existing post to the default language. On a
-site being retrofitted, the work is therefore not assigning languages — it is
-creating the counterparts and joining them into groups.
+Activating Polylang assigns a default language only to the post types and
+taxonomies that were already registered as translatable **at that moment**. A
+post type or taxonomy enabled for translation later (a common retrofit step —
+e.g. turning on `product`/`product_cat` after the plugin has been running for
+a while) keeps every one of its existing objects with **no language assigned
+at all**. `pll_get_post_language()` / `pll_get_term_language()` return `false`
+for them, not the default language.
+
+This matters for automation: a query filtered by `'lang' => $source` silently
+excludes objects with no language — they never enter the result set, so
+nothing downstream can see, count, or warn about them. Verified live on
+Polylang 3.8.7: a WooCommerce catalogue (7 products, 9 `product_cat` terms)
+enabled after initial activation had zero objects assigned any language,
+while `post`/`page`/`attachment`/`category` — all present at activation —
+were fully tagged. Anything that walks a site to find translatable content
+must query without a `lang` filter, classify each object's language itself,
+and count and report what has none — never assume "activated" means
+"assigned everywhere."
+
+On a site being retrofitted, the work is therefore not just creating
+counterparts and joining them into groups — it may also require assigning a
+source language to content Polylang never touched in the first place.
