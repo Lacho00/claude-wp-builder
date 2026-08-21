@@ -41,9 +41,23 @@ Always go through the API:
 | List configured languages | `pll_languages_list()` |
 | Default language | `pll_default_language()` |
 
-`pll_save_post_translations()` expects the **complete** group, not a delta. Pass
-the source and the target together; passing only the target silently drops the
-source from the group.
+`pll_save_post_translations()` **replaces** the whole group rather than merging
+into it — it is not a delta call. Passing only `{source, target}` silently drops
+every other language already in that group, including languages the array
+never mentions. The correct pattern is to read the existing group first with
+`pll_get_post_translations()`, merge the source and target ids into it, and
+save the merged result:
+
+```php
+$group = pll_get_post_translations( $source_id );
+$group[ $source ] = $source_id;
+$group[ $target ] = $target_id;
+pll_save_post_translations( $group );
+```
+
+Same shape for terms with `pll_get_term_translations()` /
+`pll_save_term_translations()`. `create_media_translation()` is the one
+exception — it merges internally, so it does not need this pattern.
 
 ## Running PHP against a site
 

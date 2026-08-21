@@ -170,6 +170,83 @@ if ($n !== 0) { fwrite(STDERR, "FAIL: re-export still lists $n item(s); hashes w
 ' "$MAN3" || exit 1
 rm -f "$MAN2" "$MAN3"
 
+echo "── a third language survives an import for another target ──"
+# pll_save_post_translations()/pll_save_term_translations() REPLACE the whole
+# group rather than merging into it. A prior version of this script built a
+# fresh two-key {source,target} array, which silently dropped every other
+# language already in the group. This is not hypothetical: the documented
+# workflow is "one target language per run, run it again for a third
+# language" -- so that bug destroys its own earlier output on the second run.
+# Uses a temporary 'fr' language and cleans it up (and the post it created)
+# afterward so this is safe to re-run against a persistent site.
+run "$SCRIPTS/pll-setup.php" "$SRC" fr >/dev/null || { echo "FAIL: could not add temporary language fr"; exit 1; }
+
+THIRD_MAN="$(mktemp)"
+THIRD_SRC_ID="$(cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" PLL_CHK_MAN="$THIRD_MAN" wp eval '
+$src = getenv("PLL_CHK_SRC"); $dst = getenv("PLL_CHK_DST");
+$src_id = null;
+foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","fields"=>"ids"]) as $id) {
+  if (pll_get_post_language($id) !== $src) continue;
+  $t = pll_get_post_translations($id);
+  if (!empty($t[$dst])) { $src_id = $id; break; }
+}
+if (!$src_id) { fwrite(STDERR, "no source page with a target-language counterpart found\n"); exit(1); }
+$manifest = array(
+  "source_lang" => $src,
+  "target_lang" => "fr",
+  "site_url"    => home_url(),
+  "items"       => array( array(
+    "id"        => "post:$src_id",
+    "kind"      => "post",
+    "post_type" => "page",
+    "source_id" => (int) $src_id,
+    "target_id" => null,
+    "hash"      => str_repeat("f", 64),
+    "fields"    => array("post_title" => "[FR] third language test"),
+    "acf"       => array(),
+  ) ),
+);
+file_put_contents(getenv("PLL_CHK_MAN"), json_encode($manifest));
+echo $src_id;
+' --allow-root)" || { echo "FAIL: could not build the third-language fixture"; exit 1; }
+
+run "$SCRIPTS/pll-import.php" "$THIRD_MAN" >/dev/null || { echo "FAIL: import for a third language exited non-zero"; exit 1; }
+
+(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" PLL_CHK_DST="$DST" wp eval '
+$src_id = (int) getenv("PLL_CHK_SRC_ID"); $dst = getenv("PLL_CHK_DST");
+$t = pll_get_post_translations($src_id);
+if (empty($t[$dst])) { echo "  pre-existing $dst counterpart was dropped from the group: " . json_encode($t) . "\n"; exit(1); }
+if (empty($t["fr"])) { echo "  fr counterpart missing from the group: " . json_encode($t) . "\n"; exit(1); }
+echo "  group after adding fr: " . json_encode($t) . "\n";
+exit(0);
+' --allow-root) || { echo "FAIL: third-language import destroyed the existing translation group"; exit 1; }
+
+# Clean up the scaffolding: delete the fr post, any terms Polylang
+# auto-duplicated into fr (e.g. the default category -- add_language()
+# duplicates default terms into every translated taxonomy, and
+# languages->delete() only unlinks the language, it does not remove those
+# term rows), and the temporary language itself, so re-running this suite
+# against the same site starts from the same state.
+(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" wp eval '
+$src_id = (int) getenv("PLL_CHK_SRC_ID");
+$t = pll_get_post_translations($src_id);
+if (!empty($t["fr"])) { wp_delete_post((int) $t["fr"], true); }
+
+foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $tax ) {
+  $terms = get_terms( array( "taxonomy" => $tax, "hide_empty" => false ) );
+  if ( is_wp_error( $terms ) ) { continue; }
+  foreach ( $terms as $term ) {
+    if ( pll_get_term_language( $term->term_id ) === "fr" ) {
+      wp_delete_term( $term->term_id, $tax );
+    }
+  }
+}
+
+$lang = PLL()->model->get_language("fr");
+if ($lang) { PLL()->model->languages->delete($lang->term_id); }
+' --allow-root) >/dev/null
+rm -f "$THIRD_MAN"
+
 echo "── import refuses a manifest referencing missing objects ──"
 BEFORE="$(cd "$SITE" && wp post list --post_type=any --format=count --allow-root)"
 if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-translated.json" >/dev/null 2>&1; then
@@ -177,5 +254,18 @@ if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-transla
 fi
 AFTER="$(cd "$SITE" && wp post list --post_type=any --format=count --allow-root)"
 [[ "$BEFORE" == "$AFTER" ]] || { echo "FAIL: import wrote posts despite failing validation ($BEFORE -> $AFTER)"; exit 1; }
+
+echo "── import refuses a term-only manifest with a dangling source_id ──"
+# Isolated from the post item on purpose: get_term() returns NULL (not a
+# WP_Error) for a nonexistent term id on a valid taxonomy, so a manifest that
+# also contains a bad post item can pass validation for the wrong reason --
+# the post check fails first and masks a broken term check. This fixture
+# contains nothing else that could cause validation to fail.
+TERM_BEFORE="$(cd "$SITE" && wp term list category --format=count --allow-root)"
+if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-translated-term-only.json" >/dev/null 2>&1; then
+  echo "FAIL: import accepted a term-only manifest with a dangling source_id"; exit 1
+fi
+TERM_AFTER="$(cd "$SITE" && wp term list category --format=count --allow-root)"
+[[ "$TERM_BEFORE" == "$TERM_AFTER" ]] || { echo "FAIL: import created a term despite failing validation ($TERM_BEFORE -> $TERM_AFTER)"; exit 1; }
 
 echo PASS

@@ -57,8 +57,12 @@ foreach ( $manifest['items'] as $i => $item ) {
 		}
 	}
 	if ( isset( $item['kind'] ) && 'term' === $item['kind'] ) {
-		if ( empty( $item['taxonomy'] ) || empty( $item['source_id'] )
-			|| is_wp_error( get_term( $item['source_id'], $item['taxonomy'] ) ) ) {
+		$term = empty( $item['taxonomy'] ) || empty( $item['source_id'] )
+			? null
+			: get_term( $item['source_id'], $item['taxonomy'] );
+		// get_term() returns NULL (not a WP_Error) for a nonexistent term id on
+		// a valid taxonomy -- is_wp_error() alone lets that case through.
+		if ( empty( $item['taxonomy'] ) || empty( $item['source_id'] ) || ! $term || is_wp_error( $term ) ) {
 			$errors[] = "item $i references a term that does not exist";
 		}
 	}
@@ -164,9 +168,15 @@ foreach ( $manifest['items'] as $item ) {
 		}
 
 		// Language first, then the complete group. pll_save_post_translations()
-		// expects the whole group, not a delta.
+		// REPLACES the whole group -- it is not a merge -- so any language not
+		// named in the array is silently dropped from the group even if that
+		// language's post still exists. Read the existing group first and
+		// merge into it rather than building a fresh two-key array.
 		pll_set_post_language( $target_id, $target );
-		pll_save_post_translations( array( $source => $source_id, $target => $target_id ) );
+		$post_group = pll_get_post_translations( $source_id );
+		$post_group[ $source ] = $source_id;
+		$post_group[ $target ] = $target_id;
+		pll_save_post_translations( $post_group );
 
 		// Non-text fields are copied verbatim; only text was translated.
 		$thumb = get_post_thumbnail_id( $source_id );
@@ -218,8 +228,14 @@ foreach ( $manifest['items'] as $item ) {
 		}
 		$target_id = (int) $res['term_id'];
 
+		// Merge into the existing group -- see the equivalent comment in the
+		// post branch above. pll_save_term_translations() also replaces rather
+		// than merges.
 		pll_set_term_language( $target_id, $target );
-		pll_save_term_translations( array( $source => $source_id, $target => $target_id ) );
+		$term_group = pll_get_term_translations( $source_id );
+		$term_group[ $source ] = $source_id;
+		$term_group[ $target ] = $target_id;
+		pll_save_term_translations( $term_group );
 
 		update_term_meta( $target_id, PLLX_HASH_META, $item['hash'] );
 		$written++;
@@ -229,6 +245,7 @@ foreach ( $manifest['items'] as $item ) {
 	} elseif ( 'string' === $item['kind'] ) {
 		$value = isset( $item['fields']['value'] ) ? $item['fields']['value'] : '';
 		if ( '' === $value ) {
+			pllx_warn( "item {$item['id']} has an empty translated value; skipping" );
 			continue;
 		}
 		pllx_string_translate( $item['id'], $value, $target );
