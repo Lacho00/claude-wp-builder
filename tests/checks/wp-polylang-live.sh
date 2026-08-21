@@ -77,6 +77,42 @@ foreach ($m["items"] as $it) {
 ' "$MAN" "$DF" "$TF" || exit 1
 rm -f "$MAN"
 
+echo "── seed a real post_type menu item + a parent/child pair for this run ──"
+# This site's real menu is 4 "custom" and 8 "taxonomy" items -- zero
+# "post_type" items, so the re-pointing this whole task exists for would
+# otherwise never run. Add one: a temporary child page, parented to an
+# existing untranslated page (also exercising the parent-child fixup with a
+# real, non-zero case), linked into the registered menu location. Both are
+# translated by the same import as everything else below -- posts/terms are
+# exported/imported before the menu (see pll-export.php/pll-import.php
+# ordering), so the child's target counterpart exists by the time the menu
+# item is re-pointed. Cleaned up at the very end of this file.
+FIXTURE_PARENT_ID="$(cd "$SITE" && PLL_FIX_SRC="$SRC" PLL_FIX_DST="$DST" wp eval '
+$src = getenv("PLL_FIX_SRC"); $dst = getenv("PLL_FIX_DST");
+foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"publish","fields"=>"ids"]) as $id) {
+  if (pll_get_post_language($id) !== $src) continue;
+  $t = pll_get_post_translations($id);
+  if (empty($t[$dst])) { echo $id; exit; }
+}
+' --allow-root)"
+[[ -n "$FIXTURE_PARENT_ID" ]] || { echo "FAIL: could not find an untranslated page to parent the menu fixture to"; exit 1; }
+
+FIXTURE_CHILD_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="PLL menu fixture page" --post_status=publish --post_parent="$FIXTURE_PARENT_ID" --porcelain --allow-root)"
+[[ -n "$FIXTURE_CHILD_ID" ]] || { echo "FAIL: could not create the menu fixture page"; exit 1; }
+(cd "$SITE" && PLL_FIX_SRC="$SRC" PLL_FIX_CHILD="$FIXTURE_CHILD_ID" wp eval '
+pll_set_post_language( (int) getenv("PLL_FIX_CHILD"), getenv("PLL_FIX_SRC") );
+' --allow-root) >/dev/null
+
+FIXTURE_MENU_ID="$(cd "$SITE" && wp eval '
+$regs = array_keys(get_registered_nav_menus());
+$locs = get_nav_menu_locations();
+foreach ($regs as $loc) { if (!empty($locs[$loc])) { echo (int) $locs[$loc]; exit; } }
+' --allow-root)"
+[[ -n "$FIXTURE_MENU_ID" ]] || { echo "FAIL: no registered menu location has an assigned menu to fixture into"; exit 1; }
+
+FIXTURE_ITEM_ID="$(cd "$SITE" && wp menu item add-post "$FIXTURE_MENU_ID" "$FIXTURE_CHILD_ID" --title="PLL menu fixture page" --porcelain --allow-root)"
+[[ -n "$FIXTURE_ITEM_ID" ]] || { echo "FAIL: could not add the fixture page to the source menu"; exit 1; }
+
 echo "── import writes linked, correctly-languaged counterparts ──"
 MAN2="$(mktemp)"
 run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$MAN2" >/dev/null
@@ -98,7 +134,31 @@ unset($it);
 file_put_contents($argv[1], json_encode($m, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
 ' "$MAN2" "$DST"
 
-run "$SCRIPTS/pll-import.php" "$MAN2" >/dev/null || { echo "FAIL: import exited non-zero"; exit 1; }
+# Output is kept (not discarded) on purpose: it is the only place the
+# per-menu reconciliation line below can be read from, and a run() call that
+# swallows it would hide silent item loss the same way the menu-only fixture
+# above closes the "nothing to check" gap.
+MENU_IMPORT_OUT="$(run "$SCRIPTS/pll-import.php" "$MAN2")" || { echo "FAIL: import exited non-zero"; echo "$MENU_IMPORT_OUT"; exit 1; }
+echo "$MENU_IMPORT_OUT"
+
+echo "── menu reconciliation: every source item is accounted for ──"
+# Skipping an item with no target counterpart is correct behaviour (e.g. the
+# 8 taxonomy items on this fixture whose product_cat terms have no language
+# assigned at all) -- so this does NOT assert written === source. It asserts
+# every source item landed as written OR skipped-with-a-reason, so a menu
+# quietly losing items (neither written nor accounted for) fails loudly.
+php -r '
+$out = $argv[1];
+if (!preg_match_all("/reconciliation: source=(\d+) written=(\d+) skipped=(\d+)/", $out, $m, PREG_SET_ORDER)) {
+  fwrite(STDERR, "FAIL: no menu reconciliation line found in import output\n"); exit(1);
+}
+foreach ($m as $row) {
+  $s = (int) $row[1]; $w = (int) $row[2]; $sk = (int) $row[3];
+  echo "  source=$s written=$w skipped=$sk\n";
+  if ($s === 0) { fwrite(STDERR, "FAIL: reconciliation reports a 0-item source menu\n"); exit(1); }
+  if ($w + $sk !== $s) { fwrite(STDERR, "FAIL: written($w) + skipped($sk) != source($s)\n"); exit(1); }
+}
+' "$MENU_IMPORT_OUT" || exit 1
 
 (cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" wp eval '
 $src = getenv("PLL_CHK_SRC"); $dst = getenv("PLL_CHK_DST");
@@ -116,6 +176,7 @@ foreach (get_posts(["post_type"=>array_keys(PLL()->model->get_translated_post_ty
   if (get_post_meta($tid, "_pll_src_hash", true) === "") { echo "  post $tid has no source hash\n"; $bad++; }
 }
 echo "  checked $checked counterpart(s)\n";
+if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: import produced broken translations"; exit 1; }
 
@@ -139,6 +200,7 @@ foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","
   }
 }
 echo "  checked $checked parent-child relationship(s)\n";
+if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: parent hierarchy not preserved across languages"; exit 1; }
 
@@ -157,6 +219,7 @@ foreach (get_posts(["post_type"=>"attachment","numberposts"=>-1,"post_status"=>"
   if (!$path || !file_exists($path)) { echo "  attachment $tid file does not exist on disk: $path\n"; $bad++; }
 }
 echo "  checked $checked attachment(s)\n";
+if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated attachments have broken file linkage"; exit 1; }
 
@@ -287,7 +350,28 @@ foreach ($locs as $loc => $per_lang) {
   }
 }
 echo "  checked $checked menu item(s)\n";
+if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated menu is wired to the wrong language"; exit 1; }
+
+echo "── clean up the menu/parent-child fixture ──"
+(cd "$SITE" && PLL_FIX_CHILD="$FIXTURE_CHILD_ID" PLL_FIX_ITEM="$FIXTURE_ITEM_ID" PLL_FIX_DST="$DST" wp eval '
+$child = (int) getenv("PLL_FIX_CHILD");
+$dst   = getenv("PLL_FIX_DST");
+$t = pll_get_post_translations($child);
+if (!empty($t[$dst])) { wp_delete_post((int) $t[$dst], true); }
+wp_delete_post($child, true);
+wp_delete_post((int) getenv("PLL_FIX_ITEM"), true);
+' --allow-root) >/dev/null
+
+# The target menu still mirrors the just-deleted item -- the importer only
+# rebuilds a target menu when it runs. Re-run the real export/import once
+# more (now that the fixture item is gone, the menu's item set -- and so its
+# stored hash -- has genuinely changed) so the site's final state has no
+# trace of this fixture, matching one clean suite run.
+RESYNC_MAN="$(mktemp)"
+run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$RESYNC_MAN" >/dev/null
+run "$SCRIPTS/pll-import.php" "$RESYNC_MAN" >/dev/null || { echo "FAIL: post-fixture resync import exited non-zero"; exit 1; }
+rm -f "$RESYNC_MAN"
 
 echo PASS

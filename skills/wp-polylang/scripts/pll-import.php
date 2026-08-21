@@ -283,8 +283,26 @@ foreach ( $manifest['items'] as $item ) {
 			wp_delete_post( $old->ID, true );
 		}
 
-		$id_map = array();
-		foreach ( (array) wp_get_nav_menu_items( (int) $item['menu_id'] ) as $mi ) {
+		// Reconciliation counters: every source item must land as either
+		// written or skipped-with-a-reason. A translated menu silently missing
+		// most of its entries is a worse outcome for a visitor than one
+		// mis-pointed item, and nothing else would ever catch it -- so this is
+		// asserted by the caller, not just logged.
+		$source_items    = (array) wp_get_nav_menu_items( (int) $item['menu_id'] );
+		$menu_source_ct  = count( $source_items );
+		$menu_written_ct = 0;
+		$menu_skipped_ct = 0;
+		$skip_reasons    = array();
+
+		$id_map  = array();
+		// old_id => [ 'parent' => old_parent_id, 'new_id' => new_id|null ].
+		// Parent links are corrected in a second pass below, once every
+		// surviving item in this menu exists -- menu order is not
+		// parent-first, the same reasoning as the post parent-fixup pass
+		// further down this file.
+		$records = array();
+
+		foreach ( $source_items as $mi ) {
 			$title = isset( $item['fields'][ 'item_' . $mi->ID ] )
 				? $item['fields'][ 'item_' . $mi->ID ]
 				: $mi->title;
@@ -293,39 +311,76 @@ foreach ( $manifest['items'] as $item ) {
 				'menu-item-title'     => $title,
 				'menu-item-status'    => 'publish',
 				'menu-item-type'      => $mi->type,
-				'menu-item-parent-id' => isset( $id_map[ (int) $mi->menu_item_parent ] ) ? $id_map[ (int) $mi->menu_item_parent ] : 0,
+				'menu-item-parent-id' => 0, // corrected in the parent-fixup pass below.
 				'menu-item-position'  => (int) $mi->menu_order,
 			);
+
+			$skip_reason = null;
 
 			if ( 'post_type' === $mi->type ) {
 				// The whole point: re-point at the target-language object.
 				$translations = pll_get_post_translations( (int) $mi->object_id );
 				if ( empty( $translations[ $target ] ) ) {
-					pllx_warn( "  menu item '{$mi->title}' has no $target counterpart; skipping" );
-					continue;
+					$skip_reason = "no $target counterpart";
+				} else {
+					$args['menu-item-object']    = $mi->object;
+					$args['menu-item-object-id'] = (int) $translations[ $target ];
 				}
-				$args['menu-item-object']    = $mi->object;
-				$args['menu-item-object-id'] = (int) $translations[ $target ];
-
 			} elseif ( 'taxonomy' === $mi->type ) {
 				$translations = pll_get_term_translations( (int) $mi->object_id );
 				if ( empty( $translations[ $target ] ) ) {
-					pllx_warn( "  menu item '{$mi->title}' has no $target term counterpart; skipping" );
-					continue;
+					$skip_reason = "no $target term counterpart";
+				} else {
+					$args['menu-item-object']    = $mi->object;
+					$args['menu-item-object-id'] = (int) $translations[ $target ];
 				}
-				$args['menu-item-object']    = $mi->object;
-				$args['menu-item-object-id'] = (int) $translations[ $target ];
-
-			} else {
+			} elseif ( 'custom' === $mi->type ) {
 				$args['menu-item-url'] = $mi->url;
+			} elseif ( 'post_type_archive' === $mi->type ) {
+				// Keyed by a post type slug, not an object id -- there is no
+				// per-language counterpart to look up, and copying $mi->url
+				// verbatim would carry the SOURCE language's archive
+				// permalink into the target menu. Nothing safe to write here.
+				$skip_reason = 'post type archive links are not re-pointable';
+			} else {
+				$skip_reason = "unhandled menu item type '{$mi->type}'";
+			}
+
+			if ( null !== $skip_reason ) {
+				pllx_warn( "  menu item '{$mi->title}' has $skip_reason; skipping" );
+				$menu_skipped_ct++;
+				$skip_reasons[ $skip_reason ] = isset( $skip_reasons[ $skip_reason ] ) ? $skip_reasons[ $skip_reason ] + 1 : 1;
+				$records[ (int) $mi->ID ] = array( 'parent' => (int) $mi->menu_item_parent, 'new_id' => null );
+				continue;
 			}
 
 			$new_id = wp_update_nav_menu_item( $target_menu_id, 0, $args );
 			if ( is_wp_error( $new_id ) ) {
 				pllx_warn( "  menu item '{$mi->title}': " . $new_id->get_error_message() );
+				$menu_skipped_ct++;
+				$skip_reasons['write error'] = isset( $skip_reasons['write error'] ) ? $skip_reasons['write error'] + 1 : 1;
+				$records[ (int) $mi->ID ] = array( 'parent' => (int) $mi->menu_item_parent, 'new_id' => null );
 				continue;
 			}
-			$id_map[ (int) $mi->ID ] = (int) $new_id;
+
+			$id_map[ (int) $mi->ID ]  = (int) $new_id;
+			$records[ (int) $mi->ID ] = array( 'parent' => (int) $mi->menu_item_parent, 'new_id' => (int) $new_id );
+			$menu_written_ct++;
+		}
+
+		// Parent fixup: menu order is not parent-first, so a child item can be
+		// built before its parent, in which case it would otherwise be left
+		// under 'menu-item-parent-id' => 0 and the submenu would flatten.
+		// Fixed the same way as the post parent-fixup pass below: correct
+		// every surviving item's parent now that all of them exist.
+		foreach ( $records as $rec ) {
+			if ( null === $rec['new_id'] || 0 === $rec['parent'] ) {
+				continue;
+			}
+			if ( empty( $id_map[ $rec['parent'] ] ) ) {
+				continue; // Parent itself was skipped; leave at top level rather than guess.
+			}
+			update_post_meta( $rec['new_id'], '_menu_item_menu_item_parent', (string) $id_map[ $rec['parent'] ] );
 		}
 
 		// Per-language assignment lives in the polylang option, not theme mods.
@@ -340,7 +395,20 @@ foreach ( $manifest['items'] as $item ) {
 
 		update_term_meta( $target_menu_id, PLLX_HASH_META, $item['hash'] );
 		$written++;
+
+		$reason_summary = array();
+		foreach ( $skip_reasons as $reason => $count ) {
+			$reason_summary[] = "$reason: $count";
+		}
 		pllx_info( "  menu {$item['menu_id']} -> $target_menu_id ($location)" );
+		pllx_info( sprintf(
+			'  menu %s reconciliation: source=%d written=%d skipped=%d%s',
+			$location,
+			$menu_source_ct,
+			$menu_written_ct,
+			$menu_skipped_ct,
+			$reason_summary ? ' (' . implode( ', ', $reason_summary ) . ')' : ''
+		) );
 	}
 }
 
