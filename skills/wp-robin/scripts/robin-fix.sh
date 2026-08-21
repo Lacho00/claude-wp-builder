@@ -60,6 +60,11 @@ info "DB: ${DB_NAME}@${DB_HOST} | prefix=${TABLE_PREFIX}"
 db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
 db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
 
+# WordPress stores _wp_attachment_metadata as a serialized PHP array, not JSON.
+# Fetch it with HEX() (binary-safe, no batch-mode escaping) and unserialize here.
+# $1 is a PHP snippet run with $m holding the unserialized array.
+meta_php() { php -r "\$m = @unserialize(@hex2bin(trim(file_get_contents('php://stdin')))); if (!is_array(\$m)) exit(0); $1" 2>/dev/null; }
+
 # ── Check / install WP-CLI ──────────────────────────────────────────────────
 WP_CLI=""
 if command -v wp &>/dev/null; then
@@ -220,10 +225,7 @@ if [[ "${ATTACH_COUNT:-0}" -eq 0 ]]; then
 		EXTRA="{\"thumbnails_count\":${thumbcount:-0},\"original_main_size\":${main_size:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
 		db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${filesize:-0}, ${filesize:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});" || true
 	done < <(db_q "
-		SELECT p.ID, p.post_mime_type,
-		       COALESCE(JSON_LENGTH(CAST(pm.meta_value AS JSON), '\$.sizes'), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0)
+		SELECT p.ID, p.post_mime_type, COALESCE(HEX(pm.meta_value), '')
 		FROM ${POSTS_TABLE} p
 		LEFT JOIN ${TABLE_PREFIX}postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
 		WHERE p.post_type = 'attachment'
@@ -231,7 +233,20 @@ if [[ "${ATTACH_COUNT:-0}" -eq 0 ]]; then
 		  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
 		  AND p.ID NOT IN (SELECT object_id FROM ${QUEUE_TABLE} WHERE item_type='attachment')
 		ORDER BY p.ID;
-	")
+	" | php -r '
+		$up = $argv[1];
+		while (($l = fgets(STDIN)) !== false) {
+			$c = explode("\t", rtrim($l, "\n"));
+			if (count($c) < 3) continue;
+			$m = @unserialize(@hex2bin($c[2]));
+			$n = is_array($m) ? count($m["sizes"] ?? []) : 0;
+			$s = is_array($m) ? (int) ($m["filesize"] ?? 0) : 0;
+			if (!$s && is_array($m) && isset($m["file"]) && is_file("$up/" . $m["file"])) {
+				$s = filesize("$up/" . $m["file"]);
+			}
+			echo "$c[0]\t$c[1]\t$n\t$s\t$s\n";
+		}
+	' -- "$UPLOAD_DIR")
 	info "  Registered $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?") attachments"
 else
 	info "  Already have ${ATTACH_COUNT:-?} attachment entries, skipping registration"
@@ -272,13 +287,13 @@ else
 
 	while IFS= read -r post_id; do
 		[[ -z "$post_id" ]] && continue
-		META=$(db_q "SELECT meta_value FROM ${TABLE_PREFIX}postmeta WHERE post_id=${post_id} AND meta_key='_wp_attachment_metadata' LIMIT 1;")
+		META=$(db_q "SELECT HEX(meta_value) FROM ${TABLE_PREFIX}postmeta WHERE post_id=${post_id} AND meta_key='_wp_attachment_metadata' LIMIT 1;")
 		[[ -z "$META" ]] && { warn "  #${post_id}: no metadata, skipping"; continue; }
 		MIME=$(db_q "SELECT post_mime_type FROM ${POSTS_TABLE} WHERE ID=${post_id};" || echo "image/png")
 
-		MAIN_FILE=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo $m["file"]??"";' 2>/dev/null)
+		MAIN_FILE=$(echo "$META" | meta_php 'echo $m["file"] ?? "";')
 		DIR=$(dirname "$MAIN_FILE")
-		THUMB_COUNT=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo count($m["sizes"]??[]);' 2>/dev/null)
+		THUMB_COUNT=$(echo "$META" | meta_php 'echo count($m["sizes"] ?? []);')
 
 		# Collect all sizes: original + thumbnails
 		declare -a ENTRIES=()
@@ -290,7 +305,7 @@ else
 			SURL="${SITE_URL}/wp-content/uploads/${DIR}/${sfile}"
 			SB=$(stat -c%s "$SP" 2>/dev/null || echo 0)
 			ENTRIES+=("$sname|$SP|$SURL|$SB")
-		done < <(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);foreach($m["sizes"]??[]as$k=>$v)echo$k."|".$v["file"]."\n";' 2>/dev/null)
+		done < <(echo "$META" | meta_php 'foreach ($m["sizes"] ?? [] as $k => $v) echo $k . "|" . $v["file"] . "\n";')
 
 		INSERTED=0
 		TS=$(date +%s)
