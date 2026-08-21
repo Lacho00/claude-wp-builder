@@ -48,7 +48,7 @@ foreach ($m["items"] as $it) {
   foreach (["id","kind","hash","fields"] as $k) {
     if (!array_key_exists($k, $it)) { fwrite(STDERR, "FAIL: item missing $k: ".json_encode($it)."\n"); exit(1); }
   }
-  if (!in_array($it["kind"], ["post","term","string"], true)) {
+  if (!in_array($it["kind"], ["post","term","string","menu"], true)) {
     fwrite(STDERR, "FAIL: unknown kind {$it["kind"]}\n"); exit(1);
   }
 }
@@ -267,5 +267,27 @@ if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-transla
 fi
 TERM_AFTER="$(cd "$SITE" && wp term list category --format=count --allow-root)"
 [[ "$TERM_BEFORE" == "$TERM_AFTER" ]] || { echo "FAIL: import created a term despite failing validation ($TERM_BEFORE -> $TERM_AFTER)"; exit 1; }
+
+echo "── translated menu items point at target-language objects ──"
+# wp eval takes NO positional args (unlike wp eval-file) — pass via the environment.
+(cd "$SITE" && PLL_DST="$DST" wp eval '
+$dst = getenv("PLL_DST");
+$opts = get_option("polylang");
+$theme = get_stylesheet();
+$bad = 0; $checked = 0;
+$locs = $opts["nav_menus"][$theme] ?? [];
+if (!$locs) { echo "  no per-language menu assignments recorded\n"; exit(1); }
+foreach ($locs as $loc => $per_lang) {
+  if (empty($per_lang[$dst])) { echo "  location $loc has no $dst menu\n"; $bad++; continue; }
+  foreach (wp_get_nav_menu_items($per_lang[$dst]) ?: [] as $mi) {
+    if ($mi->type !== "post_type") continue;
+    $checked++;
+    $lang = pll_get_post_language($mi->object_id);
+    if ($lang !== $dst) { echo "  menu item {$mi->ID} points at $lang object {$mi->object_id}\n"; $bad++; }
+  }
+}
+echo "  checked $checked menu item(s)\n";
+exit($bad === 0 ? 0 : 1);
+' --allow-root) || { echo "FAIL: translated menu is wired to the wrong language"; exit 1; }
 
 echo PASS

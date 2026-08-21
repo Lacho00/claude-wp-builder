@@ -194,6 +194,61 @@ if ( class_exists( 'PLL_Admin_Strings' ) ) {
 	}
 }
 
+// ── Menus ───────────────────────────────────────────────────────────────────
+// Only the item labels are translated. Re-pointing each item at its
+// target-language object is mechanism, and lives in the importer.
+$theme_slug   = get_stylesheet();
+$pll_options  = get_option( 'polylang' );
+$assignments  = isset( $pll_options['nav_menus'][ $theme_slug ] ) ? $pll_options['nav_menus'][ $theme_slug ] : array();
+
+foreach ( get_registered_nav_menus() as $location => $label ) {
+	$source_menu_id = isset( $assignments[ $location ][ $source ] ) ? (int) $assignments[ $location ][ $source ] : 0;
+
+	if ( ! $source_menu_id ) {
+		$locations = get_nav_menu_locations();
+		$source_menu_id = isset( $locations[ $location ] ) ? (int) $locations[ $location ] : 0;
+	}
+	if ( ! $source_menu_id ) {
+		continue;
+	}
+
+	$already = isset( $assignments[ $location ][ $target ] ) ? (int) $assignments[ $location ][ $target ] : 0;
+
+	$menu_items = wp_get_nav_menu_items( $source_menu_id );
+	if ( ! $menu_items ) {
+		continue;
+	}
+
+	$labels = array();
+	foreach ( $menu_items as $mi ) {
+		$labels[] = array( 'db_id' => (int) $mi->ID, 'title' => $mi->title );
+	}
+
+	$payload = array( 'fields' => array(), 'acf' => array() );
+	foreach ( $labels as $l ) {
+		$payload['fields'][ 'item_' . $l['db_id'] ] = $l['title'];
+	}
+	$hash = pllx_hash( $payload );
+
+	if ( $already ) {
+		$stored = get_term_meta( $already, PLLX_HASH_META, true );
+		if ( $stored === $hash ) {
+			$skipped++;
+			continue;
+		}
+	}
+
+	$items[] = array(
+		'id'        => 'menu:' . $location,
+		'kind'      => 'menu',
+		'location'  => $location,
+		'menu_id'   => $source_menu_id,
+		'target_id' => $already ? $already : null,
+		'hash'      => $hash,
+		'fields'    => $payload['fields'],
+	);
+}
+
 $manifest = array(
 	'source_lang' => $source,
 	'target_lang' => $target,

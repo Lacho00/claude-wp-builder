@@ -45,7 +45,7 @@ foreach ( $manifest['items'] as $i => $item ) {
 			$errors[] = "item $i is missing '$key'";
 		}
 	}
-	if ( isset( $item['kind'] ) && ! in_array( $item['kind'], array( 'post', 'term', 'string' ), true ) ) {
+	if ( isset( $item['kind'] ) && ! in_array( $item['kind'], array( 'post', 'term', 'string', 'menu' ), true ) ) {
 		$errors[] = "item $i has unknown kind '{$item['kind']}'";
 	}
 	if ( isset( $item['fields'] ) && ! is_array( $item['fields'] ) ) {
@@ -251,6 +251,96 @@ foreach ( $manifest['items'] as $item ) {
 		pllx_string_translate( $item['id'], $value, $target );
 		$written++;
 		$written_strings++;
+
+	} elseif ( 'menu' === $item['kind'] ) {
+		$location   = $item['location'];
+		$source_menu = wp_get_nav_menu_object( (int) $item['menu_id'] );
+		if ( ! $source_menu ) {
+			pllx_warn( "menu {$item['menu_id']} no longer exists; skipping" );
+			continue;
+		}
+
+		$target_menu_name = $source_menu->name . ' (' . strtoupper( $target ) . ')';
+
+		if ( ! empty( $item['target_id'] ) && wp_get_nav_menu_object( (int) $item['target_id'] ) ) {
+			$target_menu_id = (int) $item['target_id'];
+		} else {
+			$existing = wp_get_nav_menu_object( $target_menu_name );
+			if ( $existing ) {
+				$target_menu_id = (int) $existing->term_id;
+			} else {
+				$created = wp_create_nav_menu( $target_menu_name );
+				if ( is_wp_error( $created ) ) {
+					pllx_warn( "menu: " . $created->get_error_message() );
+					continue;
+				}
+				$target_menu_id = (int) $created;
+			}
+		}
+
+		// Rebuild from scratch so a re-run cannot accumulate duplicates.
+		foreach ( (array) wp_get_nav_menu_items( $target_menu_id ) as $old ) {
+			wp_delete_post( $old->ID, true );
+		}
+
+		$id_map = array();
+		foreach ( (array) wp_get_nav_menu_items( (int) $item['menu_id'] ) as $mi ) {
+			$title = isset( $item['fields'][ 'item_' . $mi->ID ] )
+				? $item['fields'][ 'item_' . $mi->ID ]
+				: $mi->title;
+
+			$args = array(
+				'menu-item-title'     => $title,
+				'menu-item-status'    => 'publish',
+				'menu-item-type'      => $mi->type,
+				'menu-item-parent-id' => isset( $id_map[ (int) $mi->menu_item_parent ] ) ? $id_map[ (int) $mi->menu_item_parent ] : 0,
+				'menu-item-position'  => (int) $mi->menu_order,
+			);
+
+			if ( 'post_type' === $mi->type ) {
+				// The whole point: re-point at the target-language object.
+				$translations = pll_get_post_translations( (int) $mi->object_id );
+				if ( empty( $translations[ $target ] ) ) {
+					pllx_warn( "  menu item '{$mi->title}' has no $target counterpart; skipping" );
+					continue;
+				}
+				$args['menu-item-object']    = $mi->object;
+				$args['menu-item-object-id'] = (int) $translations[ $target ];
+
+			} elseif ( 'taxonomy' === $mi->type ) {
+				$translations = pll_get_term_translations( (int) $mi->object_id );
+				if ( empty( $translations[ $target ] ) ) {
+					pllx_warn( "  menu item '{$mi->title}' has no $target term counterpart; skipping" );
+					continue;
+				}
+				$args['menu-item-object']    = $mi->object;
+				$args['menu-item-object-id'] = (int) $translations[ $target ];
+
+			} else {
+				$args['menu-item-url'] = $mi->url;
+			}
+
+			$new_id = wp_update_nav_menu_item( $target_menu_id, 0, $args );
+			if ( is_wp_error( $new_id ) ) {
+				pllx_warn( "  menu item '{$mi->title}': " . $new_id->get_error_message() );
+				continue;
+			}
+			$id_map[ (int) $mi->ID ] = (int) $new_id;
+		}
+
+		// Per-language assignment lives in the polylang option, not theme mods.
+		$theme_slug = get_stylesheet();
+		$options    = get_option( 'polylang' );
+		if ( ! isset( $options['nav_menus'] ) || ! is_array( $options['nav_menus'] ) ) {
+			$options['nav_menus'] = array();
+		}
+		$options['nav_menus'][ $theme_slug ][ $location ][ $source ] = (int) $item['menu_id'];
+		$options['nav_menus'][ $theme_slug ][ $location ][ $target ] = $target_menu_id;
+		update_option( 'polylang', $options );
+
+		update_term_meta( $target_menu_id, PLLX_HASH_META, $item['hash'] );
+		$written++;
+		pllx_info( "  menu {$item['menu_id']} -> $target_menu_id ($location)" );
 	}
 }
 
