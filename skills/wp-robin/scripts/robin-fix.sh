@@ -198,6 +198,31 @@ convert_to_webp() {
 	esac
 }
 
+# ── Step 2.5: Ensure Robin's queue table exists ─────────────────────────────
+# Robin creates its tables from the activation hook, which does not reliably
+# run under WP-CLI. Every step below queries QUEUE_TABLE and db_q swallows
+# stderr, so a missing table would silently register nothing and then abort.
+table_exists() { [[ -n "$(db_q "SHOW TABLES LIKE '${QUEUE_TABLE}';")" ]]; }
+
+if ! table_exists; then
+	warn "Queue table ${QUEUE_TABLE} is missing"
+	if [[ -n "$WP_CLI" ]]; then
+		info "  Creating it via the plugin's own migration..."
+		# try_create_plugin_tables() is gated on the db_version option, not on
+		# whether the table is actually there, so it no-ops once that option is
+		# set. Reset it first, then let the plugin build its own schema — the
+		# schema is Robin's to define, not ours to copy.
+		(cd "$WP_ROOT" && $WP_CLI eval 'if (class_exists("RIO_Process_Queue")) { RIO_Process_Queue::update_db_version(0); RIO_Process_Queue::try_create_plugin_tables(); }' --allow-root >/dev/null 2>&1) || true
+	fi
+	if ! table_exists; then
+		err "Could not create ${QUEUE_TABLE}."
+		err "Open the Robin Image Optimizer admin page once so the plugin runs its"
+		err "migrations, then re-run this script."
+		exit 1
+	fi
+	info "  Queue table created"
+fi
+
 # ── Step 3: Fix stuck 'processing' webp items ───────────────────────────────
 echo ""
 info "━━━ Fixing stuck 'processing' items ━━━"
