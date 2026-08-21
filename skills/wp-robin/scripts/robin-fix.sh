@@ -32,17 +32,20 @@ if [[ -z "$WP_ROOT" ]]; then
 fi
 info "WordPress root: $WP_ROOT"
 
-# ── Read DB credentials via grep (no PHP require, works on broken installs) ─
+# ── Read DB credentials via text parsing (no PHP require, works on broken installs) ─
+# POSIX sed rather than grep -P, which is GNU-only. The value is captured up to
+# its closing quote, so passwords containing ; or ) survive intact, and either
+# quote style is accepted.
 parse_define() {
 	local key="$1" file="$2"
-	grep -oP "define\s*\(\s*'${key}'\s*,\s*'?\K[^');]*" "$file" | head -1
+	sed -n "s/^[[:space:]]*define[[:space:]]*([[:space:]]*['\"]${key}['\"][[:space:]]*,[[:space:]]*['\"]\\(.*\\)['\"][[:space:]]*)[[:space:]]*;.*/\\1/p" "$file" | head -1
 }
 
 DB_NAME="$(parse_define DB_NAME "$WP_ROOT/wp-config.php")"
 DB_USER="$(parse_define DB_USER "$WP_ROOT/wp-config.php")"
 DB_PASSWORD="$(parse_define DB_PASSWORD "$WP_ROOT/wp-config.php")"
 DB_HOST="$(parse_define DB_HOST "$WP_ROOT/wp-config.php")"
-TABLE_PREFIX="$(grep -oP "\$table_prefix\s*=\s*'\K[^']*" "$WP_ROOT/wp-config.php" 2>/dev/null || echo 'wp_')"
+TABLE_PREFIX="$(sed -n "s/^[[:space:]]*\$table_prefix[[:space:]]*=[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" "$WP_ROOT/wp-config.php" 2>/dev/null | head -1)"
 TABLE_PREFIX="${TABLE_PREFIX:-wp_}"
 
 if [[ -z "$DB_NAME" || -z "$DB_USER" || -z "$DB_HOST" ]]; then
@@ -56,14 +59,51 @@ UPLOAD_DIR="$WP_ROOT/wp-content/uploads"
 
 info "DB: ${DB_NAME}@${DB_HOST} | prefix=${TABLE_PREFIX}"
 
-# DB query helpers
-db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
-db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
+# ── DB client ───────────────────────────────────────────────────────────────
+# The mariadb binary only exists on MariaDB 10.4.6+; elsewhere the client is
+# still called mysql. Both speak the same protocol for what this script does.
+DB_CLI=""
+for candidate in mariadb mysql; do
+	if command -v "$candidate" &>/dev/null; then DB_CLI="$candidate"; break; fi
+done
+if [[ -z "$DB_CLI" ]]; then
+	err "No MySQL/MariaDB client found (looked for: mariadb, mysql)."
+	exit 1
+fi
+
+# Query helper. Errors are reported instead of going to /dev/null: a failing
+# query used to look exactly like an empty result, which hid real breakage for
+# a long time. Callers that tolerate failure still handle it with || themselves.
+#
+# stderr is kept in a separate file rather than folded in with 2>&1, because
+# some clients write to stderr even on success — the mysql shim shipped by
+# MariaDB prints a deprecation notice on every call — and that text would
+# otherwise be returned as part of the query result.
+DB_ERR="$(mktemp)"
+trap 'rm -f "$DB_ERR"' EXIT
+
+db_q() {
+	local out rc=0
+	out="$(MYSQL_PWD="$DB_PASSWORD" "$DB_CLI" -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>"$DB_ERR")" || rc=$?
+	if (( rc != 0 )); then
+		warn "SQL failed: $(grep -v '^$' "$DB_ERR" | tail -1)" >&2
+		return "$rc"
+	fi
+	# Statements like INSERT return nothing; printing unconditionally would emit
+	# a blank line per call. Return 0 explicitly so callers chaining on && still
+	# see success when the result set is empty.
+	if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
+	return 0
+}
 
 # WordPress stores _wp_attachment_metadata as a serialized PHP array, not JSON.
 # Fetch it with HEX() (binary-safe, no batch-mode escaping) and unserialize here.
 # $1 is a PHP snippet run with $m holding the unserialized array.
 meta_php() { php -r "\$m = @unserialize(@hex2bin(trim(file_get_contents('php://stdin')))); if (!is_array(\$m)) exit(0); $1" 2>/dev/null; }
+
+# File size in bytes. GNU stat wants -c%s, BSD/macOS stat wants -f%z; try both
+# rather than branching on uname.
+fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0; }
 
 # ── Check / install WP-CLI ──────────────────────────────────────────────────
 WP_CLI=""
@@ -130,9 +170,9 @@ SETTINGS=(
 
 # Collect ALL registered thumbnail sizes and add them
 get_all_thumbnails() {
-	grep -rohP "(?:add_image_size|set_post_thumbnail_size)\s*\(\s*['\"]([^'\"]+)['\"]" \
+	grep -rohE "(add_image_size|set_post_thumbnail_size)[[:space:]]*\([[:space:]]*['\"][^'\"]+['\"]" \
 		"$WP_ROOT/wp-content/themes/" "$WP_ROOT/wp-content/plugins/" 2>/dev/null | \
-		sed -E "s/.*\(\s*'([^']+)'.*/\1/" | sort -u | tr '\n' ',' | sed 's/,$//'
+		sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | sort -u | tr '\n' ',' | sed 's/,$//'
 }
 
 # Start with built-in WordPress sizes
@@ -186,7 +226,10 @@ convert_to_webp() {
 		gd)
 			php -r "
 			\$info = @getimagesize('$src'); if (!\$info) exit(1);
-			\$img = match(\$info['mime']){'image/png'=>@imagecreatefrompng('$src'),'image/jpeg'=>@imagecreatefromjpeg('$src'),default=>null};
+			\$img = null;
+			if (\$info['mime'] === 'image/png')       { \$img = @imagecreatefrompng('$src'); }
+			elseif (\$info['mime'] === 'image/jpeg')  { \$img = @imagecreatefromjpeg('$src'); }
+			elseif (\$info['mime'] === 'image/gif')   { \$img = @imagecreatefromgif('$src'); }
 			if (!\$img) exit(1);
 			imagepalettetotruecolor(\$img);
 			@imagewebp(\$img, '$dst', 82);
@@ -234,7 +277,7 @@ if [[ "${STUCK_COUNT:-0}" -gt 0 ]]; then
 		[[ -z "$item_id" ]] && continue
 		CONV_PATH=$(echo "$extra" | php -r 'echo json_decode(file_get_contents("php://stdin"),true)["converted_path"] ?? "";' 2>/dev/null)
 		if [[ -n "$CONV_PATH" && -f "$CONV_PATH" ]]; then
-			FS=$(stat -c%s "$CONV_PATH" 2>/dev/null || echo 0)
+			FS=$(fsize "$CONV_PATH")
 			db_q "UPDATE ${QUEUE_TABLE} SET result_status='success', final_size=${FS}, final_mime_type='image/webp' WHERE id=${item_id};"
 			info "  #${item_id}: → success (${FS} bytes)"
 		else
@@ -326,13 +369,13 @@ else
 
 		# Collect all sizes: original + thumbnails
 		declare -a ENTRIES=()
-		ENTRIES+=("original|$UPLOAD_DIR/$MAIN_FILE|${SITE_URL}/wp-content/uploads/${MAIN_FILE}|$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)")
+		ENTRIES+=("original|$UPLOAD_DIR/$MAIN_FILE|${SITE_URL}/wp-content/uploads/${MAIN_FILE}|$(fsize "$UPLOAD_DIR/$MAIN_FILE")")
 
 		while IFS='|' read -r sname sfile; do
 			[[ -z "$sname" ]] && continue
 			SP="$UPLOAD_DIR/$DIR/$sfile"
 			SURL="${SITE_URL}/wp-content/uploads/${DIR}/${sfile}"
-			SB=$(stat -c%s "$SP" 2>/dev/null || echo 0)
+			SB=$(fsize "$SP")
 			ENTRIES+=("$sname|$SP|$SURL|$SB")
 		done < <(echo "$META" | meta_php 'foreach ($m["sizes"] ?? [] as $k => $v) echo $k . "|" . $v["file"] . "\n";')
 
@@ -360,7 +403,7 @@ else
 			if [[ ! -f "$WEBP_PATH" && -n "$WEBP_CONVERTER" ]]; then
 				convert_to_webp "$s_path" "$WEBP_PATH" || { warn "    ${s_name}: conversion failed"; continue; }
 			fi
-			WEBP_SIZE=$(stat -c%s "$WEBP_PATH" 2>/dev/null || echo 0)
+			WEBP_SIZE=$(fsize "$WEBP_PATH")
 			WEBP_URL="${s_url}.webp"
 
 			EXTRA_DATA=$(php -r 'echo json_encode([
