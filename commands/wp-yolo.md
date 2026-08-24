@@ -74,6 +74,26 @@ Fold `constraints` into the guidance passed to every dispatched agent (e.g. form
 These rules are evaluated in priority order — `delivery` decides first, so the `idx`/`plugin`
 rule always wins over the no-demo-HTML rule.
 
+### Step 2.6 — Demo conversion (tailwind template only)
+
+Skip this step entirely when `template == basic`.
+
+When `template == tailwind`, the section walk must transcribe from a Tailwind-native
+demo, not a plain-CSS one. Transcribing plain CSS is what produced themes with zero
+utility classes.
+
+1. **Detect.** If the normalized demo has no `<style>` block and no static `style="`
+   attribute, it is already Tailwind-native. Skip conversion and note
+   `demo already tailwind-native — conversion skipped` in the report.
+2. **Convert.** Otherwise run `/wp-tailwindify` over the demo. It writes
+   `<demo-dir>/index-tailwind.html` (and one converted file per demo page).
+3. **Re-point.** Every later `--css` / `--block` dispatch in Step 4 (items 5 and 6) reads from
+   the **converted** demo. The original stays on disk for reference and is never used
+   as a build source again.
+4. **Report.** Record which demo pages were converted and which were skipped.
+
+Under `--careful`, confirm the conversion result with the user before continuing.
+
 ## Step 3: Checkpoint (skipped under --yolo)
 
 Unless `--yolo` is set, print the detected map from the manifest:
@@ -132,6 +152,11 @@ Drive the existing commands/agents in this exact order, reading everything from 
      "teaser for `<cpt>`, built by /wp-cpt".
    - `kind: "contact"` → `/wp-section <name> --cf7 --transcribe --block <block> --css <cssRules>`,
      same transcribe dispatch as `static`.
+
+   > **Template routing.** Pass the project's `Template:` value on every `/wp-section`
+   > dispatch. When `Template:` is `tailwind`, `/wp-section` dispatches `wp-tailwind` in
+   > author mode instead of `wp-css` (see its "CSS agent routing" table), and the `--css`
+   > source is the converted demo from Step 2.6. When it is `basic` nothing changes.
 6. **Inner pages** — for every `pages[role=inner]` entry: if the scope reconciliation
    (Step 2.5) marked this page `delivery: idx` or `delivery: plugin`, skip the normal
    page/section flow entirely and instead run
@@ -145,6 +170,12 @@ Drive the existing commands/agents in this exact order, reading everything from 
    - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <cssRules>`,
      same transcribe dispatch.
    - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
+
+   > **Template routing.** Pass the project's `Template:` value on every `/wp-section`
+   > dispatch. When `Template:` is `tailwind`, `/wp-section` dispatches `wp-tailwind` in
+   > author mode instead of `wp-css` (see its "CSS agent routing" table), and the `--css`
+   > source is the converted demo from Step 2.6. When it is `basic` nothing changes.
+
    Under `--careful`, confirm with the user before building each inner page.
 7. **`cpt-archive` pages** — no WP Page is created for these (their archive URL is
    `has_archive`, already wired by `/wp-cpt` in step 2). Skip page creation; note them in
