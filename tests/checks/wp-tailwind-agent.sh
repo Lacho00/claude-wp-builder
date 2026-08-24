@@ -20,7 +20,11 @@ grep -Eqi 'grep|search' "$f" \
 # Hard prohibitions.
 grep -q 'assets/css/styles.css' "$f" \
   || { echo "FAIL: wp-tailwind missing the styles.css prohibition"; exit 1; }
-grep -Eqi 'never create.*(empty|file it does not fill)|at least one rule' "$f" \
+grep -q 'Create a file you do not fill' "$f" \
   || { echo "FAIL: wp-tailwind missing the no-empty-file rule"; exit 1; }
+
+# Mode gate must exist to prevent conversion-mode readers from missing authoring mode.
+grep -q 'If it contains the literal token .author.' "$f" \
+  || { echo "FAIL: wp-tailwind missing the mode-selection gate"; exit 1; }
 
 echo PASS

@@ -1,6 +1,14 @@
 ---
-description: CSS-to-Tailwind demo conversion — converts standard HTML/CSS demos into Tailwind-native HTML
+description: Tailwind demo converter and section CSS author — converts HTML/CSS demos to Tailwind-native HTML, or authors template parts with @apply rules
 allowed-tools: Read, Write, Edit, Grep, Glob
+---
+
+## Mode Selection
+
+Check the dispatch prompt:
+- If it contains the literal token `author` → Section Authoring Mode (skip to that section; conversion steps below do not apply)
+- Otherwise → Demo Conversion Mode (proceed with steps below)
+
 ---
 
 # WP Tailwind — Demo CSS to Tailwind Converter
@@ -81,10 +89,11 @@ If the `tailwind-design-system` skill is installed (`claude install-skill https:
 
 ## Section Authoring Mode
 
-Activated when the dispatch prompt contains the literal token `author`. In this
-mode you are not converting a demo file — you are writing a theme's template-part
-markup and its supporting CSS. This is the `template=tailwind` replacement for the
-`wp-css` agent; never dispatch both for the same section.
+You are in this mode if the dispatch prompt contains the literal token `author`.
+The conversion steps above do not apply here. You are not converting a demo file
+— you are writing a theme's template-part markup and its supporting CSS. This is
+the `template=tailwind` replacement for the `wp-css` agent; never dispatch both
+for the same section.
 
 **Read `skills/wp-tailwind-system/SKILL.md` first.** It owns the decision ladder,
 the file layout, the token rules, and the prohibition list. Do not restate or
