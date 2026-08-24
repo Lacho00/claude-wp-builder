@@ -83,9 +83,14 @@ demo, not a plain-CSS one. Transcribing plain CSS is what produced themes with z
 utility classes.
 
 Conversion is **in place**, with a backup. Each `demo/<slug>.html` is replaced by its
-Tailwind-native form and the untouched plain-CSS copy is kept beside it as
-`demo/<slug>.original.html`. Nothing downstream takes a new filename, because the
-filename never changes.
+Tailwind-native form and the untouched plain-CSS copy is kept out of the way as
+`demo/.original/<slug>.html`. The backup goes in a dot-prefixed subdirectory on purpose:
+`/wp-seed` (Step 5, item 1) turns **every** `demo/*.html` into a WP Page whose slug is
+the filename, so a sibling backup named `demo/<slug>.original.html` would seed a phantom
+page with slug `<slug>.original` out of unconverted markup — one per demo page.
+`demo/.original/` falls outside `demo/*.html` entirely, so every glob in this repo skips
+it without needing an exclusion. Nothing downstream takes a new filename, because the
+demo page's own filename never changes.
 
 Walk **every** page in the manifest's `pages[]` — the home page and every inner page,
 not just `index`. For each page, in this order:
@@ -96,26 +101,35 @@ not just `index`. For each page, in this order:
    `demo already tailwind-native — conversion skipped` in the report for that page. This
    is also what makes a re-run safe — a second `/wp-yolo` pass over an already-converted
    demo detects and skips instead of converting twice.
-2. **Back up, per page.** Otherwise copy `demo/<slug>.html` to
-   `demo/<slug>.original.html` — but **only if `demo/<slug>.original.html` does not
-   already exist**. If it does, it is already the pristine original from an earlier run;
-   overwriting it with an already-converted page would destroy the only plain-CSS
-   reference that exists.
+2. **Back up, per page.** Otherwise create `demo/.original/` if it does not exist and
+   copy `demo/<slug>.html` to `demo/.original/<slug>.html` — but **only if
+   `demo/.original/<slug>.html` does not already exist**. If it does, it is already the
+   pristine original from an earlier run; overwriting it with an already-converted page
+   would destroy the only plain-CSS reference that exists.
 3. **Convert in place, per page.** Run
    `/wp-tailwindify demo/<slug>.html --out demo/<slug>.html` — the output path is the
    demo page itself, so the converted markup lands on the same path the original
    occupied.
-4. **Re-point — nothing to re-point.** Because conversion is in place, every later
+4. **Verify, or restore.** Read `/wp-tailwindify`'s Step 4 verification result for this
+   page: section delimiters preserved, no `<style>` blocks remaining. If verification
+   fails and the backup exists, restore `demo/<slug>.html` from
+   `demo/.original/<slug>.html` and report the page as unconverted. Never leave a
+   truncated or half-converted page at `demo/<slug>.html`: item 1 would read the wreckage
+   on the next run, find no `<style>` block, declare the page already Tailwind-native and
+   skip it forever, and items 2-6 below would build from the wreckage.
+5. **Re-point — nothing to re-point.** Because conversion is in place, every later
    reader picks up Tailwind-native markup with no argument change and no new flag:
-   item 3 (`/wp-header`, which reads `demo/index.html`), item 4 (`/wp-footer`, same
-   file), item 5 (the home `sections[]` walk, `--page index` → `demo/index.html`) and
-   item 6 (every inner page's walk, `--page <slug>` → `demo/<slug>.html`) all resolve to
-   the converted file. `demo/<slug>.original.html` is a reference copy only: it is never
-   a build source, it is not a manifest page, and no `--page` value ever resolves to it.
-5. **Report.** Record which demo pages were converted and which were skipped.
+   item 2 (`/wp-cpt <name> --from-demo <section>`, which reads `demo/index.html`),
+   item 3 (`/wp-header`, same file), item 4 (`/wp-footer`, same file), item 5 (the home
+   `sections[]` walk, `--page index` → `demo/index.html`) and item 6 (every inner page's
+   walk, `--page <slug>` → `demo/<slug>.html`) all resolve to the converted file.
+   `demo/.original/<slug>.html` is a reference copy only: it is never a build source, it
+   is not a manifest page, no `--page` value ever resolves to it, and `/wp-seed` never
+   globs it.
+6. **Report.** Record which demo pages were converted, which were skipped as already
+   Tailwind-native, and which were restored from backup after a failed verification.
 
 Under `--careful`, confirm the conversion result with the user before continuing.
-
 ## Step 3: Checkpoint (skipped under --yolo)
 
 Unless `--yolo` is set, print the detected map from the manifest:
@@ -131,7 +145,11 @@ Unless `--yolo` is set, print the detected map from the manifest:
 Ask the user to **approve / edit / abort**:
 - Edit = rename/merge/split a section, drop a page, flip a `kind` between `static` and
   `cpt-teaser`, etc. Apply edits directly to `demo/.yolo-manifest.json` before continuing.
-- Abort = stop here, leave `demo/*.html` and the manifest in place for a later resumed run.
+- Abort = stop here, leaving the manifest and `demo/*.html` on disk for a later resumed
+  run. On the `tailwind` path Step 2.6 has already run by this point, so `demo/*.html`
+  is the converted markup and the plain-CSS originals sit in `demo/.original/`; that is
+  the state a resumed run expects, and re-running is safe because Step 2.6's detect step
+  skips a page that is already Tailwind-native.
 
 Under `--yolo`, skip this step and proceed straight to Phase 2 with the manifest as
 emitted by `wp-normalize`.
@@ -205,7 +223,7 @@ Drive the existing commands/agents in this exact order, reading everything from 
      `<css-source>` by `Template:` exactly as in step 5: on `basic`, the manifest's
      verbatim `cssRules`; on `tailwind`, this page's converted demo file
      `demo/<slug>.html` (converted in place by Step 2.6), never the stale manifest
-     `cssRules` and never `demo/<slug>.original.html`.
+     `cssRules` and never the backup at `demo/.original/<slug>.html`.
    - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source>`,
      same transcribe dispatch.
    - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
@@ -281,8 +299,8 @@ Before this run can report success, walk every **critical** finding from that ga
    > On `tailwind`, a repair is expressed as **Tailwind utility classes in the markup** —
    > or an `@apply` rule, and only where the decision ladder in
    > `skills/wp-tailwind-system/SKILL.md` demands one — and is read from the
-   > **Step 2.6-converted** demo page (`demo/<slug>.html`), never from
-   > `demo/<slug>.original.html` and never from the manifest's plain-CSS `cssRules`.
+   > **Step 2.6-converted** demo page (`demo/<slug>.html`), never from the backup at
+   > `demo/.original/<slug>.html` and never from the manifest's plain-CSS `cssRules`.
    > Never write a raw CSS declaration into a theme CSS file on the tailwind path: that
    > re-injects exactly the plain CSS this template exists to remove.
 

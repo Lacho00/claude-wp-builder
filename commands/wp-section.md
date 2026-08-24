@@ -18,7 +18,9 @@ Parse `$ARGUMENTS`:
 - **`--target <template>`** = inject the `get_template_part` call into `<template>` (e.g. `page-about.php`) instead of `front-page.php` (optional, **default `front-page.php`** — existing behavior unchanged when omitted)
 - **`--transcribe` flag** = activate **faithful Transcription Mode** (optional). When set, the dispatched agents reproduce the demo's exact declared CSS/geometry instead of re-authoring fresh design-system styles. When omitted, behavior is unchanged (the current re-authoring / design-system path).
 - **`--block <name>`** = the unique BEM block name to scope every generated selector under (optional; used with `--transcribe` so parallel section builds can never collide on a selector).
-- **`--css <source>`** = the section's verbatim demo CSS to transcribe from (optional; the SOURCE OF TRUTH for `--transcribe`). May be an inline CSS blob, a path to a CSS file, or — on the `tailwind` path — the converted demo page itself (HTML), per the transcription overlay below.
+- **`--css <source>`** = the demo source the section is transcribed from (optional; required with `--transcribe`). What it means depends on the project's `Template:`, per the transcription overlay below:
+  - `basic` → the section's **verbatim** demo CSS, and the SOURCE OF TRUTH for the transcription: an inline CSS blob or a path to a CSS file, whose declared values are copied exactly.
+  - `tailwind` → the converted demo page itself (HTML, converted in place by `/wp-yolo` Step 2.6). Here it is a geometry reference, **not** a source of verbatim declarations — the overlay's instruction is "reproduce this geometry using Tailwind utilities", never "copy the declared values verbatim".
 
 > **Note:** `/wp-yolo` sets `--transcribe --block <block> --css <css-source>` on every `/wp-section` dispatch (see `commands/wp-yolo.md` Step 4). When invoked by hand without these flags, `/wp-section` keeps its original design-system authoring behavior.
 

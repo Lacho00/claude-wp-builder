@@ -18,6 +18,30 @@ If no name: print usage error and exit.
 ## Step 2: Read Project Context
 Read `.claude/CLAUDE.md` for function prefix, theme slug, languages, theme directory. If missing, tell the user to run `/wp-init` first and exit.
 
+### CSS agent routing
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+- `basic` → dispatch `wp-css` exactly as described below.
+- `tailwind` → dispatch `wp-tailwind` in **author** mode instead, passing the CPT name
+  (which selects `components/<name>.css`) and the block name. The agent reads
+  `skills/wp-tailwind-system/SKILL.md` for the decision ladder. It writes utility
+  classes into the markup and only adds `@apply` rules where the ladder demands
+  them. It must never write `assets/css/styles.css`.
+
+Dispatch exactly one of the two, never both.
+
+This routing governs every "Dispatch **wp-css** agent" step below (the archive/single/card
+CSS in Step 4, and the teaser section in Step 5) — each one marks its `tailwind`
+counterpart with `(routed — see "CSS agent routing" above)` rather than repeating the
+block.
+
+Routing matters here because `--from-demo` reads `demo/index.html`, and on the `tailwind`
+path `/wp-yolo` Step 4 item 2 runs `/wp-cpt` *after* Step 2.6 has converted that file in
+place. The markup this command reads is already Tailwind-native; building its CSS through
+`wp-css` would leak plain CSS straight into `front-page.php` via the teaser.
+
 ## Step 3: Register the CPT and generate fields (parallel)
 
 Dispatch **wp-template** agent:
@@ -54,13 +78,13 @@ Dispatch **wp-template** agent:
 > - Single card markup shared by archive + teaser: thumbnail, title (`get_the_title()`),
 >   role, excerpt/bio; permalink via `get_permalink()`
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add `.<name>-archive`, `.<name>-card`, `.<name>-single` CSS within delimiters using design tokens.
 
 ## Step 5: Teaser query-section (unless --no-teaser)
 
-Dispatch **wp-template** + **wp-acf** + **wp-css** (mirror the /wp-section flow):
+Dispatch **wp-template** + **wp-acf** + **wp-css** (mirror the /wp-section flow; the CSS agent is routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > `template-parts/section-<name>.php`:
 > - `WP_Query( ['post_type' => '<name>', 'posts_per_page' => N, 'orderby' => 'menu_order'] )`
