@@ -106,7 +106,7 @@ Dispatch **wp-acf** agent:
 > - Fields: `blog_heading` (text, bilingual), `blog_subheading` (textarea, bilingual), `blog_posts_per_page` (number, default 6)
 > - Group key: `group_blog`
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add blog CSS to `assets/css/styles.css` within delimiters:
 > ```css
