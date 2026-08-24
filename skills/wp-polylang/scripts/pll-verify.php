@@ -25,6 +25,14 @@ $options = get_option( 'polylang' );
 $locs    = isset( $options['nav_menus'][ $theme ] ) ? $options['nav_menus'][ $theme ] : array();
 
 foreach ( $locs as $location => $per_lang ) {
+	// A location with no SOURCE menu is not part of this source/target pair and
+	// there is nothing to have translated -- a site with a third language may
+	// legitimately assign a location in that language alone. Demanding a target
+	// menu there turns an untouched location into a hard failure and calls a
+	// correct site broken. pll-export.php gates the same way before it exports.
+	if ( empty( $per_lang[ $source ] ) ) {
+		continue;
+	}
 	if ( empty( $per_lang[ $target ] ) ) {
 		$failures[] = "menu location '$location' has no $target menu";
 		continue;
@@ -34,12 +42,12 @@ foreach ( $locs as $location => $per_lang ) {
 		if ( 'post_type' === $mi->type ) {
 			$lang = pll_get_post_language( (int) $mi->object_id );
 			if ( $lang !== $target ) {
-				$failures[] = "menu item '{$mi->title}' points at a '$lang' post ({$mi->object_id}), expected '$target'";
+				$failures[] = "menu item '{$mi->title}' points at a '" . ( $lang ? $lang : 'none' ) . "' post ({$mi->object_id}), expected '$target'";
 			}
 		} elseif ( 'taxonomy' === $mi->type ) {
 			$lang = pll_get_term_language( (int) $mi->object_id );
 			if ( $lang !== $target ) {
-				$failures[] = "menu item '{$mi->title}' points at a '$lang' term ({$mi->object_id}), expected '$target'";
+				$failures[] = "menu item '{$mi->title}' points at a '" . ( $lang ? $lang : 'none' ) . "' term ({$mi->object_id}), expected '$target'";
 			}
 		}
 	}
@@ -175,7 +183,9 @@ foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $taxonomy )
 
 		$stored = get_term_meta( $target_id, PLLX_HASH_META, true );
 		$now    = pllx_hash( pllx_term_payload( $term->term_id, $taxonomy ) );
-		if ( '' !== $stored && $stored !== $now ) {
+		if ( '' === $stored ) {
+			$warnings[] = "term $target_id has no recorded source hash; staleness cannot be detected";
+		} elseif ( $stored !== $now ) {
 			$warnings[] = "term $target_id is stale: source {$term->term_id} changed since it was translated";
 		}
 	}
