@@ -841,27 +841,29 @@ V_TERMS="$(sed -n 's/.*terms=\([0-9]*\).*/\1/p' <<<"$VERIFY_OUT" | head -1)"
 (( V_POSTS > 0 )) || { echo "FAIL: verify audited 0 posts — vacuous pass"; exit 1; }
 echo "  verify audited $V_POSTS post(s), $V_TERMS term(s)"
 
-echo "── verify catches a broken translation group ──"
-# This block STRIPS THE LANGUAGE off a real post on the live site. Every exit
-# path between the break and the repair must put it back, or a failure at the
-# `verify accepted...` assertion leaves a language-less post behind on a site
-# the user pointed the suite at. That is ruling T5-M's defect class in
-# miniature: a test harness damaging content on the failure path. The repair is
-# therefore registered with cleanup() BEFORE the break, not written only on the
-# success path.
+echo "── verify catches a counterpart with no language ──"
+# Exercises check 3 (the counterpart's language) IN ISOLATION. The victim is the
+# fixture ATTACHMENT's counterpart, deliberately: no menu item points at an
+# attachment, so check 1 cannot fire on it. The first version of this test broke
+# a PAGE, and every page it could pick is a fixture page that a fixture menu
+# item also points at -- so check 1 caught the breakage and the assertion still
+# passed with check 3 deleted outright. An exit code says something failed, never
+# WHICH check failed, so the check's own message is matched here.
+#
+# The victim is this run's own output, so nothing of the user's is touched.
+# cleanup() restores it anyway (VERIFY_VICTIM below): a run that dies between the
+# break and the repair would otherwise leave a language-less post behind, which
+# is ruling T5-M's shape, and the restore is one line.
 #
 # Only the language taxonomy relationship is deleted; post_translations (the
 # group) is a different taxonomy and is untouched, so pll_set_post_language()
 # restores the original state exactly.
-VICTIM="$(cd "$SITE" && PLL_SRC="$SRC" PLL_DST="$DST" wp eval '
-$src = getenv("PLL_SRC"); $dst = getenv("PLL_DST");
-foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","fields"=>"ids"]) as $id) {
-  if (pll_get_post_language($id) !== $src) { continue; }
-  $t = pll_get_post_translations($id);
-  if (!empty($t[$dst])) { echo (int) $t[$dst]; return; }
-}
+VICTIM="$(cd "$SITE" && PLL_MEDIA="$FIXTURE_MEDIA_ID" PLL_DST="$DST" wp eval '
+$t   = pll_get_post_translations((int) getenv("PLL_MEDIA"));
+$dst = getenv("PLL_DST");
+echo empty($t[$dst]) ? "" : (int) $t[$dst];
 ' --allow-root)"
-[[ -n "$VICTIM" ]] || { echo "FAIL: no translated page to break"; exit 1; }
+[[ -n "$VICTIM" ]] || { echo "FAIL: the fixture attachment has no $DST counterpart to break"; exit 1; }
 
 # Armed before the break; cleared after the repair. cleanup() restores the
 # language iff this is non-empty.
@@ -871,14 +873,68 @@ VERIFY_VICTIM_LANG="$DST"
 # Break it the way a hand-edited database would: strip the language assignment.
 (cd "$SITE" && PLL_VICTIM="$VICTIM" wp eval 'wp_delete_object_term_relationships((int) getenv("PLL_VICTIM"), "language");' --allow-root)
 
-if run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null 2>&1; then
+if VERIFY_BROKEN_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)"; then
+  echo "$VERIFY_BROKEN_OUT"
   echo "FAIL: verify accepted a post with no language"; exit 1
 fi
+grep -qF "post $VICTIM has language 'none', expected '$DST'" <<<"$VERIFY_BROKEN_OUT" || {
+  echo "$VERIFY_BROKEN_OUT"
+  echo "FAIL: verify rejected the site, but not with the counterpart-language check -- some other check fired, so that check is untested"
+  exit 1
+}
+echo "  verify reported: $(grep -F "post $VICTIM has language" <<<"$VERIFY_BROKEN_OUT" | head -1)"
 
 # Put it back so the suite is re-runnable.
 (cd "$SITE" && PLL_VICTIM="$VICTIM" PLL_DST="$DST" wp eval 'pll_set_post_language((int) getenv("PLL_VICTIM"), getenv("PLL_DST"));' --allow-root)
 VERIFY_VICTIM=""
 run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after repair"; exit 1; }
+
+echo "── verify catches a menu item pointing at the wrong language ──"
+# Check 1 is the headline check of the verifier, and isolating check 3 above
+# removed the accidental coverage it used to get: deleting check 1 entirely
+# would otherwise leave this suite green. Re-point a TRANSLATED menu item at the
+# SOURCE post it was translated from -- exactly what duplicating a menu by hand
+# produces, and the breakage the verifier exists to catch first.
+#
+# No restore wiring: the item is the fixture's own, and cleanup() matches menu
+# items by what they POINT AT against both the fixture posts and their
+# counterparts, so it is deleted either way.
+MENU_VICTIM="$(cd "$SITE" && PLL_DST="$DST" PLL_CHILD="$FIXTURE_CHILD_ID" wp eval '
+$child = (int) getenv("PLL_CHILD"); $dst = getenv("PLL_DST");
+$t = pll_get_post_translations($child);
+if (empty($t[$dst])) { return; }
+$target = (int) $t[$dst];
+$opts = get_option("polylang"); $theme = get_stylesheet();
+foreach ((array) ($opts["nav_menus"][$theme] ?? []) as $per) {
+  if (empty($per[$dst])) { continue; }
+  foreach ((array) wp_get_nav_menu_items((int) $per[$dst]) as $mi) {
+    if ("post_type" === $mi->type && (int) $mi->object_id === $target) { echo (int) $mi->ID, " ", $target; return; }
+  }
+}
+' --allow-root)"
+[[ -n "$MENU_VICTIM" ]] || { echo "FAIL: no $DST menu item points at the fixture child page's counterpart"; exit 1; }
+MENU_VICTIM_ITEM="${MENU_VICTIM% *}"
+MENU_VICTIM_OBJ="${MENU_VICTIM#* }"
+
+(cd "$SITE" && PLL_ITEM="$MENU_VICTIM_ITEM" PLL_OBJ="$FIXTURE_CHILD_ID" wp eval '
+update_post_meta((int) getenv("PLL_ITEM"), "_menu_item_object_id", (int) getenv("PLL_OBJ"));
+' --allow-root)
+
+if MENU_BROKEN_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)"; then
+  echo "$MENU_BROKEN_OUT"
+  echo "FAIL: verify accepted a $DST menu item pointing at a $SRC post"; exit 1
+fi
+grep -qF "points at a '$SRC' post ($FIXTURE_CHILD_ID)" <<<"$MENU_BROKEN_OUT" || {
+  echo "$MENU_BROKEN_OUT"
+  echo "FAIL: verify rejected the site, but not with the menu-item language check -- some other check fired, so that check is untested"
+  exit 1
+}
+echo "  verify reported: $(grep -F "points at a '$SRC' post" <<<"$MENU_BROKEN_OUT" | head -1)"
+
+(cd "$SITE" && PLL_ITEM="$MENU_VICTIM_ITEM" PLL_OBJ="$MENU_VICTIM_OBJ" wp eval '
+update_post_meta((int) getenv("PLL_ITEM"), "_menu_item_object_id", (int) getenv("PLL_OBJ"));
+' --allow-root)
+run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the menu item was re-pointed back"; exit 1; }
 
 echo "── remove this run's fixture ──"
 # Deletion, not a re-run of export+import. The teardown used to resync by
