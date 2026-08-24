@@ -102,7 +102,27 @@ normal design-system authoring path unchanged.
 - **wp-template:** instruct it to scope all BEM classes under the `--block` name (use
   `<block>__<element>` instead of `<section>__<element>`) so the transcribed CSS and the
   markup share the same unique block and parallel sections never collide.
+- **wp-tailwind (tailwind path):** the `--css` source is the *converted* demo, so
+  the instruction is "reproduce this geometry using Tailwind utilities", never
+  "copy the declared values verbatim". Scope any `@apply` class under `--block`,
+  exactly as `wp-css` scopes its BEM selectors. `wp-css` is not dispatched at all
+  on this path.
 - Because each section's `--block` is unique, parallel agents can never clash on a selector.
+
+---
+
+### CSS agent routing — read the template first
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+| Template | Agent 3 | Output surface |
+|----------|---------|----------------|
+| `basic` | `wp-css` | `assets/css/styles.css` (BEM + `:root` tokens) |
+| `tailwind` | `wp-tailwind` in **author** mode | Utility classes in the markup; `@apply` rules only where the `wp-tailwind-system` ladder demands them |
+
+Dispatch exactly one of the two. Never both — they write incompatible CSS systems.
+Agents 1 (`wp-acf`), 2 (`wp-template`) and 4 (`wp-cf7`) are identical on both paths.
 
 ---
 
@@ -185,6 +205,42 @@ Launch all three agents simultaneously. Provide each agent with the demo section
 > 7. Append to the end of the existing file (before any footer CSS if present)
 >
 > Demo HTML/CSS for this section:
+> ```html
+> <paste extracted section HTML here>
+> ```
+
+---
+
+#### Agent 3 (tailwind path): wp-tailwind — author mode
+
+> Author the `<section-name>` section for this Tailwind theme.
+>
+> Mode: **author**
+> Read `skills/wp-tailwind-system/SKILL.md` before writing anything — it owns the
+> decision ladder and the prohibition list.
+>
+> Context:
+> - Page slug: `<page-slug>` (decides `components/<page-slug>.css`)
+> - Block name: `<block>` (scopes every `@apply` class you create)
+> - Theme path: `<theme path>`
+> - Function prefix: `<prefix>`
+>
+> Requirements:
+> 1. Tailwind utility classes in the markup are the default. Most sections need no
+>    CSS file entry at all.
+> 2. A utility group repeated 3+ times, or on 2+ pages, becomes a semantic class via
+>    `@apply` — `utilities/site.css` if it spans pages, `components/<page-slug>.css`
+>    if it is local to this one. Grep the theme's other `components/*.css` and
+>    `*.php` before choosing.
+> 3. Name any class you create `<block>__<element>`.
+> 4. If a target CSS file does not exist, create it with its first rule already in
+>    it and add its `@import` to `main.css` in the same step. Never leave an empty file.
+> 5. Colors and fonts come from the `@theme` block as utilities (`bg-primary`,
+>    `font-primary`). No `:root`, no hardcoded hex a token already covers.
+> 6. Responsive via Tailwind prefixes (`md:`, `lg:`). No hand-written `@media`.
+> 7. Never write `assets/css/styles.css`. Never emit a `<style>` block.
+>
+> Section HTML (already Tailwind-native):
 > ```html
 > <paste extracted section HTML here>
 > ```
