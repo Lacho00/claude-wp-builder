@@ -14,6 +14,14 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPTS="$REPO/skills/wp-polylang/scripts"
 SRC="${PLL_TEST_SRC:-es}"
 DST="${PLL_TEST_DST:-en}"
+# The third language exists only so the "adding a language does not orphan the
+# existing group" regression can be exercised. It is CREATED and DELETED by
+# this suite, so the code below refuses to touch it unless this run is the one
+# that created it (see the pre-existence probe further down). The default is a
+# locale no real site is plausibly authored in -- that is insurance, not the
+# safety mechanism; the pre-existence gate is.
+THIRD="${PLL_TEST_THIRD:-szl}"
+[[ "$THIRD" != "$SRC" && "$THIRD" != "$DST" ]] || { echo "FAIL: PLL_TEST_THIRD ('$THIRD') must differ from the source and target languages"; exit 1; }
 
 run() { (cd "$SITE" && wp eval-file "$@" --allow-root); }
 
@@ -62,24 +70,45 @@ echo "── seed this run's fixture content ──"
 FIXTURE_PARENT_ID=""
 FIXTURE_CHILD_ID=""
 FIXTURE_MEDIA_ID=""
-FIXTURE_MEDIA_FILE=""
 FIXTURE_ITEM_IDS=""
 FIXTURE_MENU_ID=""
 FIXTURE_ARCHIVE_PT=""
+# Set ONLY once this run has itself created the third language. While it is
+# empty, cleanup() does not go near that language -- see the probe below.
+FIXTURE_THIRD_LANG=""
+
+# Every temp file this suite writes lives here, so a failure at any of the
+# dozen `exit 1` sites cannot leak a manifest into /tmp. mktemp -d rather than
+# `mktemp --suffix=.png`: --suffix is a GNU extension and is not available on
+# BSD/macOS, where the fixture used to die before creating anything.
+FIXTURE_TMPDIR="$(mktemp -d)"
+FIXTURE_MEDIA_FILE="$FIXTURE_TMPDIR/pll-fixture.png"
 
 cleanup() {
   local status=$?
-  if [[ -n "$FIXTURE_MEDIA_FILE" ]]; then rm -f "$FIXTURE_MEDIA_FILE"; fi
+  rm -rf "$FIXTURE_TMPDIR"
+  # Nothing was created yet -- do not run a site mutation just to delete zero
+  # objects. This matters because the trap is armed before the first fixture
+  # object exists, on purpose, so the temp dir above is always removed.
+  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG" ]]; then
+    return $status
+  fi
   (cd "$SITE" \
     && PLL_FIX_POSTS="$FIXTURE_PARENT_ID,$FIXTURE_CHILD_ID,$FIXTURE_MEDIA_ID" \
        PLL_FIX_ITEMS="$FIXTURE_ITEM_IDS" \
        PLL_FIX_MENU="$FIXTURE_MENU_ID" \
        PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" \
+       PLL_FIX_SRC="$SRC" \
+       PLL_FIX_DST="$DST" \
+       PLL_FIX_THIRD="$FIXTURE_THIRD_LANG" \
        wp eval '
 $posts      = array_filter( array_map( "intval", explode( ",", (string) getenv( "PLL_FIX_POSTS" ) ) ) );
 $items      = array_filter( array_map( "intval", explode( ",", (string) getenv( "PLL_FIX_ITEMS" ) ) ) );
 $src_menu   = (int) getenv( "PLL_FIX_MENU" );
 $archive_pt = (string) getenv( "PLL_FIX_PT" );
+$src        = (string) getenv( "PLL_FIX_SRC" );
+$dst        = (string) getenv( "PLL_FIX_DST" );
+$third      = (string) getenv( "PLL_FIX_THIRD" );
 
 // Counterparts first, while the translation groups still exist.
 $all = $posts;
@@ -88,17 +117,33 @@ foreach ( $posts as $id ) {
 }
 $all = array_values( array_unique( array_filter( $all ) ) );
 
-// Menu items are matched by what they POINT AT, in every menu, because the
-// importer mints the target menu ids itself -- this script never sees them.
-// The archive item has no object id to match on, so it is identified by its
-// post type, in menus other than the source one; the fixture refuses to run
-// (above) if the source menu already had such an item, which is what makes
-// that safe.
+// The archive item has no object id to match on, so the only thing left to
+// identify its mirror by is the post type -- which is NOT unique to this
+// fixture. It is therefore looked for in exactly one place: the TARGET-language
+// menu of the location whose source menu is the one the fixture wrote into.
+// The previous version accepted any menu other than the source menu, which
+// hard-deletes a legitimate archive entry out of a footer menu or a hand-built
+// target menu; the pre-flight guard below only ever inspected the source menu,
+// so it never justified that wider sweep.
+$theme        = get_stylesheet();
+$opts         = get_option( "polylang" );
+$assign       = isset( $opts["nav_menus"][ $theme ] ) ? (array) $opts["nav_menus"][ $theme ] : array();
+$target_menus = array();
+foreach ( $assign as $loc => $per ) {
+  if ( ! is_array( $per ) || empty( $per[ $dst ] ) ) { continue; }
+  if ( $src_menu && (int) ( isset( $per[ $src ] ) ? $per[ $src ] : 0 ) !== $src_menu ) { continue; }
+  $target_menus[] = (int) $per[ $dst ];
+}
+
+// Menu items pointing at a fixture post are matched by what they POINT AT, in
+// every menu, because the importer mints the target menu ids itself -- this
+// script never sees them, and the post ids are unambiguous.
 foreach ( (array) wp_get_nav_menus() as $menu ) {
   foreach ( (array) wp_get_nav_menu_items( $menu->term_id, array( "post_status" => "any" ) ) as $mi ) {
     $fixture_post    = ( "post_type" === $mi->type && in_array( (int) $mi->object_id, $all, true ) );
     $fixture_archive = ( "post_type_archive" === $mi->type && "" !== $archive_pt
-                         && $mi->object === $archive_pt && (int) $menu->term_id !== $src_menu );
+                         && $mi->object === $archive_pt
+                         && in_array( (int) $menu->term_id, $target_menus, true ) );
     if ( $fixture_post || $fixture_archive ) { wp_delete_post( (int) $mi->ID, true ); }
   }
 }
@@ -107,39 +152,55 @@ foreach ( (array) wp_get_nav_menus() as $menu ) {
 foreach ( $items as $iid ) { wp_delete_post( $iid, true ); }
 foreach ( $all as $id ) { wp_delete_post( $id, true ); }
 
-// A failure between adding the temporary "fr" language and removing it again
-// would otherwise leave it behind and break every later run.
-$fr = PLL()->model->get_language( "fr" );
-if ( $fr ) {
-  foreach ( get_posts( array( "post_type" => "any", "numberposts" => -1, "post_status" => "any", "fields" => "ids" ) ) as $pid ) {
-    if ( pll_get_post_language( $pid ) === "fr" ) { wp_delete_post( $pid, true ); }
-  }
-  foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $tax ) {
-    $terms = get_terms( array( "taxonomy" => $tax, "hide_empty" => false ) );
-    if ( is_wp_error( $terms ) ) { continue; }
-    foreach ( $terms as $term ) {
-      if ( pll_get_term_language( $term->term_id ) === "fr" ) { wp_delete_term( $term->term_id, $tax ); }
+// A failure between adding the temporary third language and removing it again
+// would otherwise leave it behind and break every later run. Gated on
+// PLL_FIX_THIRD, which this suite sets only after confirming the language did
+// NOT already exist and then creating it: everything carrying that language is
+// therefore this run own output. Without the gate this block deletes every
+// post and term of a language the user already had, on the failure path, on a
+// site the suite may never even have reached the third-language block on.
+if ( "" !== $third ) {
+  $lang = PLL()->model->get_language( $third );
+  if ( $lang ) {
+    foreach ( get_posts( array( "post_type" => "any", "numberposts" => -1, "post_status" => "any", "fields" => "ids" ) ) as $pid ) {
+      if ( pll_get_post_language( $pid ) === $third ) { wp_delete_post( $pid, true ); }
     }
+    foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $tax ) {
+      $terms = get_terms( array( "taxonomy" => $tax, "hide_empty" => false ) );
+      if ( is_wp_error( $terms ) ) { continue; }
+      foreach ( $terms as $term ) {
+        if ( pll_get_term_language( $term->term_id ) === $third ) { wp_delete_term( $term->term_id, $tax ); }
+      }
+    }
+    PLL()->model->languages->delete( $lang->term_id );
   }
-  PLL()->model->languages->delete( $fr->term_id );
 }
 ' --allow-root) >/dev/null 2>&1 || true
   return $status
 }
+trap cleanup EXIT
 
 # The menu to fixture into must be the SOURCE-language one. Polylang's own
 # per-language record is authoritative; the bare location is only accepted once
 # it is confirmed not to be recorded as some other language's menu, since
 # get_nav_menu_locations() also carries Polylang's synthetic `loc___lang` keys.
+# TWO passes, not one: evaluating the fallback inside the same iteration as the
+# per-language lookup lets a location whose bare menu happens to be unclaimed
+# short-circuit ahead of a later location that carries a proper $assign record.
+# Every authoritative record is therefore considered before any guess is.
 FIXTURE_MENU_ID="$(cd "$SITE" && PLL_FIX_SRC="$SRC" wp eval '
 $src    = getenv("PLL_FIX_SRC");
 $theme  = get_stylesheet();
 $opts   = get_option("polylang");
 $assign = isset($opts["nav_menus"][$theme]) ? $opts["nav_menus"][$theme] : [];
 $locs   = get_nav_menu_locations();
-foreach (array_keys(get_registered_nav_menus()) as $loc) {
+$registered = array_keys(get_registered_nav_menus());
+foreach ($registered as $loc) {
   $per = isset($assign[$loc]) ? $assign[$loc] : [];
   if (!empty($per[$src])) { echo (int) $per[$src]; exit; }
+}
+foreach ($registered as $loc) {
+  $per = isset($assign[$loc]) ? $assign[$loc] : [];
   if (empty($locs[$loc])) { continue; }
   $id = (int) $locs[$loc];
   $claimed_by_other_language = false;
@@ -152,25 +213,31 @@ foreach (array_keys(get_registered_nav_menus()) as $loc) {
 ' --allow-root)"
 [[ -n "$FIXTURE_MENU_ID" ]] || { echo "FAIL: no registered menu location holds a $SRC menu to fixture into"; exit 1; }
 
-FIXTURE_ARCHIVE_PT="$(cd "$SITE" && wp eval '
+# Must be a post type Polylang actually localizes the archive link of:
+# PLL_Filters_Links::post_type_archive_link() localizes only when
+# is_translated_post_type($pt) && "post" !== $pt. Picking any archive-bearing
+# type would leave the localization assertion further down with nothing to
+# check on some sites, and an assertion that silently checks nothing is the
+# defect class this suite exists to avoid.
+ARCHIVE_PT="$(cd "$SITE" && wp eval '
 foreach (get_post_types(["public"=>true], "objects") as $pt) {
-  if (!$pt->has_archive) { continue; }
+  if (!$pt->has_archive || "post" === $pt->name) { continue; }
+  if (!PLL()->model->is_translated_post_type($pt->name)) { continue; }
   echo $pt->name; exit;
 }
 ' --allow-root)"
-[[ -n "$FIXTURE_ARCHIVE_PT" ]] || { echo "FAIL: no public post type has an archive to build a post_type_archive menu item from"; exit 1; }
+[[ -n "$ARCHIVE_PT" ]] || { echo "FAIL: no translatable public post type (other than 'post') has an archive to build a post_type_archive menu item from"; exit 1; }
 
-if ! (cd "$SITE" && PLL_FIX_MENU="$FIXTURE_MENU_ID" PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" wp eval '
+if ! (cd "$SITE" && PLL_FIX_MENU="$FIXTURE_MENU_ID" PLL_FIX_PT="$ARCHIVE_PT" wp eval '
 foreach ((array) wp_get_nav_menu_items((int) getenv("PLL_FIX_MENU")) as $mi) {
   if ("post_type_archive" === $mi->type && $mi->object === getenv("PLL_FIX_PT")) { exit(1); }
 }
 ' --allow-root); then
-  echo "FAIL: the $SRC menu already has a post_type_archive item for '$FIXTURE_ARCHIVE_PT'; the fixture assumes it is the only source of one so that cleanup can identify its mirror in the translated menu"
+  echo "FAIL: the $SRC menu already has a post_type_archive item for '$ARCHIVE_PT'; the fixture assumes it is the only source of one so that cleanup can identify its mirror in the translated menu"
   exit 1
 fi
 
 FIXTURE_PARENT_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="PLL fixture parent page" --post_status=publish --porcelain --allow-root)"
-trap cleanup EXIT
 [[ -n "$FIXTURE_PARENT_ID" ]] || { echo "FAIL: could not create the fixture parent page"; exit 1; }
 
 FIXTURE_CHILD_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="PLL fixture child page" --post_status=publish --post_parent="$FIXTURE_PARENT_ID" --porcelain --allow-root)"
@@ -178,7 +245,6 @@ FIXTURE_CHILD_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="
 
 # A real file, imported through WordPress, so the counterpart's
 # _wp_attached_file linkage can be asserted for real further down.
-FIXTURE_MEDIA_FILE="$(mktemp --suffix=.png)"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > "$FIXTURE_MEDIA_FILE"
 FIXTURE_MEDIA_ID="$(cd "$SITE" && wp media import "$FIXTURE_MEDIA_FILE" --title="PLL fixture image" --porcelain --allow-root)"
 [[ -n "$FIXTURE_MEDIA_ID" ]] || { echo "FAIL: could not import the fixture attachment"; exit 1; }
@@ -197,7 +263,7 @@ FIXTURE_ITEM_CHILD="$(cd "$SITE" && wp menu item add-post "$FIXTURE_MENU_ID" "$F
 [[ -n "$FIXTURE_ITEM_CHILD" ]] || { echo "FAIL: could not nest the fixture child page under the fixture parent menu item"; exit 1; }
 FIXTURE_ITEM_IDS="$FIXTURE_ITEM_IDS,$FIXTURE_ITEM_CHILD"
 
-FIXTURE_ITEM_ARCHIVE="$(cd "$SITE" && PLL_FIX_MENU="$FIXTURE_MENU_ID" PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" wp eval '
+FIXTURE_ITEM_ARCHIVE="$(cd "$SITE" && PLL_FIX_MENU="$FIXTURE_MENU_ID" PLL_FIX_PT="$ARCHIVE_PT" wp eval '
 $id = wp_update_nav_menu_item((int) getenv("PLL_FIX_MENU"), 0, array(
   "menu-item-title"  => "PLL fixture archive",
   "menu-item-status" => "publish",
@@ -209,11 +275,15 @@ echo (int) $id;
 ' --allow-root)"
 [[ -n "$FIXTURE_ITEM_ARCHIVE" ]] || { echo "FAIL: could not add a post_type_archive item to the $SRC menu"; exit 1; }
 FIXTURE_ITEM_IDS="$FIXTURE_ITEM_IDS,$FIXTURE_ITEM_ARCHIVE"
+# Only NOW, once an archive item this suite created actually exists. Assigning
+# it at discovery time armed cleanup()'s archive sweep on every run that failed
+# before creating one -- a sweep for objects the run had never made.
+FIXTURE_ARCHIVE_PT="$ARCHIVE_PT"
 
 echo "  menu $FIXTURE_MENU_ID: pages $FIXTURE_PARENT_ID/$FIXTURE_CHILD_ID, media $FIXTURE_MEDIA_ID, items $FIXTURE_ITEM_IDS ($FIXTURE_ARCHIVE_PT archive)"
 
 echo "── export produces a valid manifest ──"
-MAN="$(mktemp)"
+MAN="$FIXTURE_TMPDIR/manifest.json"
 run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$MAN" >/dev/null || { echo "FAIL: export exited non-zero"; exit 1; }
 test -s "$MAN" || { echo "FAIL: export wrote nothing"; exit 1; }
 
@@ -260,7 +330,7 @@ foreach ($m["items"] as $it) {
 rm -f "$MAN"
 
 echo "── import writes linked, correctly-languaged counterparts ──"
-MAN2="$(mktemp)"
+MAN2="$FIXTURE_TMPDIR/manifest-translated.json"
 run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$MAN2" >/dev/null
 
 # Translate mechanically: prefix every value. Enough to prove the write path
@@ -298,18 +368,29 @@ $out = $argv[1];
 if (!preg_match_all("/reconciliation: source=(\d+) written=(\d+) skipped=(\d+)/", $out, $m, PREG_SET_ORDER)) {
   fwrite(STDERR, "FAIL: no menu reconciliation line found in import output\n"); exit(1);
 }
+$total_written = 0;
 foreach ($m as $row) {
   $s = (int) $row[1]; $w = (int) $row[2]; $sk = (int) $row[3];
   echo "  source=$s written=$w skipped=$sk\n";
   if ($s === 0) { fwrite(STDERR, "FAIL: reconciliation reports a 0-item source menu\n"); exit(1); }
-  // Floor, not just the sum. written+skipped==source is satisfied by every
-  // path in the importer loop by construction -- each one bumps exactly one
-  // counter -- so on its own it can never fail. A menu that skipped ALL of its
-  // items would still balance perfectly while producing an empty translated
-  // menu, and only this line catches that.
-  if ($w === 0) { fwrite(STDERR, "FAIL: reconciliation wrote 0 of $s source item(s)\n"); exit(1); }
   if ($w + $sk !== $s) { fwrite(STDERR, "FAIL: written($w) + skipped($sk) != source($s)\n"); exit(1); }
+  $total_written += $w;
 }
+// Floor, not just the sum. written+skipped==source is satisfied by every path
+// in the importer loop by construction -- each one bumps exactly one counter --
+// so on its own it can never fail. A run that skipped ALL of its items would
+// still balance perfectly while producing empty translated menus, and only this
+// line catches that.
+//
+// Floored over the RUN, not per menu: a second location whose source menu
+// consists entirely of items with no target counterpart legitimately yields
+// written=0 -- the importer treats that as fine and it is fine, so failing on
+// it would make the suite reject correct behaviour. Passing today with a
+// per-menu floor was an accident of this site having exactly one location.
+if ($total_written === 0) {
+  fwrite(STDERR, "FAIL: reconciliation wrote 0 menu item(s) across " . count($m) . " menu(s)\n"); exit(1);
+}
+echo "  total written across " . count($m) . " menu(s): $total_written\n";
 ' "$MENU_IMPORT_OUT" || exit 1
 
 (cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" wp eval '
@@ -376,7 +457,7 @@ exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated attachments have broken file linkage"; exit 1; }
 
 echo "── re-export after import is empty (idempotent) ──"
-MAN3="$(mktemp)"
+MAN3="$FIXTURE_TMPDIR/manifest-reexport.json"
 run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$MAN3" >/dev/null
 php -r '
 $m = json_decode(file_get_contents($argv[1]), true);
@@ -392,13 +473,112 @@ echo "── a third language survives an import for another target ──"
 # language already in the group. This is not hypothetical: the documented
 # workflow is "one target language per run, run it again for a third
 # language" -- so that bug destroys its own earlier output on the second run.
-# Uses a temporary 'fr' language and cleans it up (and the post it created)
-# afterward so this is safe to re-run against a persistent site.
-run "$SCRIPTS/pll-setup.php" "$SRC" fr >/dev/null || { echo "FAIL: could not add temporary language fr"; exit 1; }
+#
+# The scaffolding language is created here and destroyed at the end of the
+# block, so this stays re-runnable against a persistent site. That teardown is
+# also the reason for the probe below. pll-setup.php succeeds SILENTLY on a
+# site that already has the language, so without a pre-existence record the
+# teardown -- and worse, cleanup(), which is trapped over the WHOLE run -- could
+# not tell "the language this run created" from "the language the user has been
+# writing content in for a year". It deleted every post and every term of that
+# language either way. A failure at any assertion above, long before this block
+# was reached, was enough to trigger it.
+#
+# So: probe FIRST. If the language already exists, this run neither created it
+# nor may delete it, and the assertion is SKIPPED rather than adapted -- an
+# adapted assertion against pre-existing content would be asserting something
+# other than what it says it asserts.
+THIRD_PREEXISTS="$(cd "$SITE" && PLL_CHK_THIRD="$THIRD" wp eval '
+echo PLL()->model->get_language(getenv("PLL_CHK_THIRD")) ? "1" : "0";
+' --allow-root)"
+case "$THIRD_PREEXISTS" in
+  0|1) ;;
+  *) echo "FAIL: could not determine whether language '$THIRD' already exists (probe said '$THIRD_PREEXISTS')"; exit 1 ;;
+esac
 
-THIRD_MAN="$(mktemp)"
-THIRD_SRC_ID="$(cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" PLL_CHK_MAN="$THIRD_MAN" wp eval '
-$src = getenv("PLL_CHK_SRC"); $dst = getenv("PLL_CHK_DST");
+if [[ "$THIRD_PREEXISTS" == "1" ]]; then
+  echo "  SKIP: language '$THIRD' already exists on this site, so this run did not create it and must not delete it."
+  echo "        Set PLL_TEST_THIRD to a language the site does NOT have to exercise this assertion."
+else
+
+run "$SCRIPTS/pll-setup.php" "$SRC" "$THIRD" >/dev/null || { echo "FAIL: could not add temporary language $THIRD"; exit 1; }
+# Armed only now: the probe above proved the language was absent, so everything
+# carrying it from here on is this run's own output and cleanup() may remove it.
+FIXTURE_THIRD_LANG="$THIRD"
+
+echo "── export refuses to guess a menu it cannot attribute to the source language ──"
+# pll-export.php used to fall back to get_nav_menu_locations()[$loc] with no
+# language check whenever Polylang had no per-language record for the source.
+# That bare key holds the DEFAULT language's menu by Polylang's construction, so
+# exporting FROM a non-default language handed the default language's menu over
+# as if it were the source menu -- Spanish labels exported as the French source
+# menu, silently. The temporary language above is exactly that shape: it exists,
+# it has no menu of its own, and every location's bare menu belongs to somebody
+# else. (The same fallback also fires for a location whose theme-mod entry is
+# the falsy 0 that update_nav_menu_locations() writes for an unassigned menu.)
+NAV_ASSIGN_JSON="$(cd "$SITE" && wp eval '
+$o = get_option("polylang"); $t = get_stylesheet();
+echo wp_json_encode(isset($o["nav_menus"][$t]) ? $o["nav_menus"][$t] : new stdClass());
+' --allow-root)"
+# How many registered locations are actually AMBIGUOUS for this source: no
+# per-language record, but a bare menu that another language claims. If this is
+# zero the assertion below proves nothing, so it is a hard failure.
+AMBIGUOUS_LOCS="$(cd "$SITE" && PLL_CHK_THIRD="$THIRD" wp eval '
+$third  = getenv("PLL_CHK_THIRD");
+$o      = get_option("polylang"); $theme = get_stylesheet();
+$assign = isset($o["nav_menus"][$theme]) ? (array) $o["nav_menus"][$theme] : [];
+$locs   = get_nav_menu_locations();
+$n = 0;
+foreach (array_keys(get_registered_nav_menus()) as $loc) {
+  $per = isset($assign[$loc]) ? (array) $assign[$loc] : [];
+  if (!empty($per[$third])) { continue; }
+  $cand = isset($locs[$loc]) ? (int) $locs[$loc] : 0;
+  if (!$cand) { continue; }
+  foreach ($per as $lang => $mid) {
+    if ((int) $mid === $cand && $lang !== $third) { $n++; break; }
+  }
+}
+echo $n;
+' --allow-root)"
+GUESS_MAN="$FIXTURE_TMPDIR/manifest-guess.json"
+GUESS_OUT="$(run "$SCRIPTS/pll-export.php" "$THIRD" "$DST" "$GUESS_MAN" 2>&1)" || { echo "FAIL: export from the temporary language exited non-zero"; echo "$GUESS_OUT"; exit 1; }
+php -r '
+$m       = json_decode(file_get_contents($argv[1]), true);
+$third   = $argv[2];
+$assign  = json_decode($argv[3], true) ?: [];
+$ambig   = (int) $argv[4];
+$out     = $argv[5];
+if ($ambig === 0) {
+  fwrite(STDERR, "FAIL: no ambiguous menu location on this site -- the refusal assertion would check nothing\n"); exit(1);
+}
+// menu id => every language Polylang records it under.
+$claims = [];
+foreach ($assign as $loc => $per) {
+  foreach ((array) $per as $lang => $mid) { $claims[(int) $mid][] = $lang; }
+}
+$bad = 0; $checked = 0;
+foreach ($m["items"] as $it) {
+  if (($it["kind"] ?? "") !== "menu") { continue; }
+  $checked++;
+  $mid = (int) ($it["menu_id"] ?? 0);
+  foreach ($claims[$mid] ?? [] as $lang) {
+    if ($lang !== $third) {
+      fwrite(STDERR, "FAIL: export claimed menu $mid as the \"$third\" source menu for location {$it["location"]}, but Polylang records it as the \"$lang\" menu\n");
+      $bad++;
+    }
+  }
+}
+if (substr_count($out, "refusing to guess") < $ambig) {
+  fwrite(STDERR, "FAIL: export did not report refusing to guess for all $ambig ambiguous location(s):\n$out\n"); exit(1);
+}
+echo "  $ambig ambiguous location(s) refused, $checked menu item(s) exported\n";
+exit($bad === 0 ? 0 : 1);
+' "$GUESS_MAN" "$THIRD" "$NAV_ASSIGN_JSON" "$AMBIGUOUS_LOCS" "$GUESS_OUT" || { echo "FAIL: export guessed a menu belonging to another language"; exit 1; }
+rm -f "$GUESS_MAN"
+
+THIRD_MAN="$FIXTURE_TMPDIR/manifest-third.json"
+THIRD_SRC_ID="$(cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" PLL_CHK_THIRD="$THIRD" PLL_CHK_MAN="$THIRD_MAN" wp eval '
+$src = getenv("PLL_CHK_SRC"); $dst = getenv("PLL_CHK_DST"); $third = getenv("PLL_CHK_THIRD");
 $src_id = null;
 foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","fields"=>"ids"]) as $id) {
   if (pll_get_post_language($id) !== $src) continue;
@@ -408,7 +588,7 @@ foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","
 if (!$src_id) { fwrite(STDERR, "no source page with a target-language counterpart found\n"); exit(1); }
 $manifest = array(
   "source_lang" => $src,
-  "target_lang" => "fr",
+  "target_lang" => $third,
   "site_url"    => home_url(),
   "items"       => array( array(
     "id"        => "post:$src_id",
@@ -417,7 +597,7 @@ $manifest = array(
     "source_id" => (int) $src_id,
     "target_id" => null,
     "hash"      => str_repeat("f", 64),
-    "fields"    => array("post_title" => "[FR] third language test"),
+    "fields"    => array("post_title" => "[" . strtoupper($third) . "] third language test"),
     "acf"       => array(),
   ) ),
 );
@@ -427,40 +607,45 @@ echo $src_id;
 
 run "$SCRIPTS/pll-import.php" "$THIRD_MAN" >/dev/null || { echo "FAIL: import for a third language exited non-zero"; exit 1; }
 
-(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" PLL_CHK_DST="$DST" wp eval '
-$src_id = (int) getenv("PLL_CHK_SRC_ID"); $dst = getenv("PLL_CHK_DST");
+(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" PLL_CHK_DST="$DST" PLL_CHK_THIRD="$THIRD" wp eval '
+$src_id = (int) getenv("PLL_CHK_SRC_ID"); $dst = getenv("PLL_CHK_DST"); $third = getenv("PLL_CHK_THIRD");
 $t = pll_get_post_translations($src_id);
 if (empty($t[$dst])) { echo "  pre-existing $dst counterpart was dropped from the group: " . json_encode($t) . "\n"; exit(1); }
-if (empty($t["fr"])) { echo "  fr counterpart missing from the group: " . json_encode($t) . "\n"; exit(1); }
-echo "  group after adding fr: " . json_encode($t) . "\n";
+if (empty($t[$third])) { echo "  $third counterpart missing from the group: " . json_encode($t) . "\n"; exit(1); }
+echo "  group after adding $third: " . json_encode($t) . "\n";
 exit(0);
 ' --allow-root) || { echo "FAIL: third-language import destroyed the existing translation group"; exit 1; }
 
-# Clean up the scaffolding: delete the fr post, any terms Polylang
-# auto-duplicated into fr (e.g. the default category -- add_language()
+# Clean up the scaffolding: delete the third-language post, any terms Polylang
+# auto-duplicated into it (e.g. the default category -- add_language()
 # duplicates default terms into every translated taxonomy, and
 # languages->delete() only unlinks the language, it does not remove those
 # term rows), and the temporary language itself, so re-running this suite
-# against the same site starts from the same state.
-(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" wp eval '
-$src_id = (int) getenv("PLL_CHK_SRC_ID");
+# against the same site starts from the same state. Safe to delete everything
+# in that language for the same reason cleanup() is: the probe above proved the
+# language did not exist before this run created it.
+(cd "$SITE" && PLL_CHK_SRC_ID="$THIRD_SRC_ID" PLL_CHK_THIRD="$THIRD" wp eval '
+$src_id = (int) getenv("PLL_CHK_SRC_ID"); $third = getenv("PLL_CHK_THIRD");
 $t = pll_get_post_translations($src_id);
-if (!empty($t["fr"])) { wp_delete_post((int) $t["fr"], true); }
+if (!empty($t[$third])) { wp_delete_post((int) $t[$third], true); }
 
 foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $tax ) {
   $terms = get_terms( array( "taxonomy" => $tax, "hide_empty" => false ) );
   if ( is_wp_error( $terms ) ) { continue; }
   foreach ( $terms as $term ) {
-    if ( pll_get_term_language( $term->term_id ) === "fr" ) {
+    if ( pll_get_term_language( $term->term_id ) === $third ) {
       wp_delete_term( $term->term_id, $tax );
     }
   }
 }
 
-$lang = PLL()->model->get_language("fr");
+$lang = PLL()->model->get_language($third);
 if ($lang) { PLL()->model->languages->delete($lang->term_id); }
 ' --allow-root) >/dev/null
 rm -f "$THIRD_MAN"
+FIXTURE_THIRD_LANG=""
+
+fi # third-language block
 
 echo "── import refuses a manifest referencing missing objects ──"
 BEFORE="$(cd "$SITE" && wp post list --post_type=any --format=count --allow-root)"
@@ -554,22 +739,41 @@ if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated menu lost its parent-child nesting"; exit 1; }
 
-echo "── post_type_archive menu items are copied, not dropped ──"
+echo "── post_type_archive menu items are copied, and resolve to the target language ──"
 # An archive item is keyed by a post type slug, so there is no per-language
 # object to re-point it at -- but it does not need one. wp_setup_nav_menu_item()
-# resolves the URL at RENDER time via get_post_type_archive_link(), and
-# Polylang localizes that against the current language (measured on this site,
-# Polylang 3.8.7 / force_lang=1: /tienda/ with curlang=es, /en/tienda/ with
-# curlang=en). So the item must be COPIED. Skipping it deletes a working nav
-# entry from every translated menu; copying $mi->url instead would freeze the
-# SOURCE permalink into the translated menu, which is why _menu_item_url is
-# asserted empty here.
+# resolves the URL at RENDER time via get_post_type_archive_link(), which
+# Polylang localizes against the CURRENT language -- but only for post types it
+# translates: PLL_Filters_Links::post_type_archive_link() (polylang/src/
+# filters-links.php:200) localizes iff is_translated_post_type($pt) && "post"
+# !== $pt, and returns the link untouched otherwise. So the item must be
+# COPIED. Skipping it deletes a working nav entry from every translated menu;
+# copying $mi->url instead would freeze the SOURCE permalink into the
+# translated menu, which is why _menu_item_url is asserted empty here.
+#
+# _menu_item_url === "" plus url !== "" does NOT prove any of that on its own:
+# under WP-CLI PLL()->curlang is null, so every archive link comes back
+# unlocalized and the two states the assertion is meant to tell apart look
+# identical. Localization IS the whole premise of copying rather than
+# re-pointing, so curlang is set explicitly here and the link is compared
+# against the same call made under the SOURCE language -- if the two agree, the
+# translated menu is serving source-language archive links and the premise is
+# false.
 (cd "$SITE" && PLL_CHK_SRC="$SRC" PLL_CHK_DST="$DST" wp eval '
 $src = getenv("PLL_CHK_SRC"); $dst = getenv("PLL_CHK_DST");
 $opts = get_option("polylang"); $theme = get_stylesheet();
 $locs = $opts["nav_menus"][$theme] ?? [];
 if (!$locs) { echo "  no per-language menu assignments recorded\n"; exit(1); }
-$bad = 0; $checked = 0;
+
+$src_lang = PLL()->model->get_language($src);
+$dst_lang = PLL()->model->get_language($dst);
+if (!$src_lang || !$dst_lang) { echo "  FAIL: could not load the language objects\n"; exit(1); }
+
+// Everything below reads menu items with the TARGET language current, which is
+// what a visitor browsing the translated site has.
+PLL()->curlang = $dst_lang;
+
+$bad = 0; $checked = 0; $localized = 0;
 foreach ($locs as $loc => $per_lang) {
   if (empty($per_lang[$src]) || empty($per_lang[$dst])) { echo "  location $loc has no $src/$dst menu pair\n"; $bad++; continue; }
   $target_archives = [];
@@ -585,11 +789,28 @@ foreach ($locs as $loc => $per_lang) {
     $ti = $target_archives[$si->object];
     $frozen = get_post_meta($ti->ID, "_menu_item_url", true);
     if ($frozen !== "") { echo "  archive item {$ti->ID} froze a source URL: $frozen\n"; $bad++; }
-    if ($ti->url === "") { echo "  archive item {$ti->ID} resolves to no URL at all\n"; $bad++; }
+    if ($ti->url === "") { echo "  archive item {$ti->ID} resolves to no URL at all\n"; $bad++; continue; }
+
+    // Only these are localized at all -- see the filter cited above.
+    if (!PLL()->model->is_translated_post_type($si->object) || "post" === $si->object) { continue; }
+    $localized++;
+    PLL()->curlang = $dst_lang;
+    $want_dst = get_post_type_archive_link($si->object);
+    PLL()->curlang = $src_lang;
+    $want_src = get_post_type_archive_link($si->object);
+    PLL()->curlang = $dst_lang;
+    if ($want_dst === $want_src) {
+      echo "  Polylang did not localize the {$si->object} archive link at all ($want_dst); the premise for copying this item is false\n"; $bad++; continue;
+    }
+    if ($ti->url !== $want_dst) {
+      echo "  archive item {$ti->ID} resolves to {$ti->url}, not the $dst link $want_dst\n"; $bad++; continue;
+    }
+    echo "  {$si->object} archive: $src -> $want_src, $dst -> {$ti->url}\n";
   }
 }
-echo "  checked $checked post_type_archive item(s)\n";
+echo "  checked $checked post_type_archive item(s), $localized of them localizable\n";
 if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
+if ($localized === 0) { echo "  FAIL: no localizable archive item checked; the localization claim went unverified\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: post_type_archive menu items did not survive translation"; exit 1; }
 

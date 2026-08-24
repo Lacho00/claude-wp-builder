@@ -201,12 +201,49 @@ $theme_slug   = get_stylesheet();
 $pll_options  = get_option( 'polylang' );
 $assignments  = isset( $pll_options['nav_menus'][ $theme_slug ] ) ? $pll_options['nav_menus'][ $theme_slug ] : array();
 
+$menu_locations = get_nav_menu_locations();
+
 foreach ( get_registered_nav_menus() as $location => $label ) {
-	$source_menu_id = isset( $assignments[ $location ][ $source ] ) ? (int) $assignments[ $location ][ $source ] : 0;
+	// Polylang's synthetic per-language keys. PLL_Nav_Menu::create_nav_menu_locations()
+	// OVERWRITES $_wp_registered_nav_menus with combined `loc___lang` keys, so
+	// get_registered_nav_menus() does yield them wherever admin_init or
+	// customize_register has fired. They are not real theme locations: the
+	// theme never registered them, nothing renders them under that name, and
+	// $assignments is keyed by the BARE location, so every one of them would
+	// fall straight through to the bare-menu guess below. Skipped outright.
+	if ( false !== strpos( $location, '___' ) ) {
+		continue;
+	}
+
+	$per_language   = isset( $assignments[ $location ] ) ? (array) $assignments[ $location ] : array();
+	$source_menu_id = isset( $per_language[ $source ] ) ? (int) $per_language[ $source ] : 0;
 
 	if ( ! $source_menu_id ) {
-		$locations = get_nav_menu_locations();
-		$source_menu_id = isset( $locations[ $location ] ) ? (int) $locations[ $location ] : 0;
+		// The bare location key is NOT language-neutral: Polylang unsets the
+		// non-default locations before writing the theme mod
+		// (admin-nav-menu.php) and rewrites them when the default language
+		// changes (Model/Languages.php), so this key holds the DEFAULT
+		// language's menu. Taking it unconditionally exports the default
+		// language's labels as though they were the source language's --
+		// reachable by exporting from any non-default source language, and
+		// again whenever update_nav_menu_locations() has stored the falsy 0 it
+		// writes for an unassigned location. Accept it only once no other
+		// language is recorded as owning it; otherwise refuse and say so,
+		// because a wrong menu here is invisible in the manifest.
+		$candidate = isset( $menu_locations[ $location ] ) ? (int) $menu_locations[ $location ] : 0;
+		$claimed_by_other_language = '';
+		foreach ( $per_language as $lang => $menu_id ) {
+			if ( $candidate && (int) $menu_id === $candidate && $lang !== $source ) {
+				$claimed_by_other_language = (string) $lang;
+				break;
+			}
+		}
+		if ( '' !== $claimed_by_other_language ) {
+			pllx_warn( "Menu location '$location' has no '$source' menu recorded; its menu ($candidate) is recorded as the '$claimed_by_other_language' menu, so this location is refusing to guess and was not exported." );
+			pllx_warn( "  Assign a '$source' menu to '$location' in Appearance > Menus, then re-run." );
+			continue;
+		}
+		$source_menu_id = $candidate;
 	}
 	if ( ! $source_menu_id ) {
 		continue;
