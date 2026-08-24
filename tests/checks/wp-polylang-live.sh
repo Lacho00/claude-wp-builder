@@ -76,6 +76,10 @@ FIXTURE_ARCHIVE_PT=""
 # Set ONLY once this run has itself created the third language. While it is
 # empty, cleanup() does not go near that language -- see the probe below.
 FIXTURE_THIRD_LANG=""
+# Set only while a real post on the site has had its language stripped by the
+# verify test below. cleanup() restores it; see the comment there.
+VERIFY_VICTIM=""
+VERIFY_VICTIM_LANG=""
 
 # Every temp file this suite writes lives here, so a failure at any of the
 # dozen `exit 1` sites cannot leak a manifest into /tmp. mktemp -d rather than
@@ -90,7 +94,7 @@ cleanup() {
   # Nothing was created yet -- do not run a site mutation just to delete zero
   # objects. This matters because the trap is armed before the first fixture
   # object exists, on purpose, so the temp dir above is always removed.
-  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG" ]]; then
+  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM" ]]; then
     return $status
   fi
   (cd "$SITE" \
@@ -101,6 +105,8 @@ cleanup() {
        PLL_FIX_SRC="$SRC" \
        PLL_FIX_DST="$DST" \
        PLL_FIX_THIRD="$FIXTURE_THIRD_LANG" \
+       PLL_FIX_VICTIM="$VERIFY_VICTIM" \
+       PLL_FIX_VICTIM_LANG="$VERIFY_VICTIM_LANG" \
        wp eval '
 $posts      = array_filter( array_map( "intval", explode( ",", (string) getenv( "PLL_FIX_POSTS" ) ) ) );
 $items      = array_filter( array_map( "intval", explode( ",", (string) getenv( "PLL_FIX_ITEMS" ) ) ) );
@@ -109,6 +115,14 @@ $archive_pt = (string) getenv( "PLL_FIX_PT" );
 $src        = (string) getenv( "PLL_FIX_SRC" );
 $dst        = (string) getenv( "PLL_FIX_DST" );
 $third      = (string) getenv( "PLL_FIX_THIRD" );
+
+// Restore before any deletion: this is a REAL post on the site whose language
+// the verify test stripped, not fixture output. If the run died between the
+// break and the repair, this is the only thing that puts it back.
+$victim = (int) getenv( "PLL_FIX_VICTIM" );
+if ( $victim && get_post( $victim ) ) {
+  pll_set_post_language( $victim, (string) getenv( "PLL_FIX_VICTIM_LANG" ) );
+}
 
 // Counterparts first, while the translation groups still exist.
 $all = $posts;
@@ -813,6 +827,58 @@ if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 if ($localized === 0) { echo "  FAIL: no localizable archive item checked; the localization claim went unverified\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: post_type_archive menu items did not survive translation"; exit 1; }
+
+echo "── verify passes on a freshly imported site ──"
+VERIFY_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)" || {
+  echo "$VERIFY_OUT"; echo "FAIL: verify rejected a site it should accept"; exit 1; }
+echo "$VERIFY_OUT"
+
+# An exit code alone would pass on a verifier that audited nothing. Assert the
+# counts it reports are real.
+V_POSTS="$(sed -n 's/.*posts=\([0-9]*\).*/\1/p' <<<"$VERIFY_OUT" | head -1)"
+V_TERMS="$(sed -n 's/.*terms=\([0-9]*\).*/\1/p' <<<"$VERIFY_OUT" | head -1)"
+[[ -n "$V_POSTS" && -n "$V_TERMS" ]] || { echo "FAIL: verify printed no audited counts"; exit 1; }
+(( V_POSTS > 0 )) || { echo "FAIL: verify audited 0 posts — vacuous pass"; exit 1; }
+echo "  verify audited $V_POSTS post(s), $V_TERMS term(s)"
+
+echo "── verify catches a broken translation group ──"
+# This block STRIPS THE LANGUAGE off a real post on the live site. Every exit
+# path between the break and the repair must put it back, or a failure at the
+# `verify accepted...` assertion leaves a language-less post behind on a site
+# the user pointed the suite at. That is ruling T5-M's defect class in
+# miniature: a test harness damaging content on the failure path. The repair is
+# therefore registered with cleanup() BEFORE the break, not written only on the
+# success path.
+#
+# Only the language taxonomy relationship is deleted; post_translations (the
+# group) is a different taxonomy and is untouched, so pll_set_post_language()
+# restores the original state exactly.
+VICTIM="$(cd "$SITE" && PLL_SRC="$SRC" PLL_DST="$DST" wp eval '
+$src = getenv("PLL_SRC"); $dst = getenv("PLL_DST");
+foreach (get_posts(["post_type"=>"page","numberposts"=>-1,"post_status"=>"any","fields"=>"ids"]) as $id) {
+  if (pll_get_post_language($id) !== $src) { continue; }
+  $t = pll_get_post_translations($id);
+  if (!empty($t[$dst])) { echo (int) $t[$dst]; return; }
+}
+' --allow-root)"
+[[ -n "$VICTIM" ]] || { echo "FAIL: no translated page to break"; exit 1; }
+
+# Armed before the break; cleared after the repair. cleanup() restores the
+# language iff this is non-empty.
+VERIFY_VICTIM="$VICTIM"
+VERIFY_VICTIM_LANG="$DST"
+
+# Break it the way a hand-edited database would: strip the language assignment.
+(cd "$SITE" && PLL_VICTIM="$VICTIM" wp eval 'wp_delete_object_term_relationships((int) getenv("PLL_VICTIM"), "language");' --allow-root)
+
+if run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null 2>&1; then
+  echo "FAIL: verify accepted a post with no language"; exit 1
+fi
+
+# Put it back so the suite is re-runnable.
+(cd "$SITE" && PLL_VICTIM="$VICTIM" PLL_DST="$DST" wp eval 'pll_set_post_language((int) getenv("PLL_VICTIM"), getenv("PLL_DST"));' --allow-root)
+VERIFY_VICTIM=""
+run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after repair"; exit 1; }
 
 echo "── remove this run's fixture ──"
 # Deletion, not a re-run of export+import. The teardown used to resync by
