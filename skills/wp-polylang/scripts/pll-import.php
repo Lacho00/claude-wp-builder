@@ -337,11 +337,21 @@ foreach ( $manifest['items'] as $item ) {
 			} elseif ( 'custom' === $mi->type ) {
 				$args['menu-item-url'] = $mi->url;
 			} elseif ( 'post_type_archive' === $mi->type ) {
-				// Keyed by a post type slug, not an object id -- there is no
-				// per-language counterpart to look up, and copying $mi->url
-				// verbatim would carry the SOURCE language's archive
-				// permalink into the target menu. Nothing safe to write here.
-				$skip_reason = 'post type archive links are not re-pointable';
+				// Keyed by a post type slug, not an object id, so there is no
+				// per-language counterpart to look up -- and none is needed.
+				// wp_setup_nav_menu_item() resolves an archive item's URL at
+				// RENDER time through get_post_type_archive_link(), and
+				// Polylang localizes that against the current language.
+				// Measured on Polylang 3.8.7 with force_lang=1: the same call
+				// returns /tienda/ with curlang=es and /en/tienda/ with
+				// curlang=en. So this item is COPIED, not re-pointed:
+				// menu-item-object carries the post type slug and
+				// menu-item-url is deliberately left unset, since writing
+				// $mi->url would freeze the SOURCE permalink into the
+				// translated menu. Skipping it, which an earlier version did,
+				// silently deletes a working nav entry from every translated
+				// menu.
+				$args['menu-item-object'] = $mi->object;
 			} else {
 				$skip_reason = "unhandled menu item type '{$mi->type}'";
 			}
