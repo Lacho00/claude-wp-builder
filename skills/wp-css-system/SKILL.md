@@ -4,15 +4,22 @@ description: CSS design system standards — custom properties, BEM naming, spac
 user-invocable: false
 ---
 
+> **Applies to `template=basic` only.** If the project's `.claude/CLAUDE.md` says
+> `Template: tailwind`, stop and use the `wp-tailwind-system` skill instead. The two
+> are mutually exclusive: this skill's BEM + `:root` custom-property system is the
+> wrong output surface for a Tailwind theme.
+
 # CSS Design System Standards
 
-This skill defines the CSS architecture for all themes. The system uses **CSS custom properties** (variables), **BEM naming**, and **no build tools** -- plain CSS files served directly.
+This skill defines the CSS architecture for `template=basic` themes. The system uses **CSS custom properties** (variables), **BEM naming**, and **no build tools** -- plain CSS files served directly.
 
 ---
 
 ## Principles
 
-1. **No frameworks** -- no Bootstrap, Tailwind, Foundation, or any CSS framework
+1. **No frameworks on this template** -- `basic` themes use no Bootstrap, Tailwind,
+   Foundation, or any CSS framework. (A `tailwind` project is not covered by this
+   skill at all — see the banner above.)
 2. **No preprocessors** -- no Sass, Less, or PostCSS
 3. **No build step** -- CSS files are authored and served as-is
 4. **All values use custom properties** -- never hardcode colors, spacing, font sizes, or other design tokens directly in rules
