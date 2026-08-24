@@ -41,6 +41,26 @@ Read `.claude/CLAUDE.md` to extract:
 
 ## Step 3: Generate by Type
 
+### CSS agent routing
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+- `basic` → dispatch `wp-css` exactly as described below.
+- `tailwind` → dispatch `wp-tailwind` in **author** mode instead, passing the page
+  slug (which selects `components/<slug>.css`) and the block name. The agent reads
+  `skills/wp-tailwind-system/SKILL.md` for the decision ladder. It writes utility
+  classes into the markup and only adds `@apply` rules where the ladder demands
+  them. It must never write `assets/css/styles.css`.
+
+Dispatch exactly one of the two, never both.
+
+This routing governs every "Dispatch **wp-css** agent" step below (blog, generic,
+legal, 404, search, embed, custom) — each one marks its `tailwind` counterpart with
+`(routed — see "CSS agent routing" above)` rather than repeating the block.
+
+---
+
 ### Type: blog
 
 Dispatch **wp-template** agent:
@@ -116,7 +136,7 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - Simple, clean layout with `.page-generic__*` BEM classes
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add generic page CSS to `assets/css/styles.css` within delimiters. Include: content width constraint, typography for body content (headings, paragraphs, lists, blockquotes), responsive spacing.
 
@@ -149,7 +169,7 @@ Dispatch **wp-acf** agent:
 > - Fields: `legal_title` (text, bilingual), `legal_last_updated` (date_picker), `legal_content` (wysiwyg, bilingual)
 > - Group key: `group_legal`
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add legal page CSS to `assets/css/styles.css` within delimiters. Include: narrow content width, readable typography, heading anchors, list styling, last-updated styling.
 
@@ -174,7 +194,7 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - BEM classes: `.error-404__*`, matching the design tokens in the theme CSS
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add 404 page CSS to `assets/css/styles.css` within delimiters, using the project's
 > design-system custom properties (no new colors). Include: centered layout, large 404
@@ -198,7 +218,7 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - BEM classes: `.search-results__*`, matching the design tokens in the theme CSS
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add search-results + no-results state CSS to the theme stylesheet within delimiters,
 > using the project's design-system custom properties (no new colors).
@@ -228,7 +248,7 @@ Dispatch **wp-acf** agent (optional, chrome only):
 
 > Generate `fields/<slug>.php`: heading/intro/notes fields bound to the `<Slug> Page` template. NOT the provider data. Group key `group_<slug>`.
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add `.embed-<slug>` container + placeholder styling within delimiters, using design-system custom properties (no new colors).
 
@@ -261,7 +281,7 @@ Dispatch **wp-acf** agent (if the page has custom fields):
 > - Fields based on the page content requirements
 > - Group key: `group_<name>`
 
-Dispatch **wp-css** agent:
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add custom page CSS to `assets/css/styles.css` within delimiters.
 

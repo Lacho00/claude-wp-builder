@@ -89,6 +89,20 @@ Dispatch the **wp-acf** agent with these instructions:
 >
 > All fields use `'option'` as post ID. Instructions on Spanish fields: "Leave empty to use English version."
 
+### CSS agent routing
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+- `basic` → dispatch `wp-css` exactly as described below.
+- `tailwind` → dispatch `wp-tailwind` in **author** mode instead. The footer's
+  `@apply` target is `layouts/footer.css`, created only if a rule is genuinely
+  needed — a footer expressible in utilities produces no CSS file at all. The agent
+  reads `skills/wp-tailwind-system/SKILL.md`. It must never write
+  `assets/css/styles.css`.
+
+Dispatch exactly one of the two, never both.
+
 ## Step 6: Dispatch wp-css Agent
 
 Dispatch the **wp-css** agent with these instructions:

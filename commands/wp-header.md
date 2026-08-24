@@ -59,6 +59,20 @@ Dispatch the **wp-template** agent with these instructions:
 >
 > Make sure to match the visual layout from the demo as closely as possible.
 
+### CSS agent routing
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+- `basic` → dispatch `wp-css` exactly as described below.
+- `tailwind` → dispatch `wp-tailwind` in **author** mode instead. The header's
+  `@apply` target is `layouts/header.css`, created only if a rule is genuinely
+  needed — a nav expressible in utilities produces no CSS file at all. The agent
+  reads `skills/wp-tailwind-system/SKILL.md`. It must never write
+  `assets/css/styles.css`.
+
+Dispatch exactly one of the two, never both.
+
 ## Step 5: Dispatch wp-css Agent
 
 Dispatch the **wp-css** agent with these instructions:
