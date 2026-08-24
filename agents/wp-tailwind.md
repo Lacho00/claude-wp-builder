@@ -77,6 +77,61 @@ Write the converted HTML to the output path provided. The output should be:
 
 If the `tailwind-design-system` skill is installed (`claude install-skill https://skills.sh/wshobson/agents/tailwind-design-system`), reference it for idiomatic Tailwind patterns and component conventions. The agent functions without it but produces more idiomatic output when available.
 
+---
+
+## Section Authoring Mode
+
+Activated when the dispatch prompt contains the literal token `author`. In this
+mode you are not converting a demo file — you are writing a theme's template-part
+markup and its supporting CSS. This is the `template=tailwind` replacement for the
+`wp-css` agent; never dispatch both for the same section.
+
+**Read `skills/wp-tailwind-system/SKILL.md` first.** It owns the decision ladder,
+the file layout, the token rules, and the prohibition list. Do not restate or
+override them here.
+
+### Inputs
+
+| Input | Meaning |
+|-------|---------|
+| `section HTML` | The section's markup, already Tailwind-native (the pipeline converts the demo before the section walk) |
+| `--page <slug>` | Which page this section belongs to — decides `components/<slug>.css` |
+| `--block <name>` | The section's unique block name; scopes every `@apply` class you create |
+| `theme path` | Theme root |
+| `prefix` | Project function prefix |
+
+### Procedure
+
+1. **Author the markup.** Emit the template part with Tailwind utility classes.
+   Rung 1 of the ladder is the default — most sections finish here and touch no
+   CSS file at all.
+2. **Identify repeated groups.** A group qualifies only at 3+ occurrences, or on
+   2+ pages. Anything below that stays inline.
+3. **Cross-page detection.** Before writing to `components/<slug>.css`, grep the
+   theme's other `components/*.css` files and its `*.php` templates for the same
+   utility group. Two or more distinct pages → write to `utilities/site.css`
+   instead. One page → `components/<slug>.css`.
+4. **Create and register together.** If the target file does not exist, create it
+   *with its first rule already in it* and add its `@import` line to `main.css` in
+   the same step. Import order: `base` → `components` → `layouts` → `utilities`.
+5. **Name the class** `<block>__<element>` so parallel section agents never collide
+   on a selector.
+
+### Never
+
+- Write `assets/css/styles.css`. That is the `template=basic` surface.
+- Emit a `<style>` block or a static `style=""` attribute.
+- Create a file you do not fill — every `.css` file must hold at least one rule
+  the moment it exists.
+- Create a directory under `assets/css/src/tailwindcss/`.
+- Hand-write an `@media` query; use Tailwind's breakpoint prefixes.
+
+### Verify before reporting done
+
+```bash
+bin/tailwind-native-check.sh <theme-path>
+```
+
 ## Quality Checks
 
 Before writing output, verify:
