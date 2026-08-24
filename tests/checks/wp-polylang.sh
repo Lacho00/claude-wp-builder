@@ -16,4 +16,15 @@ done
 # The failure mode the skill exists to prevent must be named explicitly.
 grep -qi 'post_translations' "$s" || { echo "FAIL: does not mention the post_translations taxonomy"; exit 1; }
 grep -qi 'wp-bilingual' "$s" || { echo "FAIL: does not relate itself to wp-bilingual"; exit 1; }
+
+c=commands/wp-polylang.md
+test -f "$c" || { echo "FAIL: $c missing"; exit 1; }
+head -1 "$c" | grep -q '^---$' || { echo "FAIL: command has no frontmatter"; exit 1; }
+grep -q 'allowed-tools:' "$c" || { echo "FAIL: no allowed-tools"; exit 1; }
+grep -q 'argument-hint:' "$c" || { echo "FAIL: no argument-hint"; exit 1; }
+for token in pll-setup.php pll-export.php pll-import.php pll-verify.php \
+             'wp eval-file' wp-polylang; do
+  grep -q "$token" "$c" || { echo "FAIL: command doc missing '$token'"; exit 1; }
+done
+grep -q 'wp plugin install polylang' "$c" || { echo "FAIL: command doc does not install Polylang"; exit 1; }
 echo PASS

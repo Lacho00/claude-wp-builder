@@ -289,6 +289,7 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 | `/wp-audit` | Comprehensive audit — security, SEO, accessibility, performance, best practices |
 | `/wp-debug` | Diagnose WordPress issues with WP-CLI |
 | `/wp-clone` | Clone remote/staging site to local dev |
+| `/wp-polylang` | Translate an existing site into a second language using Polylang |
 
 ## Architecture
 
@@ -298,6 +299,7 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 |-------|---------|
 | `wp-theme-standards` | WordPress legacy theme best practices (enqueueing, escaping, hooks, security) |
 | `wp-bilingual` | i18n methodology using ACF `_suffix` pattern with transparent helpers |
+| `wp-polylang` | Polylang multilingual methodology — one post per language, driven through the `pll_*` API |
 | `wp-css-system` | CSS design system: custom properties, BEM naming, scales |
 | `wp-demo` | Demo HTML creation methodology |
 | `wp-responsive` | Mobile-first responsive patterns, fluid typography, touch targets |
