@@ -74,7 +74,7 @@ Fold `constraints` into the guidance passed to every dispatched agent (e.g. form
 These rules are evaluated in priority order — `delivery` decides first, so the `idx`/`plugin`
 rule always wins over the no-demo-HTML rule.
 
-### Step 2.6 — Demo conversion (tailwind template only)
+## Step 2.6: Phase 1.6 — Demo conversion (tailwind template only)
 
 Skip this step entirely when `template == basic`.
 
