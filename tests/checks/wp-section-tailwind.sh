@@ -21,4 +21,12 @@ grep -q 'assets/css/styles.css' "$f" \
 awk '/TRANSCRIPTION MODE OVERLAY/,/^---$/' "$f" | grep -q 'tailwind' \
   || { echo "FAIL: transcription overlay has no tailwind branch"; exit 1; }
 
+# The CONTACT section's two-phase dispatch must route by template too — it must
+# not hardcode wp-css as its Agent 3, and must point at the routing table instead.
+contact_block=$(awk '/### For CONTACT sections: Two-Phase Dispatch/,/^Wait for all Phase 1 agents to complete/' "$f")
+echo "$contact_block" | grep -q '^#### Agent 3: wp-css$' \
+  && { echo "FAIL: CONTACT block still hardcodes wp-css as Agent 3"; exit 1; }
+echo "$contact_block" | grep -qi 'CSS agent routing' \
+  || { echo "FAIL: CONTACT block's Agent 3 does not point at the CSS agent routing table"; exit 1; }
+
 echo PASS

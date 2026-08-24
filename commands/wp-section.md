@@ -99,14 +99,14 @@ normal design-system authoring path unchanged.
   and the `--block` name. This activates wp-css **Transcription Mode** (see
   `agents/wp-css.md`): the demo CSS is the SOURCE OF TRUTH — copy its exact declared values
   and geometry, do NOT re-author, and scope every selector under `--block`.
-- **wp-template:** instruct it to scope all BEM classes under the `--block` name (use
-  `<block>__<element>` instead of `<section>__<element>`) so the transcribed CSS and the
-  markup share the same unique block and parallel sections never collide.
 - **wp-tailwind (tailwind path):** the `--css` source is the *converted* demo, so
   the instruction is "reproduce this geometry using Tailwind utilities", never
   "copy the declared values verbatim". Scope any `@apply` class under `--block`,
   exactly as `wp-css` scopes its BEM selectors. `wp-css` is not dispatched at all
   on this path.
+- **wp-template:** instruct it to scope all BEM classes under the `--block` name (use
+  `<block>__<element>` instead of `<section>__<element>`) so the transcribed CSS and the
+  markup share the same unique block and parallel sections never collide.
 - Because each section's `--block` is unique, parallel agents can never clash on a selector.
 
 ---
@@ -255,9 +255,11 @@ Launch all three agents simultaneously. Provide each agent with the demo section
 
 (Same prompt as non-contact above)
 
-#### Agent 3: wp-css
+#### Agent 3 (routed by template): wp-css or wp-tailwind
 
-(Same prompt as non-contact above)
+Follow the "CSS agent routing" table above — the same table governs both dispatch
+blocks. Dispatch `wp-css` or `wp-tailwind` in author mode (never both) using the
+same prompt as non-contact above.
 
 #### Agent 4: wp-cf7
 
