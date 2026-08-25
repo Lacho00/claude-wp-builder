@@ -130,7 +130,16 @@ foreach ( $manifest['items'] as $item ) {
 			if ( isset( $fields['post_excerpt'] ) ) {
 				$update['post_excerpt'] = $fields['post_excerpt'];
 			}
-			$res = wp_update_post( $update, true );
+			// wp_slash() is required, not cosmetic: wp_insert_post(),
+			// wp_update_post(), wp_insert_term(), wp_update_term() and
+			// wp_update_nav_menu_item() all wp_unslash() their payload before
+			// it reaches the database (core post.php:4981,
+			// taxonomy.php:2510/3301, nav-menu.php:514/531). Handing them a
+			// raw string therefore strips ONE level of backslashes from real
+			// content on every single write, and it compounds once per
+			// export/import cycle: "C:\\Users\\test" becomes "C:Userstest".
+			// Every writer below is slashed for this reason.
+			$res = wp_update_post( wp_slash( $update ), true );
 			if ( is_wp_error( $res ) ) {
 				pllx_warn( "attachment $source_id -> $target_id: " . $res->get_error_message() );
 				continue;
@@ -157,9 +166,9 @@ foreach ( $manifest['items'] as $item ) {
 
 		if ( ! empty( $item['target_id'] ) && get_post( $item['target_id'] ) ) {
 			$postarr['ID'] = (int) $item['target_id'];
-			$target_id     = wp_update_post( $postarr, true );
+			$target_id     = wp_update_post( wp_slash( $postarr ), true );
 		} else {
-			$target_id = wp_insert_post( $postarr, true );
+			$target_id = wp_insert_post( wp_slash( $postarr ), true );
 		}
 
 		if ( is_wp_error( $target_id ) ) {
@@ -210,16 +219,18 @@ foreach ( $manifest['items'] as $item ) {
 
 		if ( ! empty( $item['target_id'] ) && ! is_wp_error( get_term( $item['target_id'], $taxonomy ) ) ) {
 			$target_id = (int) $item['target_id'];
-			$res       = wp_update_term( $target_id, $taxonomy, array(
+			$res       = wp_update_term( $target_id, $taxonomy, wp_slash( array(
 				'name'        => $name,
 				'slug'        => $slug,
 				'description' => isset( $fields['description'] ) ? $fields['description'] : '',
-			) );
+			) ) );
 		} else {
-			$res = wp_insert_term( $name, $taxonomy, array(
+			// $name is a positional argument, so it needs its own wp_slash();
+			// wp_insert_term() unslashes it out of $args just the same.
+			$res = wp_insert_term( wp_slash( $name ), $taxonomy, wp_slash( array(
 				'slug'        => $slug,
 				'description' => isset( $fields['description'] ) ? $fields['description'] : '',
-			) );
+			) ) );
 		}
 
 		if ( is_wp_error( $res ) ) {
@@ -364,7 +375,7 @@ foreach ( $manifest['items'] as $item ) {
 				continue;
 			}
 
-			$new_id = wp_update_nav_menu_item( $target_menu_id, 0, $args );
+			$new_id = wp_update_nav_menu_item( $target_menu_id, 0, wp_slash( $args ) );
 			if ( is_wp_error( $new_id ) ) {
 				pllx_warn( "  menu item '{$mi->title}': " . $new_id->get_error_message() );
 				$menu_skipped_ct++;
@@ -519,7 +530,7 @@ foreach ( $candidate_ids as $target_post_id ) {
 		);
 
 		if ( $new_content !== $content ) {
-			$res = wp_update_post( array( 'ID' => $target_post_id, 'post_content' => $new_content ), true );
+			$res = wp_update_post( wp_slash( array( 'ID' => $target_post_id, 'post_content' => $new_content ) ), true );
 			if ( is_wp_error( $res ) ) {
 				pllx_warn( "post $target_post_id: could not rewrite internal link(s): " . $res->get_error_message() );
 			} else {

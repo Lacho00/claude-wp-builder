@@ -308,13 +308,37 @@ echo "  menu $FIXTURE_MENU_ID: pages $FIXTURE_PARENT_ID/$FIXTURE_CHILD_ID, media
 FIXTURE_CHILD_PERMALINK="$(cd "$SITE" && PLL_CHILD="$FIXTURE_CHILD_ID" wp eval 'echo get_permalink((int) getenv("PLL_CHILD"));' --allow-root)"
 [[ -n "$FIXTURE_CHILD_PERMALINK" ]] || { echo "FAIL: could not read the fixture child page's permalink"; exit 1; }
 
-(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_HREF="$FIXTURE_CHILD_PERMALINK" wp eval '
-$res = wp_update_post(array(
+# The backslash sentinel rides along in the SAME post as the href, on purpose.
+# The link-rewrite pass only writes post_content back when it actually
+# rewrites something, so a post with no link never exercises the write at all
+# -- the corruption and the rewrite have to happen to the same post for the
+# assertion to be capable of failing.
+#
+# wp_slash() here is not decoration: wp_update_post() unslashes what it is
+# given, so seeding this WITHOUT it stores "C:Userstest" and the assertion
+# downstream would pass against a fixture that never held a backslash. That is
+# the vacuous-assertion shape this branch has hit repeatedly; the read-back
+# below proves the fixture really carries the sentinel before anything else
+# runs.
+FIXTURE_SLASH='C:\Users\test and a literal backslash \\ pair'
+(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_HREF="$FIXTURE_CHILD_PERMALINK" PLL_SLASH="$FIXTURE_SLASH" wp eval '
+$res = wp_update_post(wp_slash(array(
   "ID"           => (int) getenv("PLL_PARENT"),
-  "post_content" => "<p>See the <a href=\"" . getenv("PLL_HREF") . "\">fixture child page</a>.</p>",
-), true);
+  "post_content" => "<p>See the <a href=\"" . getenv("PLL_HREF") . "\">fixture child page</a>.</p>"
+                  . "<p>" . getenv("PLL_SLASH") . "</p>",
+)), true);
 if (is_wp_error($res)) { fwrite(STDERR, $res->get_error_message()); exit(1); }
 ' --allow-root) || { echo "FAIL: could not add an internal link to the fixture parent page"; exit 1; }
+
+FIXTURE_SLASH_READBACK="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" wp eval '
+echo get_post_field("post_content", (int) getenv("PLL_PARENT"));
+' --allow-root)"
+[[ "$FIXTURE_SLASH_READBACK" == *"$FIXTURE_SLASH"* ]] || {
+  echo "FAIL: the fixture parent does not actually contain the backslash sentinel after seeding --"
+  echo "      the slash-preservation assertion downstream would be vacuous. Stored content:"
+  echo "      $FIXTURE_SLASH_READBACK"
+  exit 1
+}
 
 echo "── export produces a valid manifest ──"
 MAN="$FIXTURE_TMPDIR/manifest.json"
@@ -556,6 +580,48 @@ case $LINK_STATUS in
   3) echo "FAIL: fixture parent or child counterpart is missing -- cannot test link rewriting"; exit 1 ;;
   *) echo "FAIL: translated content links into the wrong language"; exit 1 ;;
 esac
+
+echo "── backslashes in content survive the round trip ──"
+# WordPress unslashes everything handed to wp_insert_post/wp_update_post right
+# before it hits the database, so any writer that does not wp_slash() its
+# payload silently strips ONE level of backslashes from real content on every
+# write. Two writers in pll-import.php touch this post: the main post write
+# and the link-rewrite pass, which reads post_content out of the DB (already
+# unslashed), rewrites the href and writes it straight back -- so a single
+# rewritten link is enough to eat the backslashes of everything else in that
+# post, and it compounds once per cycle.
+#
+# The sentinel was seeded into the fixture parent and read back at seeding
+# time, so this assertion cannot pass against a fixture that never held one.
+SLASH_TARGET_ID="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_PARENT"));
+$dst = getenv("PLL_DST");
+echo empty($t[$dst]) ? "" : (int) $t[$dst];
+' --allow-root)"
+[[ -n "$SLASH_TARGET_ID" ]] || { echo "FAIL: fixture parent has no $DST counterpart to check backslash survival on"; exit 1; }
+
+SLASH_TARGET_CONTENT="$(cd "$SITE" && PLL_TID="$SLASH_TARGET_ID" wp eval '
+echo get_post_field("post_content", (int) getenv("PLL_TID"));
+' --allow-root)"
+
+# The source must STILL hold it too: the rewrite pass is scoped to target
+# posts, but a regression that widened it would corrupt the original.
+SLASH_SOURCE_CONTENT="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" wp eval '
+echo get_post_field("post_content", (int) getenv("PLL_PARENT"));
+' --allow-root)"
+
+[[ "$SLASH_TARGET_CONTENT" == *"$FIXTURE_SLASH"* ]] || {
+  echo "FAIL: backslashes were stripped from the translated post_content -- a writer in pll-import.php is not wp_slash()ing its payload"
+  echo "      expected to contain: $FIXTURE_SLASH"
+  echo "      target $SLASH_TARGET_ID content: $SLASH_TARGET_CONTENT"
+  exit 1
+}
+[[ "$SLASH_SOURCE_CONTENT" == *"$FIXTURE_SLASH"* ]] || {
+  echo "FAIL: backslashes were stripped from the SOURCE post_content -- the import wrote to a post it should never touch"
+  echo "      source $FIXTURE_PARENT_ID content: $SLASH_SOURCE_CONTENT"
+  exit 1
+}
+echo "  backslash sentinel intact in source $FIXTURE_PARENT_ID and target $SLASH_TARGET_ID"
 
 echo "── internal-link rewrite pass is idempotent (ruling T9-G) ──"
 # A second IMPORT over the SAME manifest FILE is not the right way to
