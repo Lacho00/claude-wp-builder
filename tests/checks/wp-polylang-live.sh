@@ -1023,6 +1023,17 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   update_field("pll_true_false", 0, $id);
   update_field("pll_url", "https://example.com/target-sentinel", $id);
   update_field("pll_image", 80, $id);
+  // Clear the target\x27s repeater and flexible-content rows so every run
+  // exercises the FIRST-WRITE path, where pllx_acf_write() has to build a row
+  // from nothing. Without this the rows survive from the previous run, the
+  // importer only ever overwrites one key inside an existing row, and the
+  // flexible-content assertions below cannot fail: neutralising the
+  // acf_fc_layout backfill in pll-import.php still leaves this suite green,
+  // because the layout tag it exists to restore was never missing. Measured --
+  // with the rows dropped first, the same mutation FAILS with "flexible-content
+  // row count changed across the round trip (0 rows)".
+  delete_field("pll_repeater", $id);
+  delete_field("pll_flex", $id);
   delete_post_meta($id, "_pll_src_hash");
   ' --allow-root)
 
