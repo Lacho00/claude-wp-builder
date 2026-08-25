@@ -9,7 +9,10 @@
  * the problem at item 30 is not acceptable.
  *
  * No rollback is needed on a mid-run failure: hashes are recorded only after a
- * successful write, so re-running resumes where it stopped.
+ * successful write, so re-running resumes where it stopped. For posts that
+ * means after the parent fixup below, not after the inline write -- a child
+ * whose parent could not be resolved must stay dirty so the next run retries
+ * it, otherwise it sits at the site root forever with nothing to notice.
  */
 
 require_once __DIR__ . '/pll-lib.php';
@@ -136,6 +139,10 @@ $written_strings = 0;
 // not exist yet when its child is written -- this map lets the fixup pass run
 // after every post has its counterpart.
 $post_counterparts = array();
+// Post hashes are held here and written only after the parent fixup, so an
+// unresolved parent leaves the child dirty for the next run.
+$post_hashes       = array();
+$parents_unresolved = array();
 
 foreach ( $manifest['items'] as $item ) {
 	if ( 'post' === $item['kind'] ) {
@@ -195,7 +202,7 @@ foreach ( $manifest['items'] as $item ) {
 			}
 
 			$post_counterparts[ $source_id ] = $target_id;
-			update_post_meta( $target_id, PLLX_HASH_META, $item['hash'] );
+			$post_hashes[ $source_id ]       = $item['hash'];
 			$written++;
 			$written_attach++;
 			pllx_info( "  attachment $source_id -> $target_id" );
@@ -249,7 +256,7 @@ foreach ( $manifest['items'] as $item ) {
 		}
 
 		$post_counterparts[ $source_id ] = $target_id;
-		update_post_meta( $target_id, PLLX_HASH_META, $item['hash'] );
+		$post_hashes[ $source_id ]       = $item['hash'];
 		$written++;
 		$written_posts++;
 		pllx_info( "  post $source_id -> $target_id" );
@@ -502,7 +509,9 @@ foreach ( $post_counterparts as $source_id => $target_id ) {
 	if ( empty( $parent_translations[ $target ] ) ) {
 		// Parent has no counterpart yet (not in this manifest, or not yet
 		// translated). Nothing to point at; leave post_parent at 0 rather
-		// than guess.
+		// than guess -- but do NOT record this child's hash, or the next
+		// export will consider it current and it will never be revisited.
+		$parents_unresolved[ $source_id ] = true;
 		continue;
 	}
 
@@ -514,10 +523,35 @@ foreach ( $post_counterparts as $source_id => $target_id ) {
 
 	if ( is_wp_error( $res ) ) {
 		pllx_warn( "post $target_id: could not set post_parent to $target_parent_id: " . $res->get_error_message() );
+		$parents_unresolved[ $source_id ] = true;
 		continue;
 	}
 
 	$parents_fixed++;
+}
+
+// Now, and only now, are post hashes safe to record. A child written with
+// post_parent = 0 whose parent turned out to have no counterpart -- because
+// the parent's own write failed earlier in this run, or it simply is not
+// translated yet -- is deliberately left without a hash, so the next export
+// picks it up again and the fixup gets another chance. Recording it inline,
+// as this used to, made that child permanently invisible: its hash matched,
+// so it never re-entered a manifest, so the fixup never saw it again, and it
+// sat at the site root with a changed permalink that nothing reports.
+$hashes_withheld = 0;
+foreach ( $post_hashes as $source_id => $hash ) {
+	if ( isset( $parents_unresolved[ $source_id ] ) ) {
+		$hashes_withheld++;
+		continue;
+	}
+	update_post_meta( $post_counterparts[ $source_id ], PLLX_HASH_META, $hash );
+}
+if ( $hashes_withheld ) {
+	pllx_warn( sprintf(
+		'%d post(s) left unhashed because their parent has no %s counterpart yet; re-run after translating the parent.',
+		$hashes_withheld,
+		$target
+	) );
 }
 
 // ── Internal link rewrite pass ──────────────────────────────────────────────

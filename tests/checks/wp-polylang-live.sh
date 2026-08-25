@@ -69,6 +69,8 @@ echo "── seed this run's fixture content ──"
 # another.
 FIXTURE_PARENT_ID=""
 FIXTURE_CHILD_ID=""
+ORPHAN_PARENT_ID=""
+ORPHAN_CHILD_ID=""
 FIXTURE_MEDIA_ID=""
 FIXTURE_ITEM_IDS=""
 FIXTURE_MENU_ID=""
@@ -94,11 +96,11 @@ cleanup() {
   # Nothing was created yet -- do not run a site mutation just to delete zero
   # objects. This matters because the trap is armed before the first fixture
   # object exists, on purpose, so the temp dir above is always removed.
-  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM" ]]; then
+  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM$ORPHAN_PARENT_ID$ORPHAN_CHILD_ID" ]]; then
     return $status
   fi
   (cd "$SITE" \
-    && PLL_FIX_POSTS="$FIXTURE_PARENT_ID,$FIXTURE_CHILD_ID,$FIXTURE_MEDIA_ID" \
+    && PLL_FIX_POSTS="$FIXTURE_PARENT_ID,$FIXTURE_CHILD_ID,$FIXTURE_MEDIA_ID,$ORPHAN_PARENT_ID,$ORPHAN_CHILD_ID" \
        PLL_FIX_ITEMS="$FIXTURE_ITEM_IDS" \
        PLL_FIX_MENU="$FIXTURE_MENU_ID" \
        PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" \
@@ -976,6 +978,88 @@ echo $p->post_title . "|" . $p->post_type . "|" . md5($p->post_content);
   exit 1
 }
 rm -f "$HIJACK_MAN"
+
+echo "── a child whose parent has no counterpart stays dirty for the next run ──"
+# Every post is written with post_parent = 0 and repaired by a later fixup pass,
+# because export order is not parent-first. The hash used to be recorded inline,
+# BEFORE that pass -- so when the fixup could not resolve a parent, the child was
+# already marked current: it never re-entered a manifest, the fixup never saw it
+# again, and it sat at the site root with a changed permalink. pll-verify.php has
+# no post_parent check, so it reported PASS the whole time.
+#
+# Reproduced here without needing a write to fail: a manifest containing ONLY the
+# child reaches the fixup with the parent untranslated, which is the same state.
+# The assertion is that a fresh export still lists the child.
+ORPHAN_PARENT_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="PLL orphan parent" --post_status=publish --porcelain --allow-root)"
+ORPHAN_CHILD_ID="$(cd "$SITE" && wp post create --post_type=page --post_title="PLL orphan child" --post_status=publish --post_parent="$ORPHAN_PARENT_ID" --porcelain --allow-root)"
+[[ -n "$ORPHAN_PARENT_ID" && -n "$ORPHAN_CHILD_ID" ]] || { echo "FAIL: could not create the orphan-pair fixture"; exit 1; }
+(cd "$SITE" && PLL_SRC_L="$SRC" PLL_IDS="$ORPHAN_PARENT_ID,$ORPHAN_CHILD_ID" wp eval '
+foreach (array_filter(array_map("intval", explode(",", getenv("PLL_IDS")))) as $id) {
+  pll_set_post_language($id, getenv("PLL_SRC_L"));
+}
+' --allow-root) >/dev/null
+
+ORPHAN_MAN="$FIXTURE_TMPDIR/manifest-orphan.json"
+run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$ORPHAN_MAN" >/dev/null || { echo "FAIL: orphan export exited non-zero"; exit 1; }
+
+# Keep ONLY the child item, and translate it, so the import reaches the fixup
+# with the parent still untranslated.
+PLL_M="$ORPHAN_MAN" PLL_CHILD="$ORPHAN_CHILD_ID" PLL_DST="$DST" php -r '
+$m = json_decode(file_get_contents(getenv("PLL_M")), true);
+$child = (int) getenv("PLL_CHILD");
+$keep = [];
+foreach ($m["items"] as $it) {
+  if (($it["kind"] ?? "") === "post" && (int) ($it["source_id"] ?? 0) === $child) {
+    foreach ($it["fields"] as $k => $v) {
+      if ($k === "post_name") { $it["fields"][$k] = $v . "-" . getenv("PLL_DST"); continue; }
+      if (is_string($v) && $v !== "") { $it["fields"][$k] = "[" . strtoupper(getenv("PLL_DST")) . "] " . $v; }
+    }
+    $keep[] = $it;
+  }
+}
+$m["items"] = $keep;
+file_put_contents(getenv("PLL_M"), json_encode($m));
+echo count($keep);
+' > "$FIXTURE_TMPDIR/orphan-count.txt"
+[[ "$(cat "$FIXTURE_TMPDIR/orphan-count.txt")" == "1" ]] || {
+  echo "FAIL: the orphan child was not present in the export, so this test would check nothing"; exit 1
+}
+
+ORPHAN_OUT="$(run "$SCRIPTS/pll-import.php" "$ORPHAN_MAN" 2>&1)" || { echo "$ORPHAN_OUT"; echo "FAIL: orphan import exited non-zero"; exit 1; }
+grep -qF "left unhashed because their parent has no $DST counterpart" <<<"$ORPHAN_OUT" || {
+  echo "$ORPHAN_OUT"
+  echo "FAIL: import did not report withholding the hash of a child whose parent has no counterpart"
+  exit 1
+}
+
+# The assertion that matters: the child must still be exportable, i.e. it was
+# NOT marked current while its parent relationship is still unrepaired.
+ORPHAN_MAN2="$FIXTURE_TMPDIR/manifest-orphan-2.json"
+run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$ORPHAN_MAN2" >/dev/null || { echo "FAIL: orphan re-export exited non-zero"; exit 1; }
+ORPHAN_STILL="$(PLL_M="$ORPHAN_MAN2" PLL_CHILD="$ORPHAN_CHILD_ID" php -r '
+$m = json_decode(file_get_contents(getenv("PLL_M")), true);
+$child = (int) getenv("PLL_CHILD");
+foreach ($m["items"] as $it) {
+  if (($it["kind"] ?? "") === "post" && (int) ($it["source_id"] ?? 0) === $child) { echo "yes"; return; }
+}
+echo "no";
+')"
+[[ "$ORPHAN_STILL" == "yes" ]] || {
+  echo "FAIL: the orphan child was recorded as current even though its parent has no $DST counterpart --"
+  echo "      it will never re-enter a manifest, so its counterpart stays at the site root forever"
+  exit 1
+}
+echo "  child $ORPHAN_CHILD_ID left dirty and still exportable, as it must be"
+
+# Removed immediately so nothing downstream sees two untranslated pages.
+(cd "$SITE" && PLL_IDS="$ORPHAN_PARENT_ID,$ORPHAN_CHILD_ID" wp eval '
+foreach (array_filter(array_map("intval", explode(",", getenv("PLL_IDS")))) as $id) {
+  foreach ((array) pll_get_post_translations($id) as $tid) { wp_delete_post((int) $tid, true); }
+  wp_delete_post($id, true);
+}
+' --allow-root) >/dev/null
+ORPHAN_PARENT_ID=""; ORPHAN_CHILD_ID=""
+rm -f "$ORPHAN_MAN" "$ORPHAN_MAN2" "$FIXTURE_TMPDIR/orphan-count.txt"
 
 echo "── import refuses a term-only manifest with a dangling source_id ──"
 # Isolated from the post item on purpose: get_term() returns NULL (not a
