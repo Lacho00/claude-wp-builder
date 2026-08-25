@@ -39,9 +39,11 @@ test -f "$t" || fail "$t missing"
 # "## Step 4.5: Font carry" — not at end of file, or the scoping is fiction.
 # ---------------------------------------------------------------------------
 s26=$(awk '/^## Step 2\.6/,/^## Step 3:/' "$f")
+s3=$(awk '/^## Step 3:/,/^## Step 4:/' "$f")
 s4=$(awk '/^## Step 4:/,/^## Step 4\.5/' "$f")
 s55=$(awk '/^## Step 5\.5/,/^## Step 6:/' "$f")
 [ -n "$s26" ] || fail "wp-yolo has no top-level Step 2.6 demo-conversion phase"
+[ -n "$s3" ]  || fail "wp-yolo has no Step 3 checkpoint region delimited by Step 4"
 [ -n "$s4" ]  || fail "wp-yolo has no Step 4 build region delimited by Step 4.5"
 [ -n "$s55" ] || fail "wp-yolo has no Step 5.5 demo-parity-gate region"
 # If a terminator heading is ever renamed, awk's range runs to EOF and every
@@ -51,6 +53,8 @@ s55=$(awk '/^## Step 5\.5/,/^## Step 6:/' "$f")
 # actually closed on the heading it claims to close on.
 printf '%s\n' "$s26" | tail -1 | grep -q '^## Step 3:' \
   || fail "the Step 2.6 region is not terminated by a '## Step 3:' heading — the Step 2.6 assertions would silently become file-wide and be satisfiable from Step 5.5"
+printf '%s\n' "$s3" | tail -1 | grep -q '^## Step 4:' \
+  || fail "the Step 3 region is not terminated by a '## Step 4:' heading — the abort-wording assertions would silently become file-wide"
 printf '%s\n' "$s4" | tail -1 | grep -q '^## Step 4\.5' \
   || fail "the Step 4 region is not terminated by a '## Step 4.5' heading — the section-walk assertions would silently become file-wide"
 printf '%s\n' "$s55" | tail -1 | grep -q '^## Step 6:' \
@@ -62,6 +66,7 @@ printf '%s\n' "$s55" | tail -1 | grep -q '^## Step 6:' \
 # also eat the `>` in `demo/.original/<slug>.html` and in `<style>`.
 flat() { printf '%s' "$1" | sed 's/^[[:space:]]*>[[:space:]]\?//' | tr '\n' ' ' | sed 's/  */ /g'; }
 f26=$(flat "$s26")
+f3=$(flat "$s3")
 f4=$(flat "$s4")
 f55=$(flat "$s55")
 
@@ -111,11 +116,31 @@ printf '%s' "$f26" | grep -qF '/wp-tailwindify demo/<slug>.html --out demo/<slug
 # with converted markup on every later one.
 printf '%s' "$f26" | grep -qF 'only if `demo/.original/<slug>.html` does not already exist' \
   || fail 'Step 2.6 does not guard the backup with the literal "only if `demo/.original/<slug>.html` does not already exist"'
-# Negative, general: every "already exist" in Step 2.6 must be negated. An
-# un-negated one is the inverted guard.
-if printf '%s' "$f26" | grep -oE '.{0,24}already exist' | grep -qv 'not already exist'; then
-  fail "Step 2.6 has an un-negated \"already exist\" — the backup guard is inverted, so nothing is backed up on the first run and the pristine original is destroyed on every later one"
-fi
+# Negative, directed, and scoped to GUARD sentences only. The previous version
+# of this assertion required every "already exist" anywhere in Step 2.6 to carry
+# a negation, which over-reached: an ordinary, correct sentence such as "If
+# `demo/.original/` already exists from an earlier run, reuse it." made the check
+# exit 1 with a message that was actively wrong about what had happened. A gate
+# that fails spuriously gets muted, and muting this file silences ~40 assertions.
+#
+# What actually has to be directed is the guard: an "only if ... already exist"
+# clause whose "already exist" is not immediately preceded by a negation is the
+# inverted guard. Scanned per occurrence (not with one greedy regex) so a correct
+# guard sitting next to an inverted one cannot mask it.
+guard_bad=$(printf '%s' "$f26" | awk '
+{
+  s = $0
+  while ((i = index(s, "already exist")) > 0) {
+    start = (i > 80) ? i - 80 : 1
+    pre = substr(s, start, i - start)
+    if (pre ~ /only if/ && pre !~ /not[[:space:]]*$/) {
+      print substr(s, start, i - start + 13)
+      bad = 1
+    }
+    s = substr(s, i + 13)
+  }
+  exit bad ? 1 : 0
+}') || fail "Step 2.6 has an \"only if ... already exist\" guard with no negation — the backup guard is inverted, so nothing is backed up on the first run and the pristine original is destroyed on every later one: $guard_bad"
 
 # A truncated in-place write is otherwise unrecoverable: item 1's detect step
 # reads the wreckage, finds no <style> block, calls the page already
@@ -151,6 +176,31 @@ fi
 # hit the bare word "skip" 12 times in unrelated steps and so gated nothing.
 printf '%s' "$f26" | grep -qF 'conversion skipped' \
   || fail "Step 2.6 has no skip path for an already-converted demo"
+
+# ---------------------------------------------------------------------------
+# Step 3 — the abort wording (the other half of the Step 2.6 contract)
+#
+# Step 3 sits past the s26 terminator, so no Step 2.6 assertion reaches it and
+# this text was ungated. It used to claim "re-running is safe because Step 2.6's
+# detect step skips a page that is already Tailwind-native", which is false:
+# Step 2 dispatches wp-normalize unconditionally with no manifest guard, so a
+# later run re-derives cssRules/fonts/backgrounds from the now Tailwind-native
+# markup that no longer carries them and quietly empties what Step 4.5's font
+# carry and /wp-finalize Layer 1 read. That is a degraded build, not a failing
+# one, which is exactly the kind of claim a check has to hold in place.
+# ---------------------------------------------------------------------------
+printf '%s' "$f3" | grep -qF 'A later `/wp-yolo` run is **not** a resume' \
+  || fail "Step 3's abort branch does not state that a later /wp-yolo run is not a resume"
+printf '%s' "$f3" | grep -qF 'dispatches `wp-normalize` over the demo folder unconditionally' \
+  || fail "Step 3's abort branch does not name the unconditional wp-normalize dispatch that makes a naive re-run degrade the manifest"
+printf '%s' "$f3" | grep -qF 'restore `demo/<slug>.html` from `demo/.original/<slug>.html` for every page first' \
+  || fail "Step 3's abort branch does not tell the operator to restore the plain-CSS originals before a fresh run"
+if printf '%s' "$f3" | grep -qF "re-running is safe because Step 2.6's detect step"; then
+  fail "Step 3's abort branch still claims a re-run is safe because Step 2.6 detects an already-converted page — Step 2 runs wp-normalize first and empties the manifest's cssRules/fonts/backgrounds"
+fi
+if printf '%s' "$f3" | grep -qF 'restore `demo/.original/<slug>.html` from `demo/<slug>.html`'; then
+  fail "Step 3's abort branch restores backwards — it would overwrite the pristine originals with the converted pages"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 4 — the two section-walk dispatch sites
@@ -216,8 +266,19 @@ printf '%s' "$f4" | grep -qF 'stale on this path' \
 # operation inside Step 2.6 or an explicit prohibition, so the backup path must
 # never sit where a source is being designated — directly after a `→`, or
 # directly after the words "converted demo".
+#
+# Two of the three original alternatives used `[^.]` as their filler, which is a
+# period-free run — and `demo/.original/` is full of periods, so the windows
+# could never actually reach the path they were meant to catch. Appending "In
+# practice pass `demo/.original/index.html` here" bypassed all three. The filler
+# is now `.`, and a fourth alternative catches the path being handed to a reader
+# by verb. That last one uses `[^\`]` as its filler so the window cannot reach
+# back across an intervening backticked path (which is what keeps the legitimate
+# "copy `demo/<slug>.html` to `demo/.original/<slug>.html`" and "restore
+# `demo/<slug>.html` from `demo/.original/<slug>.html`" phrasings green), and
+# \b-anchors each verb so "because"/"caused" do not count as "use".
 fall=$(flat "$(cat "$f")")
-if printf '%s' "$fall" | grep -Eq '→ `?demo/\.original/|converted demo[^.]{0,30}`demo/\.original/|--css[^.]{0,60}`demo/\.original/'; then
+if printf '%s' "$fall" | grep -Eq '→ `?demo/\.original/|converted demo.{0,30}`demo/\.original/|--css.{0,60}`demo/\.original/|\b(pass|passes|passed|passing|use|uses|used|using|read|reads|reading|transcribe[a-z]*|source)\b[^`]{0,40}`demo/\.original/'; then
   fail "a --css source line in $f resolves to demo/.original/ — the unconverted backup, which is exactly the re-point this check exists to catch"
 fi
 
@@ -261,5 +322,61 @@ if printf '%s' "$ft" | grep -Eq "moves it over the output path (\*\*)?(before|re
 fi
 printf '%s' "$ft" | grep -qF 'Only if 2 and 3 both hold, move the temporary file over the output path' \
   || fail "$t's Step 4 does not make the move conditional on both verification checks"
+
+# Step 4 item 4's FAILURE branch, gated in its own direction. Flipping "discard
+# it, leave the output path untouched" to "move it anyway and report a partial
+# success" reinstates exactly the destructive write the temp path exists to
+# prevent, and used to leave the suite green.
+printf '%s' "$ft" | grep -qF 'discard it, leave the output path untouched, and report the conversion as failed — never a partial success' \
+  || fail "$t's Step 4 item 4 does not discard the temporary file, leave the output path untouched and report a failed conversion when verification fails"
+if printf '%s' "$ft" | grep -Eq 'move (it|the temporary file) (anyway|regardless|and report)|partial success is|report (it |the conversion )?as a partial success'; then
+  fail "$t's Step 4 item 4 moves the unverified temporary file into place and/or reports a partial success — a failed verification must leave the output path exactly as it was"
+fi
+
+# ---------------------------------------------------------------------------
+# The temp-path contract must live in the DISPATCH CONTEXT the agent is handed,
+# not only in the prose underneath it.
+#
+# The bullets are what the orchestrator actually passes to `wp-tailwind`. While
+# they read "Output file path: the resolved output path from Step 1" and nothing
+# in them named `<output-path>.tmp`, the agent's instruction was a plain direct
+# write — and `agents/wp-tailwind.md` Step 5 agreed with the bullets, not with
+# the paragraph. Rewriting the bullet to "write straight to this path,
+# overwriting whatever is there" left the suite green.
+#
+# There was an actor mismatch too: the paragraph told the AGENT to move the temp
+# file "only after Step 4's verification passes", but Step 4 runs in the command
+# after the agent has returned, so the agent has nothing to condition on. The
+# agent writes `<output-path>.tmp` and stops; the command verifies and moves.
+# ---------------------------------------------------------------------------
+s3t=$(awk '/^## Step 3: Dispatch Conversion Agent/,/^## Step 4: Verify Output/' "$t")
+[ -n "$s3t" ] || fail "$t has no Step 3 dispatch region delimited by '## Step 4: Verify Output'"
+printf '%s\n' "$s3t" | tail -1 | grep -q '^## Step 4: Verify Output' \
+  || fail "$t's Step 3 dispatch region is not terminated by its '## Step 4: Verify Output' heading — the dispatch-context assertions would silently become file-wide"
+f3t=$(flat "$s3t")
+
+printf '%s' "$f3t" | grep -qF '**What the agent writes: `<output-path>.tmp`, never `<output-path>` itself.**' \
+  || fail "$t's Step 3 dispatch context does not tell the agent, in the bullets it hands over, to write \`<output-path>.tmp\` and never \`<output-path>\` itself"
+printf '%s' "$f3t" | grep -qF 'The agent writes `<output-path>.tmp` and stops there. It does not move, rename or delete `<output-path>`' \
+  || fail "$t's Step 3 dispatch context does not stop the agent after the temporary write — the move belongs to the command, which is the only actor that can condition it on Step 4"
+printf '%s' "$f3t" | grep -qF "this command owns Step 4's verification and owns the move" \
+  || fail "$t's Step 3 dispatch context does not give Step 4's verification and the move to the command"
+printf '%s' "$f3t" | grep -qF '**This command**, not the agent, moves it over the output path' \
+  || fail "$t names the agent, not the command, as the actor that moves the temporary file — Step 4 runs after the agent returns, so the agent cannot condition on it"
+
+# The stale sentence that contradicted all of the above.
+if printf '%s' "$ft" | grep -qiF 'overwriting its own input'; then
+  fail "$t still tells the agent it is overwriting its own input — false under temp-then-move, and it reinstates the direct-write reading"
+fi
+# Direction: no instruction in the dispatch context may name the output path as
+# the thing the agent writes.
+if printf '%s' "$f3t" | grep -Eq 'writes? (straight|directly) to|overwriting whatever is there|writes? (the converted HTML |it )?to `<output-path>`([^.]|$)'; then
+  fail "$t's Step 3 dispatch context tells the agent to write the output path directly — it must write \`<output-path>.tmp\` and stop"
+fi
+# Every write instruction in the dispatch context that names <output-path> must
+# name the .tmp form.
+if printf '%s' "$f3t" | grep -oE 'writes?[^.`]{0,20}`<output-path>[^`]*`' | grep -qv '<output-path>\.tmp'; then
+  fail "$t's Step 3 dispatch context has a write instruction that names \`<output-path>\` rather than \`<output-path>.tmp\`"
+fi
 
 echo PASS

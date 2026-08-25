@@ -88,9 +88,13 @@ Tailwind-native form and the untouched plain-CSS copy is kept out of the way as
 `/wp-seed` (Step 5, item 1) turns **every** `demo/*.html` into a WP Page whose slug is
 the filename, so a sibling backup named `demo/<slug>.original.html` would seed a phantom
 page with slug `<slug>.original` out of unconverted markup — one per demo page.
-`demo/.original/` falls outside `demo/*.html` entirely, so every glob in this repo skips
-it without needing an exclusion. Nothing downstream takes a new filename, because the
-demo page's own filename never changes.
+`demo/.original/` falls outside the `demo/*.html` pattern entirely, so no reader that
+enumerates the demo with a `demo/*.html` glob can see it: shell globbing, Python's `glob`,
+`ripgrep` and `fd` all skip dot-prefixed entries by default, and `/wp-seed` Step 5 item 1
+globs exactly that pattern. The exception is a recursive descent that does not honour the
+dot rule — `find demo -name '*.html'` walks into `demo/.original/` and returns the backups
+— so anything switching to `find` must add `-not -path 'demo/.original/*'` itself. Nothing
+downstream takes a new filename, because the demo page's own filename never changes.
 
 Walk **every** page in the manifest's `pages[]` — the home page and every inner page,
 not just `index`. For each page, in this order:
@@ -130,6 +134,7 @@ not just `index`. For each page, in this order:
    Tailwind-native, and which were restored from backup after a failed verification.
 
 Under `--careful`, confirm the conversion result with the user before continuing.
+
 ## Step 3: Checkpoint (skipped under --yolo)
 
 Unless `--yolo` is set, print the detected map from the manifest:
@@ -145,11 +150,23 @@ Unless `--yolo` is set, print the detected map from the manifest:
 Ask the user to **approve / edit / abort**:
 - Edit = rename/merge/split a section, drop a page, flip a `kind` between `static` and
   `cpt-teaser`, etc. Apply edits directly to `demo/.yolo-manifest.json` before continuing.
-- Abort = stop here, leaving the manifest and `demo/*.html` on disk for a later resumed
-  run. On the `tailwind` path Step 2.6 has already run by this point, so `demo/*.html`
-  is the converted markup and the plain-CSS originals sit in `demo/.original/`; that is
-  the state a resumed run expects, and re-running is safe because Step 2.6's detect step
-  skips a page that is already Tailwind-native.
+- Abort = stop here, leaving the manifest and `demo/*.html` on disk. On the `tailwind`
+  path Step 2.6 has already run by this point, so `demo/*.html` is the converted markup
+  and the plain-CSS originals sit in `demo/.original/`.
+
+  A later `/wp-yolo` run is **not** a resume: it starts at Step 2 and dispatches
+  `wp-normalize` over the demo folder unconditionally — there is no manifest guard — so
+  normalize re-derives `cssRules`, `fonts` and `backgrounds` from the now Tailwind-native
+  markup, which no longer carries the plain-CSS declarations or `@font-face` rules they
+  were captured from. Step 2.6 then correctly detects the pages as already Tailwind-native
+  and skips them, but the manifest Step 4.5's font carry and `/wp-finalize` Layer 1 read
+  has already been emptied. Nothing fails; the output is quietly degraded.
+
+  So a fresh `/wp-yolo` after an abort must start from plain-CSS demo pages: restore
+  `demo/<slug>.html` from `demo/.original/<slug>.html` for every page first (or re-run
+  against a pristine demo folder). To continue the aborted build instead, re-run with
+  `--yolo` only if `demo/.yolo-manifest.json` is still the one Step 2.6 ran against and
+  has not been regenerated since.
 
 Under `--yolo`, skip this step and proceed straight to Phase 2 with the manifest as
 emitted by `wp-normalize`.

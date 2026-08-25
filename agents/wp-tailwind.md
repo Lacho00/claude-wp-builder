@@ -75,7 +75,14 @@ For each element in the HTML:
 
 ### Step 5: Write Output
 
-Write the converted HTML to the output path provided. The output should be:
+Write the converted HTML to `<output-path>.tmp`, where `<output-path>` is the output path
+the dispatch context gave you — never to `<output-path>` itself. Then stop: you do not
+move, rename or delete `<output-path>`, and you do not verify your own conversion. The
+dispatching command (`/wp-tailwindify` Step 4) verifies the temporary file and owns the
+move. This is what makes an in-place conversion safe — you read `<output-path>` and write
+a different file, so you never overwrite your own input.
+
+The output should be:
 - Valid HTML5
 - Using only Tailwind utility classes (no custom CSS classes except for complex animations)
 - Responsive using Tailwind breakpoint prefixes

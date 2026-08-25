@@ -35,24 +35,33 @@ Read the demo HTML file. Check:
 
 ## Step 3: Dispatch Conversion Agent
 
-Dispatch the `wp-tailwind` agent (@agents/wp-tailwind) with the following context:
+Dispatch the `wp-tailwind` agent (@agents/wp-tailwind) with the following context. The
+temp-path contract belongs in the context you actually hand the agent, not only in the
+paragraph below it — an agent that only reads these bullets must still get it right.
 
 - Input file path: `<demo-file-path>`
-- Output file path: the resolved output path from Step 1 — the `--out` value when given,
-  otherwise `<demo-dir>/index-tailwind.html` (alongside the original)
+- Resolved output path (`<output-path>`): the `--out` value when given, otherwise
+  `<demo-dir>/index-tailwind.html` (alongside the original). This is the destination, not
+  the file the agent writes.
+- **What the agent writes: `<output-path>.tmp`, never `<output-path>` itself.** The agent
+  writes `<output-path>.tmp` and stops there. It does not move, rename or delete
+  `<output-path>`, and it does not verify its own work — this command owns Step 4's
+  verification and owns the move.
 - Project CLAUDE.md path (if exists): for @theme color mapping
 
-When the output path equals the input path, tell the agent it is overwriting its own
-input: it must finish reading and converting before writing, and must not emit a partial
-file.
-
 **Never write the output path directly — write a temporary path and move it.** The agent
-writes the converted HTML to a temporary path (`<output-path>.tmp`) and moves it over the
-output path **only after** Step 4's verification passes on the temporary file: section
-delimiter count preserved, no `<style>` blocks remaining. If verification fails, discard
-the temporary file and leave the output path exactly as it was.
+writes the converted HTML to a temporary path (`<output-path>.tmp`) and stops. **This
+command**, not the agent, moves it over the output path **only after** Step 4's
+verification passes on the temporary file: section delimiter count preserved, no
+`<style>` blocks remaining. If verification fails, discard the temporary file and leave
+the output path exactly as it was.
+
+The agent cannot own that move even in principle: Step 4 runs here, in the command, after
+the agent has returned, so the agent has nothing to condition on.
 
 This is a mechanism, not an exhortation, and the in-place case is why it has to be one.
+Under it the agent never overwrites its own input, even when `--out` names that input: it
+reads `<output-path>` and writes `<output-path>.tmp`, which are different files.
 An interrupted write leaves a truncated `.tmp` nobody reads, which costs nothing. An
 interrupted write straight onto `demo/<slug>.html` destroys the page with no recovery
 path: `/wp-yolo` Step 2.6's detect step reads the truncated remains, finds no `<style>`
