@@ -59,6 +59,14 @@ This routing governs every "Dispatch **wp-css** agent" step below (blog, generic
 legal, 404, search, embed, custom) — each one marks its `tailwind` counterpart with
 `(routed — see "CSS agent routing" above)` rather than repeating the block.
 
+**Editing rule for this file.** `tests/checks/wp-commands-tailwind.sh` walks every
+dispatch site by matching `Dispatch` and `**wp-css**` on one physical line, and accounts
+for every other bolded `**wp-css**` in the file. So: keep `Dispatch` and `**wp-css**`
+together on a single line at each dispatch site (never hard-wrap between them), and write
+`wp-css` unbolded when you mean it in prose. The one place bolded prose is allowed is
+inside this `### CSS agent routing` block — everything from this heading down to the next
+heading at `###` or above is exempt, sub-headings and fenced examples included.
+
 ---
 
 ### Type: blog

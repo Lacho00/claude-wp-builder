@@ -32,18 +32,49 @@ awk '/TRANSCRIPTION MODE OVERLAY/,/^---$/' "$f" | grep -q 'tailwind' \
 #
 # grep -F throughout: the bullets contain a literal `→` (3 bytes in UTF-8) and a
 # bare `.` in an ERE does not match it under LC_ALL=C.
+#
+# ...but grep -F on the FILE was line-anchored, and these two bullets are the
+# longest lines in the repo (183 and 299 characters, in a file that otherwise
+# wraps at ~90). Re-wrapping either of them at any sane column without changing a
+# single word exited 1, and so did a re-word that preserved the direction exactly
+# ("demo CSS — the SOURCE OF TRUTH" for "demo CSS, and the SOURCE OF TRUTH").
+# That is a gate that fails on the obvious next correct edit, which is how gates
+# get muted. Flatten the file to one line first — the same remedy
+# tests/checks/wp-tailwind-agent.sh already uses — and match the bullet's opening
+# clause rather than the whole sentence.
 # ---------------------------------------------------------------------------
-grep -qF -- "- \`basic\` → the section's **verbatim** demo CSS, and the SOURCE OF TRUTH for the transcription" "$f" \
-  || { echo "FAIL: wp-section does not bind --css on \`basic\` to the section's verbatim demo CSS as the transcription's SOURCE OF TRUTH"; exit 1; }
-grep -qF -- '- `tailwind` → the converted demo page itself (HTML, converted in place by `/wp-yolo` Step 2.6)' "$f" \
+flatf=$(tr '\n' ' ' < "$f" | sed 's/  */ /g')
+
+# The `basic` bullet, from its own marker to the `tailwind` marker that follows
+# it. Scoping the SOURCE OF TRUTH claim to this span is what keeps it directed:
+# the claim has to sit in the `basic` bullet, and swapping the two bullets moves
+# it out of the span (as well as tripping the inversions below).
+basic_css=$(printf '%s' "$flatf" | awk -v a='- `basic` → ' -v b='- `tailwind` → ' '
+  {
+    i = index($0, a)
+    if (i == 0) exit 1
+    s = substr($0, i)
+    j = index(substr(s, length(a) + 1), b)
+    print (j > 0) ? substr(s, 1, length(a) + j - 1) : s
+  }') \
+  || { echo "FAIL: wp-section's --css definition has no \`basic\` bullet"; exit 1; }
+
+printf '%s' "$basic_css" | grep -qF -- "the section's **verbatim** demo CSS" \
+  || { echo "FAIL: wp-section does not bind --css on \`basic\` to the section's **verbatim** demo CSS"; exit 1; }
+printf '%s' "$basic_css" | grep -qF -- 'SOURCE OF TRUTH' \
+  || { echo "FAIL: wp-section's \`basic\` --css bullet does not call the verbatim demo CSS the transcription's SOURCE OF TRUTH"; exit 1; }
+printf '%s' "$flatf" | grep -qF -- '- `tailwind` → the converted demo page itself' \
   || { echo "FAIL: wp-section does not bind --css on \`tailwind\` to the converted demo page itself"; exit 1; }
-grep -qF 'not** a source of verbatim declarations' "$f" \
+printf '%s' "$flatf" | grep -qF 'not** a source of verbatim declarations' \
   || { echo "FAIL: wp-section does not say the tailwind --css source is a geometry reference rather than a source of verbatim declarations"; exit 1; }
-# Inversions.
-grep -qF '`basic` → the converted demo page' "$f" \
-  && { echo "FAIL: wp-section hands the converted Tailwind demo to template=basic — the contract is inverted"; exit 1; }
-grep -qF "\`tailwind\` → the section's **verbatim** demo CSS" "$f" \
-  && { echo "FAIL: wp-section hands the verbatim plain-CSS demo blob to template=tailwind as the SOURCE OF TRUTH — the contract is inverted"; exit 1; }
+# Inversions, matched file-wide (on the flattened text) so an inverted duplicate
+# added anywhere in the file is caught, not just the first bullet pair.
+if printf '%s' "$flatf" | grep -qF '`basic` → the converted demo page'; then
+  echo "FAIL: wp-section hands the converted Tailwind demo to template=basic — the contract is inverted"; exit 1
+fi
+if printf '%s' "$flatf" | grep -qF -- "\`tailwind\` → the section's **verbatim** demo CSS"; then
+  echo "FAIL: wp-section hands the verbatim plain-CSS demo blob to template=tailwind as the SOURCE OF TRUTH — the contract is inverted"; exit 1
+fi
 
 # The CONTACT section's two-phase dispatch must route by template too — it must
 # not hardcode wp-css as its Agent 3, and must point at the routing table instead.

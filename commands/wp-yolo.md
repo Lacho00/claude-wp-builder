@@ -103,8 +103,10 @@ not just `index`. For each page, in this order:
    static `style="` attribute, it is already Tailwind-native: leave the file alone, do
    not back it up, do not convert it, and note
    `demo already tailwind-native — conversion skipped` in the report for that page. This
-   is also what makes a re-run safe — a second `/wp-yolo` pass over an already-converted
-   demo detects and skips instead of converting twice.
+   is what makes *this step* idempotent — a second `/wp-yolo` pass over an already-converted
+   demo detects and skips instead of converting twice. It does **not** make a re-run safe:
+   by the time Step 2.6 runs again, Step 2 has already re-dispatched `wp-normalize` and
+   emptied the manifest's `cssRules`, `fonts` and `backgrounds`. See Step 3's abort branch.
 2. **Back up, per page.** Otherwise create `demo/.original/` if it does not exist and
    copy `demo/<slug>.html` to `demo/.original/<slug>.html` — but **only if
    `demo/.original/<slug>.html` does not already exist**. If it does, it is already the
@@ -159,14 +161,21 @@ Ask the user to **approve / edit / abort**:
   normalize re-derives `cssRules`, `fonts` and `backgrounds` from the now Tailwind-native
   markup, which no longer carries the plain-CSS declarations or `@font-face` rules they
   were captured from. Step 2.6 then correctly detects the pages as already Tailwind-native
-  and skips them, but the manifest Step 4.5's font carry and `/wp-finalize` Layer 1 read
-  has already been emptied. Nothing fails; the output is quietly degraded.
+  and skips them, but the manifest **that** Step 4.5's font carry and `/wp-finalize`
+  Layer 1 read has already been emptied by then. Nothing fails; the output is quietly
+  degraded.
 
   So a fresh `/wp-yolo` after an abort must start from plain-CSS demo pages: restore
   `demo/<slug>.html` from `demo/.original/<slug>.html` for every page first (or re-run
-  against a pristine demo folder). To continue the aborted build instead, re-run with
-  `--yolo` only if `demo/.yolo-manifest.json` is still the one Step 2.6 ran against and
-  has not been regenerated since.
+  against a pristine demo folder), then run `/wp-yolo` again from the top.
+
+  There is no resume entrypoint in this command — not `--yolo`, and not any other flag.
+  `--yolo` suppresses this checkpoint and nothing else (Step 1: "no checkpoint at all"):
+  Step 2 still dispatches `wp-normalize` and still overwrites `demo/.yolo-manifest.json`
+  before Step 3 is ever reached, so re-running with it *is* the unconditional-normalize
+  path described above and it regenerates the very manifest a resume would have to
+  preserve. Restore the originals first: every `/wp-yolo` invocation is a fresh build,
+  never a continuation of an aborted one.
 
 Under `--yolo`, skip this step and proceed straight to Phase 2 with the manifest as
 emitted by `wp-normalize`.

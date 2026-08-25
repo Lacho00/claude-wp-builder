@@ -77,10 +77,12 @@ For each element in the HTML:
 
 Write the converted HTML to `<output-path>.tmp`, where `<output-path>` is the output path
 the dispatch context gave you — never to `<output-path>` itself. Then stop: you do not
-move, rename or delete `<output-path>`, and you do not verify your own conversion. The
-dispatching command (`/wp-tailwindify` Step 4) verifies the temporary file and owns the
-move. This is what makes an in-place conversion safe — you read `<output-path>` and write
-a different file, so you never overwrite your own input.
+move, rename or delete `<output-path>`, and the verification that gates the move is not
+yours to run. Run the Quality Checks below over your own output before you write the
+temporary file — that is a self-check, not the gate. The dispatching command
+(`/wp-tailwindify` Step 4) re-verifies the temporary file and owns the move. This is what
+makes an in-place conversion safe — you read `<output-path>` and write a different file,
+so you never overwrite your own input.
 
 The output should be:
 - Valid HTML5
@@ -150,7 +152,12 @@ bin/tailwind-native-check.sh <theme-path>
 
 ## Quality Checks
 
-Before writing output, verify:
+Your own pre-flight self-check, not the gate. `/wp-tailwindify` Step 4 re-runs the
+delimiter and `<style>` checks over the temporary file after you return, and it alone
+decides whether `<output-path>.tmp` ever becomes `<output-path>`. Running these first
+just means you hand back a file that will pass.
+
+Before writing `<output-path>.tmp`, verify:
 - [ ] No `<style>` blocks remain (unless they contain `@keyframes` animations)
 - [ ] No inline `style` attributes remain
 - [ ] All section delimiters preserved

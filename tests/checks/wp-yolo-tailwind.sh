@@ -71,6 +71,79 @@ f4=$(flat "$s4")
 f55=$(flat "$s55")
 
 # ---------------------------------------------------------------------------
+# Sentence windows.
+#
+# Round 4 shipped two heuristic negatives with no negation awareness, and both
+# fire on the obvious correct edit: an explicit prohibition. "Never pass
+# `demo/.original/<slug>.html` as the `--css` source" is this check's own
+# contract written into the file it guards, and it exited 1 with "a --css source
+# line ... resolves to demo/.original/" — which is not what the line says. A gate
+# that fails on work that strengthens the contract it defends gets muted, and
+# muting this file silences ~50 assertions. Treat that as exactly as serious as a
+# hollow assertion.
+#
+# `sentences <flat-text> <needle>` prints one line per occurrence of <needle>:
+# the sentence it sits in, bounded by ". " on either side and capped at 240
+# characters each way so a stretch without sentence punctuation cannot pull in
+# the whole region. The sentence is the right window: a wider one borrows the
+# "never" from the sentence before and would suppress a genuine bypass sitting
+# next to a correct prohibition.
+sentences() {
+  printf '%s' "$1" | awk -v needle="$2" '
+  {
+    s = $0; nl = length(needle); pos = 1
+    while ((i = index(substr(s, pos), needle)) > 0) {
+      abs = pos + i - 1
+      lo = (abs > 240) ? abs - 240 : 1
+      pre = substr(s, lo, abs - lo)
+      p = 0
+      while ((j = index(substr(pre, p + 1), ". ")) > 0) p = p + j + 1
+      start = lo + p
+      post = substr(s, abs + nl, 240)
+      k = index(post, ". ")
+      print substr(s, start, (abs + nl - start) + ((k > 0) ? k : length(post)))
+      pos = abs + nl
+    }
+  }'
+}
+
+# A plain negation. Kept deliberately small: every token here is a word that
+# reverses the claim it sits in front of, so widening it later is how the gate
+# goes hollow. "instead of"/"rather than" are NOT in it — they reverse a choice
+# of object, not a claim, and the round-1 wording this file exists to ban
+# ("... detects and skips instead of converting twice") contains one.
+NEGATION="(^|[^a-zA-Z])(not|never|no|nor|cannot|neither)([^a-zA-Z]|\$)|n't"
+
+# "A re-run is safe" — banned in EVERY region that can carry it.
+#
+# Round 4 removed this claim from Step 3 and wrote a check message about it, but
+# scoped the negative to $f3, so the same claim 50 lines earlier in Step 2.6
+# ("This is also what makes a re-run safe") survived. An executing orchestrator
+# reads Step 2.6 first, and it is the more specific statement about the
+# conversion step, so the wrong one wins. The claim is false for the RUN: Step 2
+# dispatches wp-normalize unconditionally and empties cssRules/fonts/backgrounds
+# before Step 2.6 is reached a second time. It is true for the conversion STEP,
+# which is why this is negation-aware rather than a ban on the word "safe" — the
+# correct text has to be able to say "it does not make a re-run safe".
+#
+# The negation must sit BEFORE the word "safe" in the same sentence, i.e. it must
+# actually govern the claim. Anything looser re-admits the original wording,
+# whose trailing "instead of converting twice" would otherwise read as a
+# negation.
+no_rerun_safe() { # <region-label> <flattened-region>
+  local label=$1 text=$2 sent claim
+  while IFS= read -r sent; do
+    [ -n "$sent" ] || continue
+    printf '%s' "$sent" | grep -Eqi 're-?run|second [^ ]{0,14} ?pass|later run|resume' || continue
+    claim=${sent%%safe*}
+    if printf '%s' "$claim" | grep -Eqi "$NEGATION"; then
+      continue
+    fi
+    fail "$label claims a re-run is safe. Only the conversion STEP is idempotent: by the time Step 2.6 runs again, Step 2 has re-dispatched wp-normalize unconditionally and emptied the manifest's cssRules/fonts/backgrounds, so the build degrades silently instead of failing. Say what is idempotent, and negate the rest: $sent"
+  done <<< "$(sentences "$text" 'safe')"
+}
+
+# ---------------------------------------------------------------------------
 # Step 2.6 — the conversion phase itself
 # ---------------------------------------------------------------------------
 
@@ -177,6 +250,11 @@ fi
 printf '%s' "$f26" | grep -qF 'conversion skipped' \
   || fail "Step 2.6 has no skip path for an already-converted demo"
 
+# ...and that skip path must not be sold as making the RUN safe. See
+# no_rerun_safe above: this is the claim round 4 deleted from Step 3 and left
+# standing here, where an orchestrator reads it first.
+no_rerun_safe "Step 2.6's detect/skip item" "$f26"
+
 # ---------------------------------------------------------------------------
 # Step 3 — the abort wording (the other half of the Step 2.6 contract)
 #
@@ -195,12 +273,40 @@ printf '%s' "$f3" | grep -qF 'dispatches `wp-normalize` over the demo folder unc
   || fail "Step 3's abort branch does not name the unconditional wp-normalize dispatch that makes a naive re-run degrade the manifest"
 printf '%s' "$f3" | grep -qF 'restore `demo/<slug>.html` from `demo/.original/<slug>.html` for every page first' \
   || fail "Step 3's abort branch does not tell the operator to restore the plain-CSS originals before a fresh run"
-if printf '%s' "$f3" | grep -qF "re-running is safe because Step 2.6's detect step"; then
-  fail "Step 3's abort branch still claims a re-run is safe because Step 2.6 detects an already-converted page — Step 2 runs wp-normalize first and empties the manifest's cssRules/fonts/backgrounds"
-fi
+no_rerun_safe "Step 3's abort branch" "$f3"
 if printf '%s' "$f3" | grep -qF 'restore `demo/.original/<slug>.html` from `demo/<slug>.html`'; then
   fail "Step 3's abort branch restores backwards — it would overwrite the pristine originals with the converted pages"
 fi
+
+# The abort branch used to end with: "To continue the aborted build instead,
+# re-run with `--yolo` only if `demo/.yolo-manifest.json` is still the one Step
+# 2.6 ran against and has not been regenerated since."
+#
+# `--yolo` is defined at Step 1 as "no checkpoint at all". It skips STEP 3 only —
+# Step 2 still dispatches wp-normalize and still writes
+# demo/.yolo-manifest.json — so that advice IS the unconditional-normalize path
+# the paragraph directly above it calls unsafe, and it destroys its own gating
+# condition in the act of being followed: normalize regenerates the manifest the
+# operator was told to check. There is no resume entrypoint in this command, and
+# the file has to say so rather than invent one.
+printf '%s' "$f3" | grep -qF 'There is no resume entrypoint in this command' \
+  || fail "Step 3's abort branch does not state plainly that /wp-yolo has no resume entrypoint — without that sentence the operator is left to invent one, and the only flag on offer (--yolo) re-runs wp-normalize and regenerates the manifest"
+printf '%s' "$f3" | grep -qF 'Step 2 still dispatches `wp-normalize` and still overwrites `demo/.yolo-manifest.json`' \
+  || fail "Step 3's abort branch does not say what --yolo actually skips: it suppresses this checkpoint and nothing else, while Step 2 still dispatches wp-normalize and still overwrites demo/.yolo-manifest.json"
+
+# The offer itself, matched by direction. The window runs from a continue/resume
+# verb forward to a backticked `--yolo` and may not cross a backtick, so a
+# disclaimer that carries its negation between the two ("There is no resume
+# entrypoint in this command — not `--yolo`, ...") stays green while the offer
+# above does not.
+offers=$(printf '%s' "$f3" | grep -oEi '(^|[^a-zA-Z])(continue|continuing|resume|resuming|carry on|pick up)([^a-zA-Z])[^`]{0,80}`--yolo`' || true)
+while IFS= read -r offer; do
+  [ -n "$offer" ] || continue
+  if printf '%s' "$offer" | grep -Eqi "$NEGATION"; then
+    continue
+  fi
+  fail "Step 3's abort branch offers \`--yolo\` as a way to continue or resume the aborted build. It is not one: --yolo skips Step 3 only, Step 2 still dispatches wp-normalize and still regenerates demo/.yolo-manifest.json, so following the advice destroys the condition the advice is gated on. Tell the operator to restore from demo/.original/ and run fresh: $offer"
+done <<< "$offers"
 
 # ---------------------------------------------------------------------------
 # Step 4 — the two section-walk dispatch sites
@@ -277,10 +383,54 @@ printf '%s' "$f4" | grep -qF 'stale on this path' \
 # "copy `demo/<slug>.html` to `demo/.original/<slug>.html`" and "restore
 # `demo/<slug>.html` from `demo/.original/<slug>.html`" phrasings green), and
 # \b-anchors each verb so "because"/"caused" do not count as "use".
+#
+# Round 5. That verb-keyed alternative had no negation awareness, while the
+# comment above it promises that "an explicit prohibition" is a legitimate
+# mention. Six realistic correct edits — every one of them STRENGTHENING the
+# contract this negative defends — exited 1 with a message that was false about
+# what the line said:
+#     Never pass `demo/.original/<slug>.html` as the `--css` source.
+#     Do not use `demo/.original/<slug>.html` for anything but a restore.
+#     Step 2.6 uses `demo/.original/` only as the restore source.
+#     No builder ever reads `demo/.original/<slug>.html`.
+#     The backup is never used as a source; `demo/.original/<slug>.html` is reference only.
+#     To inspect the plain-CSS markup by hand, read `demo/.original/<slug>.html`.
+# The file survived only because its one existing prohibition happens to put the
+# path BEFORE the verb.
+#
+# So the designation test now runs per sentence (see `sentences` above) and a
+# sentence is skipped when it carries a negation or a not-a-source qualifier.
+# `only as/only the/only for`, `by hand`, `manually` and `reference only` are in
+# the qualifier list because they mark the mention as a restore source or a human
+# read, which is what the last four examples above are. `instead of`/`rather
+# than` are deliberately absent — they reverse an object, not a claim.
+#
+# The verb list also gains the phrasings a re-point would actually use. "On a
+# failed conversion, point it at `demo/.original/<slug>.html` instead." and "Set
+# it to the pristine copy in `demo/.original/<slug>.html`." both passed the
+# round-4 list, and both are the bypass this negative exists to catch.
+#
+# A heuristic negative cannot be exhaustive and is not meant to be; the positive
+# assertions above (which name demo/index.html and demo/<slug>.html by path at
+# both section-walk sites) are what actually pin the contract. What this must not
+# do is fire on the correct edit.
 fall=$(flat "$(cat "$f")")
-if printf '%s' "$fall" | grep -Eq '→ `?demo/\.original/|converted demo.{0,30}`demo/\.original/|--css.{0,60}`demo/\.original/|\b(pass|passes|passed|passing|use|uses|used|using|read|reads|reading|transcribe[a-z]*|source)\b[^`]{0,40}`demo/\.original/'; then
-  fail "a --css source line in $f resolves to demo/.original/ — the unconverted backup, which is exactly the re-point this check exists to catch"
-fi
+src_pat='→ `?demo/\.original/'
+src_pat="$src_pat"'|converted demo.{0,30}`demo/\.original/'
+src_pat="$src_pat"'|--css.{0,60}`demo/\.original/'
+src_pat="$src_pat"'|\b(pass|passes|passed|passing|point|points|pointed|pointing|re-?point[a-z]*|set|sets|setting|use|uses|used|using|read|reads|reading|transcribe[a-z]*|source)\b[^`]{0,40}`demo/\.original/'
+not_a_source="$NEGATION"'|only (as|the|for) |by hand|manually|reference only'
+while IFS= read -r sent; do
+  [ -n "$sent" ] || continue
+  # -i: a designation verb at the head of a sentence is capitalised ("Set it to
+  # the pristine copy in `demo/.original/<slug>.html`"), and the round-4 pattern
+  # was case-sensitive, so exactly the sentence-initial re-point slipped through.
+  printf '%s' "$sent" | grep -Eqi "$src_pat" || continue
+  if printf '%s' "$sent" | grep -Eqi "$not_a_source"; then
+    continue
+  fi
+  fail "a --css source line in $f resolves to demo/.original/ — the unconverted backup, which is exactly the re-point this check exists to catch: $sent"
+done <<< "$(sentences "$fall" 'demo/.original/')"
 
 # ---------------------------------------------------------------------------
 # Step 5.5 — the parity-gate auto-fix must not re-inject plain CSS

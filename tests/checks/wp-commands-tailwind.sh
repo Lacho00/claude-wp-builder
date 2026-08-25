@@ -40,11 +40,34 @@ walk_sites() {
   routing_line=$(grep -n -m1 '^### CSS agent routing$' "$page" | cut -d: -f1 || true)
   [ -n "$routing_line" ] || { echo "FAIL: $page has no \"### CSS agent routing\" block"; exit 1; }
 
-  # The routing block runs from its heading to the next heading (or EOF). Its
-  # own prose quotes "Dispatch **wp-css** agent" while describing the rule, so
-  # it is the one region where a **wp-css** mention is legitimately not a
-  # dispatch site.
-  block_end=$(awk -v s="$routing_line" 'NR > s && /^#/ { print NR; exit }' "$page")
+  # The routing block runs from its heading to the next heading of the SAME OR
+  # HIGHER level (or EOF). Its own prose quotes "Dispatch **wp-css** agent" while
+  # describing the rule, so it is the one region where a **wp-css** mention is
+  # legitimately not a dispatch site.
+  #
+  # The terminator used to be a bare /^#/, which ended the block on the first
+  # `#`-leading line of any kind. Two ordinary, correct edits truncated the block
+  # with it, and both orphaned the block's closing "This routing governs every
+  # \"Dispatch **wp-css** agent\" step below..." sentence into the accounting
+  # invariant below — which then failed with a wrong diagnosis ("usually a
+  # hard-wrap") and an impossible remedy ("move it inside the routing block"; it
+  # already was):
+  #   1. a `#` comment inside a fenced code block, e.g. a worked example of
+  #      `# .claude/CLAUDE.md` / `Template: tailwind`. `#`-leading lines inside
+  #      fences are an established pattern in these files.
+  #   2. a `#### sub-heading` inside the routing block, which is a child of the
+  #      `###` heading and belongs to the block, not after it.
+  # So: track fences and skip them, require a real ATX heading (`#`s followed by
+  # a space), and only close on a heading whose level is <= the routing
+  # heading's own.
+  block_end=$(awk -v s="$routing_line" '
+    NR == s { match($0, /^#+/); lvl = RLENGTH; next }
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    NR > s && !fence && /^#+[[:space:]]/ {
+      match($0, /^#+/)
+      if (RLENGTH <= lvl) { print NR; exit }
+    }
+  ' "$page")
   [ -n "$block_end" ] || block_end=$(( $(wc -l < "$page") + 1 ))
 
   sites=$(grep -nE '^[[:space:]>*-]*Dispatch .*\*\*wp-css\*\*' "$page" || true)

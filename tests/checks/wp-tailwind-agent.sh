@@ -38,8 +38,16 @@ printf '%s' "$flatf" | grep -qF 'Write the converted HTML to `<output-path>.tmp`
   || { echo "FAIL: wp-tailwind does not write the conversion to \`<output-path>.tmp\`"; exit 1; }
 printf '%s' "$flatf" | grep -qF 'never to `<output-path>` itself' \
   || { echo "FAIL: wp-tailwind does not forbid writing \`<output-path>\` itself"; exit 1; }
-printf '%s' "$flatf" | grep -qF 'Then stop: you do not move, rename or delete `<output-path>`, and you do not verify your own conversion' \
-  || { echo "FAIL: wp-tailwind does not stop after the temporary write — the verification and the move belong to /wp-tailwindify Step 4"; exit 1; }
+# The wording is "the verification that gates the move is not yours to run", not
+# "you do not verify your own conversion". The latter contradicted this file's
+# own Quality Checks section, which tells the agent to verify delimiters and
+# `<style>` blocks before writing — a direct contradiction inside the file the
+# actor split was about. A self-check before the `.tmp` write is fine and wanted;
+# what the agent must not own is the GATE.
+printf '%s' "$flatf" | grep -qF 'Then stop: you do not move, rename or delete `<output-path>`, and the verification that gates the move is not yours to run' \
+  || { echo "FAIL: wp-tailwind does not stop after the temporary write — the move, and the verification that gates it, belong to /wp-tailwindify Step 4"; exit 1; }
+printf '%s' "$flatf" | grep -qF 'that is a self-check, not the gate' \
+  || { echo "FAIL: wp-tailwind does not separate its own Quality Checks self-check from /wp-tailwindify Step 4's gate — without that, Step 5 and the Quality Checks section contradict each other"; exit 1; }
 printf '%s' "$flatf" | grep -qF 'Write the converted HTML to the output path provided' \
   && { echo "FAIL: wp-tailwind writes straight to the output path — that is the truncating in-place write the .tmp contract exists to prevent"; exit 1; }
 
