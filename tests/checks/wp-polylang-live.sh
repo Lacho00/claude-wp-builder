@@ -1067,6 +1067,91 @@ update_post_meta((int) getenv("PLL_ITEM"), "_menu_item_object_id", (int) getenv(
 ' --allow-root)
 run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the menu item was re-pointed back"; exit 1; }
 
+echo "── verify catches an internal link into the wrong language ──"
+# Check 9 is the headline check of THIS task, and it had no test of its own:
+# deleting the whole check left this suite green. Same reasoning as check 1
+# above -- give the check the one condition it exists to catch, on the
+# fixture's own counterpart, and require the verifier to name it.
+#
+# No restore wiring: the post carrying the bad href is the fixture's own
+# counterpart, which cleanup() deletes on every path.
+LINK_TARGET_ID="$(cd "$SITE" && PLL_CHILD="$FIXTURE_CHILD_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_CHILD"));
+echo empty($t[getenv("PLL_DST")]) ? "" : (int) $t[getenv("PLL_DST")];
+' --allow-root)"
+[[ -n "$LINK_TARGET_ID" ]] || { echo "FAIL: the fixture child page has no $DST counterpart to plant a link in"; exit 1; }
+
+LINK_SRC_URL="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" wp eval '
+echo get_permalink((int) getenv("PLL_PARENT"));
+' --allow-root)"
+[[ -n "$LINK_SRC_URL" ]] || { echo "FAIL: could not resolve the fixture parent page permalink"; exit 1; }
+
+LINK_ORIG_CONTENT="$(cd "$SITE" && wp post get "$LINK_TARGET_ID" --field=post_content --allow-root)"
+(cd "$SITE" && PLL_TID="$LINK_TARGET_ID" PLL_URL="$LINK_SRC_URL" wp eval '
+wp_update_post(array("ID" => (int) getenv("PLL_TID"),
+  "post_content" => "<p><a href=\"" . getenv("PLL_URL") . "\">volver</a></p>"));
+' --allow-root >/dev/null)
+
+if LINK_BROKEN_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)"; then
+  echo "$LINK_BROKEN_OUT"
+  echo "FAIL: verify accepted a $DST post linking to a $SRC post"; exit 1
+fi
+grep -qF "links to a '$SRC' post ($FIXTURE_PARENT_ID) via an internal href" <<<"$LINK_BROKEN_OUT" || {
+  echo "$LINK_BROKEN_OUT"
+  echo "FAIL: verify rejected the site, but not with the internal-link check -- some other check fired, so check 9 is untested"
+  exit 1
+}
+echo "  verify reported: $(grep -F "via an internal href" <<<"$LINK_BROKEN_OUT" | head -1)"
+
+(cd "$SITE" && PLL_TID="$LINK_TARGET_ID" PLL_C="$LINK_ORIG_CONTENT" wp eval '
+wp_update_post(array("ID" => (int) getenv("PLL_TID"), "post_content" => (string) getenv("PLL_C")));
+' --allow-root >/dev/null)
+run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the planted link was removed"; exit 1; }
+
+echo "── verify catches a custom menu item pointing at the wrong language ──"
+# Check 1's 'custom' branch is new in Task 9 and had no test either: removing
+# it left the suite green. A custom item carries a literal href instead of an
+# object id, which is exactly what a hand-duplicated menu produces -- the Task
+# 7 finding this branch exists to close.
+CUSTOM_MENU_ID="$(cd "$SITE" && PLL_SRC_MENU="$FIXTURE_MENU_ID" PLL_SRC="$SRC" PLL_DST="$DST" wp eval '
+$src_menu = (int) getenv("PLL_SRC_MENU"); $src = getenv("PLL_SRC"); $dst = getenv("PLL_DST");
+$opts = get_option("polylang"); $theme = get_stylesheet();
+foreach ((array) ($opts["nav_menus"][$theme] ?? []) as $per) {
+  if (!is_array($per) || empty($per[$dst])) { continue; }
+  if ($src_menu && (int) ($per[$src] ?? 0) !== $src_menu) { continue; }
+  echo (int) $per[$dst]; return;
+}
+' --allow-root)"
+[[ -n "$CUSTOM_MENU_ID" ]] || { echo "FAIL: no $DST menu is paired with the fixture's source menu"; exit 1; }
+
+CUSTOM_ITEM_ID="$(cd "$SITE" && PLL_MENU="$CUSTOM_MENU_ID" PLL_URL="$LINK_SRC_URL" wp eval '
+echo (int) wp_update_nav_menu_item((int) getenv("PLL_MENU"), 0, array(
+  "menu-item-type"   => "custom",
+  "menu-item-url"    => getenv("PLL_URL"),
+  "menu-item-title"  => "PLL fixture custom link",
+  "menu-item-status" => "publish",
+));
+' --allow-root)"
+[[ "$CUSTOM_ITEM_ID" =~ ^[0-9]+$ && "$CUSTOM_ITEM_ID" -gt 0 ]] || { echo "FAIL: could not create the custom menu item"; exit 1; }
+# Registered with the fixture's own item ids so cleanup() hard-deletes it on
+# every path: a custom item has no object id, so the point-at matching in
+# cleanup() cannot find it.
+FIXTURE_ITEM_IDS="${FIXTURE_ITEM_IDS:+$FIXTURE_ITEM_IDS,}$CUSTOM_ITEM_ID"
+
+if CUSTOM_BROKEN_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)"; then
+  echo "$CUSTOM_BROKEN_OUT"
+  echo "FAIL: verify accepted a $DST custom menu item pointing at a $SRC post"; exit 1
+fi
+grep -qF "(custom URL) points at a '$SRC' post ($FIXTURE_PARENT_ID)" <<<"$CUSTOM_BROKEN_OUT" || {
+  echo "$CUSTOM_BROKEN_OUT"
+  echo "FAIL: verify rejected the site, but not with the custom-menu-item check -- some other check fired, so that branch is untested"
+  exit 1
+}
+echo "  verify reported: $(grep -F "(custom URL) points at" <<<"$CUSTOM_BROKEN_OUT" | head -1)"
+
+(cd "$SITE" && wp post delete "$CUSTOM_ITEM_ID" --force --allow-root >/dev/null)
+run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the custom menu item was removed"; exit 1; }
+
 echo "── remove this run's fixture ──"
 # Deletion, not a re-run of export+import. The teardown used to resync by
 # exporting and importing again with NO translation step in between, which
