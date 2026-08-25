@@ -154,6 +154,22 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 
 ---
 
+### Tailwind convention (tailwind template only)
+
+Skip when `Template:` is `basic`. When `Template:` is `tailwind`, run:
+
+```bash
+bin/tailwind-native-check.sh <theme-dir>
+```
+
+It fails the delivery on: a leftover `assets/css/styles.css`, an empty or
+comment-only `.css`, a `.css` with no `@import` in `main.css`, a stray directory
+under `assets/css/src/tailwindcss/`, an inline `<style>` block in a template, or a
+compiled theme whose markup carries almost no utility classes. Fix every finding
+before delivering — each one means part of the build fell back to the plain-CSS path.
+
+---
+
 ### Demo-parity gate — Layer 1 (static)
 
 Layer 1 of the 3-layer demo-parity gate (static / theme-file level). Runs against the theme's CSS, templates, and the manifest produced by `/wp-normalize` (`section.backgrounds`, `section.fonts`, `section.block`). Every check below is **critical** — a FAIL here blocks delivery.
@@ -246,9 +262,23 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
 
 2. **Load demo + built page.** For each in-scope page, navigate to the demo URL and to the corresponding built (local WordPress) URL.
 
-3. **Measure computed styles.** Via `javascript_tool`, run `getComputedStyle()` on matching selectors on both pages (hero, nav, section backgrounds, headings, buttons) and compare the results.
+3. **Conversion parity — tailwind template only.** When `Template:` is `basic`, skip this
+   item and change nothing else in Layer 3. When `Template:` is `tailwind`, `/wp-yolo`
+   Step 2.6 has already converted each demo page **in place**, so the demo URL loaded in
+   item 2 serves the *converted* page: an error the conversion introduced is present on
+   both sides of that comparison and cancels out. So for each in-scope page also open the
+   pristine pre-conversion copy at `demo/.original/<slug>.html` (Step 2.6 keeps it there;
+   the old `demo/<slug>.original.html` no longer exists) and repeat the measurement and
+   classification below between it and the converted `demo/<slug>.html`. Report a hard
+   delta found here as a **conversion defect** — `/wp-tailwindify` changed the page — and
+   not as a build defect, which is a hard delta between the converted demo and the built
+   site. The two have different fixes, and only the original can tell them apart. If
+   `demo/.original/<slug>.html` is absent the page was never converted: note that and skip
+   this item for that page.
 
-4. **Classify every delta:**
+4. **Measure computed styles.** Via `javascript_tool`, run `getComputedStyle()` on matching selectors on both pages (hero, nav, section backgrounds, headings, buttons) and compare the results.
+
+5. **Classify every delta:**
    - **Hard delta (BLOCK)** — critical:
      - A `background-image` present in the demo is missing in the build.
      - `color` / `background-color` resolves to a **different hex** between demo and build.
@@ -259,9 +289,9 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
      - Antialiasing / font-smoothing rendering variance.
      - Any value within the 3%/8px threshold.
 
-5. **Confirm logo + hero rendering.** Verify the logo renders as an actual image (not a text fallback) and that hero section background images are visible (not blank/broken).
+6. **Confirm logo + hero rendering.** Verify the logo renders as an actual image (not a text fallback) and that hero section background images are visible (not blank/broken).
 
-**PASS** if no hard deltas found (soft deltas are reported but do not block). **FAIL** listing every hard delta (selector, property, demo value vs. built value). **SKIP** (not a failure) if claude-in-chrome or either URL is unavailable — state the reason (e.g. "claude-in-chrome not connected", "demo URL unreachable", "built site not running").
+**PASS** if no hard deltas found (soft deltas are reported but do not block). **FAIL** listing every hard delta (selector, property, demo value vs. built value), and on the tailwind path every divergence item 3 reported against the pristine original. **SKIP** (not a failure) if claude-in-chrome or either URL is unavailable — state the reason (e.g. "claude-in-chrome not connected", "demo URL unreachable", "built site not running").
 
 ---
 

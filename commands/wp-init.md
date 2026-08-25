@@ -152,7 +152,11 @@ The user can override any field. Once confirmed, use these values for the rest o
 
   If fewer than 6 colors are extracted, leave unmatched variables at their defaults.
 
-  Also suggest running `/wp-tailwindify` to convert the demo's CSS classes to Tailwind utilities.
+  Then **run `/wp-tailwindify`** on the demo — do not merely suggest it. On the
+  tailwind template the build transcribes from the demo, so a plain-CSS demo yields a
+  plain-CSS theme. Skip only if the demo has no `<style>` block and no static
+  `style="` attribute (already Tailwind-native); say which case applied. `/wp-yolo`
+  Step 2.6 repeats this check, so a skip here is safe.
 
 **Step D5 — Continue with normal scaffolding:**
 
