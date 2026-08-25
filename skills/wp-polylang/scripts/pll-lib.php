@@ -117,8 +117,11 @@ function pllx_term_payload( $term_id, $taxonomy ) {
  * Only text-bearing types are included; images, URLs, numbers and booleans are
  * copied verbatim by the importer and never sent for translation.
  *
- * Ceiling: one level of nesting inside groups and repeaters. Deeper structures
- * are not walked. Widen pllx_acf_walk() if a project needs it.
+ * Ceiling: one level of nesting inside groups, repeaters and flexible-content
+ * layouts. Deeper structures (a group nested inside a repeater or a
+ * flexible-content layout, etc.) are not walked. `clone` fields are
+ * deliberately never walked as their own type -- see the comment at the end
+ * of pllx_acf_walk() for why. Widen pllx_acf_walk() if a project needs more.
  */
 function pllx_acf_payload( $post_id ) {
 	if ( ! function_exists( 'get_field_objects' ) ) {
@@ -172,7 +175,53 @@ function pllx_acf_walk( $objects, &$out ) {
 					}
 				}
 			}
+			continue;
 		}
+
+		if ( 'flexible_content' === $type && is_array( $val ) ) {
+			$layouts = isset( $obj['layouts'] ) && is_array( $obj['layouts'] ) ? $obj['layouts'] : array();
+			foreach ( $val as $i => $row ) {
+				if ( ! is_array( $row ) || ! isset( $row['acf_fc_layout'] ) ) {
+					continue;
+				}
+				// Match the row's layout name (NOT its key) against the field
+				// object's layouts to find that layout's sub_fields.
+				$layout_subs = array();
+				foreach ( $layouts as $layout ) {
+					if ( isset( $layout['name'] ) && $layout['name'] === $row['acf_fc_layout'] ) {
+						$layout_subs = isset( $layout['sub_fields'] ) && is_array( $layout['sub_fields'] ) ? $layout['sub_fields'] : array();
+						break;
+					}
+				}
+				foreach ( $layout_subs as $sub ) {
+					$sname = $sub['name'];
+					// acf_fc_layout is the machine identifier that names the
+					// row's layout; it is never translatable and must never
+					// be keyed here even if a layout happened to define a
+					// sub_field with that name.
+					if ( 'acf_fc_layout' === $sname ) {
+						continue;
+					}
+					if ( in_array( $sub['type'], $text, true )
+						&& isset( $row[ $sname ] ) && is_string( $row[ $sname ] ) && '' !== $row[ $sname ] ) {
+						$out[ "$name.$i.$sname" ] = $row[ $sname ];
+					}
+				}
+			}
+			continue;
+		}
+
+		// 'clone' is deliberately NOT walked. With the default (seamless)
+		// display, a clone's sub-fields surface as ordinary siblings under
+		// their own names and are already walked by the branches above --
+		// adding a 'clone' branch here would re-emit the same value under a
+		// second key. With 'group' display, get_field_objects() returns the
+		// clone as a SECOND object (type 'clone') whose value duplicates the
+		// original field's, backed by the SAME underlying meta; walking it
+		// would emit the same text twice under two different dotted keys, and
+		// writing both back independently risks the second write clobbering
+		// the first with a different translation. Verified on the SCF 6.9.5
+		// fixture: `wp eval` probes for both display modes, see task-8-report.md.
 	}
 }
 

@@ -186,7 +186,7 @@ foreach ( $manifest['items'] as $item ) {
 
 		if ( ! empty( $item['acf'] ) && function_exists( 'update_field' ) ) {
 			foreach ( $item['acf'] as $dotted => $value ) {
-				pllx_acf_write( $target_id, $dotted, $value );
+				pllx_acf_write( $target_id, $dotted, $value, $source_id );
 			}
 		}
 
@@ -473,9 +473,18 @@ pllx_info( sprintf( 'Fixed %d parent-child relationship(s).', $parents_fixed ) )
 /**
  * Write one flattened ACF value back.
  *
- * Dot notation mirrors pllx_acf_walk(): `name`, `group.sub`, `repeater.0.sub`.
+ * Dot notation mirrors pllx_acf_walk(): `name`, `group.sub`, `repeater.0.sub`,
+ * and, since Task 8, `flex_field.0.sub` for flexible-content rows -- the two
+ * share the same 3-part shape and this function does not distinguish them.
+ *
+ * $source_id is the SOURCE post (its field-having-been-walked side), used
+ * only to backfill a flexible-content row's `acf_fc_layout` on first write --
+ * see the comment in the 3-part branch below. Optional and unused by the
+ * other branches; omit it where the caller has no source post (there is
+ * currently no such caller, but the parameter defaults to 0 rather than being
+ * required so a future caller without a source post does not have to fake one).
  */
-function pllx_acf_write( $post_id, $dotted, $value ) {
+function pllx_acf_write( $post_id, $dotted, $value, $source_id = 0 ) {
 	$parts = explode( '.', $dotted );
 
 	if ( 1 === count( $parts ) ) {
@@ -503,6 +512,28 @@ function pllx_acf_write( $post_id, $dotted, $value ) {
 			$rows[ $i ] = array();
 		}
 		$rows[ $i ][ $parts[2] ] = $value;
+
+		// A repeater row is a plain associative array and tolerates being
+		// built up one key at a time by this read-modify-write. A
+		// flexible-content row is not: it also needs its `acf_fc_layout` tag
+		// to say which layout it is, and SCF silently drops a row that lacks
+		// it -- verified empirically (writing a brand-new flexible-content
+		// row through this branch without the tag left the whole field
+		// empty on write). A row the target ALREADY has keeps its own
+		// `acf_fc_layout` untouched by the three lines above, since only
+		// $parts[2] is ever set on it; only a row being created for the
+		// first time (a brand-new translation counterpart) has none, so
+		// backfill it from the corresponding row on the SOURCE post -- the
+		// only other place that still identifies the row's layout, since
+		// pllx_acf_walk() deliberately never emits `acf_fc_layout` as a
+		// translatable key.
+		if ( ! isset( $rows[ $i ]['acf_fc_layout'] ) && $source_id ) {
+			$source_rows = get_field( $parts[0], $source_id );
+			if ( is_array( $source_rows ) && isset( $source_rows[ $i ]['acf_fc_layout'] ) ) {
+				$rows[ $i ]['acf_fc_layout'] = $source_rows[ $i ]['acf_fc_layout'];
+			}
+		}
+
 		update_field( $parts[0], $rows, $post_id );
 	}
 }

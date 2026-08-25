@@ -947,4 +947,230 @@ echo "── remove this run's fixture ──"
 cleanup
 trap - EXIT
 
-echo PASS
+# ── Task 8: ACF/SCF field-type coverage ─────────────────────────────────────
+# Everything below runs AFTER trap - EXIT, i.e. with no cleanup-on-failure
+# protection (see the file header). That is deliberate here, not an oversight:
+# unlike every fixture above, the "PLL ACF fixture" page and its field group
+# (wp-content/mu-plugins/pll-acf-fixture.php on $SITE) are a PERMANENT fixture
+# kept on purpose (Task 8 ruling T8-A/Step 7), not something this run created
+# and must remove. There is nothing here for a trap to tear down.
+#
+# Guarded so the suite still passes on a site with no custom-fields plugin:
+# get_field() existing at all is the only signal this block depends on.
+SKIPPED=""
+
+if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-root); then
+  echo "── ACF: every translatable field type round-trips ──"
+
+  # FIXTURE_TMPDIR no longer exists -- cleanup() above already removed it.
+  # This block has no trap protection (see the file header note reproduced
+  # above), so its own temp dir is removed explicitly at the end of the
+  # success path; a failure path below leaves it for post-mortem inspection.
+  ACF_TMPDIR="$(mktemp -d)"
+
+  # Looked up by slug, not a hardcoded post ID: the mu-plugin's field-group
+  # location rule hardcodes this site's ID (595 at the time this was written),
+  # but a DB rebuild that recreates the page under a different ID must not
+  # silently turn this whole block into a no-op.
+  ACF_FIXTURE_ID="$(cd "$SITE" && wp post list --post_type=page --name=pll-acf-fixture --field=ID --allow-root)"
+  [[ -n "$ACF_FIXTURE_ID" ]] || { echo "FAIL: SCF is active but the 'PLL ACF fixture' page is missing -- Task 8 keeps it permanently, see pll-acf-fixture.php in the site's mu-plugins"; exit 1; }
+
+  ACF_TARGET_ID="$(cd "$SITE" && PLL_FID="$ACF_FIXTURE_ID" PLL_DST="$DST" wp eval '
+  $t = pll_get_post_translations((int) getenv("PLL_FID"));
+  $dst = getenv("PLL_DST");
+  echo empty($t[$dst]) ? "" : (int) $t[$dst];
+  ' --allow-root)"
+
+  if [[ -z "$ACF_TARGET_ID" ]]; then
+    # First run ever against this site: no counterpart exists yet. One plain
+    # export/import pass creates it so the sentinel-seeding step below always
+    # has a target post to seed. Every subsequent run skips straight past this.
+    ACF_BOOT_MAN="$ACF_TMPDIR/acf-bootstrap.json"
+    run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$ACF_BOOT_MAN" >/dev/null
+    php -r '
+    $m = json_decode(file_get_contents($argv[1]), true);
+    $fid = (int) $argv[2];
+    $kept = array();
+    foreach ($m["items"] as $it) {
+      if (($it["kind"] ?? "") === "post" && (int) ($it["source_id"] ?? 0) === $fid) { $kept[] = $it; }
+    }
+    if (count($kept) !== 1) {
+      fwrite(STDERR, "FAIL: expected exactly 1 bootstrap item for the ACF fixture, found ".count($kept)."\n");
+      exit(1);
+    }
+    $m["items"] = $kept;
+    file_put_contents($argv[1], json_encode($m, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+    ' "$ACF_BOOT_MAN" "$ACF_FIXTURE_ID" || exit 1
+    run "$SCRIPTS/pll-import.php" "$ACF_BOOT_MAN" >/dev/null || { echo "FAIL: bootstrap import for the ACF fixture failed"; exit 1; }
+    ACF_TARGET_ID="$(cd "$SITE" && PLL_FID="$ACF_FIXTURE_ID" PLL_DST="$DST" wp eval '
+    $t = pll_get_post_translations((int) getenv("PLL_FID"));
+    echo empty($t[getenv("PLL_DST")]) ? "" : (int) $t[getenv("PLL_DST")];
+    ' --allow-root)"
+    [[ -n "$ACF_TARGET_ID" ]] || { echo "FAIL: bootstrap import did not create a $DST counterpart for the ACF fixture"; exit 1; }
+  fi
+
+  echo "  fixture page: $SRC=$ACF_FIXTURE_ID, $DST=$ACF_TARGET_ID"
+
+  # Seed the TARGET's negative-control fields with values that DIFFER from the
+  # source's, and force the export to see this post as stale. Without this,
+  # "unchanged after import" would be trivially true (the fields were simply
+  # never written) instead of proving the importer actively leaves someone
+  # else's already-different data alone, and a site where nothing looks stale
+  # would export zero items, making every assertion below pass vacuously.
+  (cd "$SITE" && PLL_TID="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_TID");
+  update_field("pll_number", -1, $id);
+  update_field("pll_true_false", 0, $id);
+  update_field("pll_url", "https://example.com/target-sentinel", $id);
+  update_field("pll_image", 80, $id);
+  delete_post_meta($id, "_pll_src_hash");
+  ' --allow-root)
+
+  ACF_MAN="$ACF_TMPDIR/acf-manifest.json"
+  run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$ACF_MAN" >/dev/null || { echo "FAIL: ACF export exited non-zero"; exit 1; }
+
+  # Keep ONLY the fixture's own item. The export walks the whole site, so
+  # without this filter the manifest also carries the site's real menu --
+  # importing that would rewrite the site's own 2 menus, which this suite must
+  # never do outside the dedicated fixture-menu blocks above.
+  php -r '
+  $m = json_decode(file_get_contents($argv[1]), true);
+  $fid = (int) $argv[2];
+  $kept = array();
+  foreach ($m["items"] as $it) {
+    if (($it["kind"] ?? "") === "post" && (int) ($it["source_id"] ?? 0) === $fid) { $kept[] = $it; }
+  }
+  if (count($kept) !== 1) {
+    fwrite(STDERR, "FAIL: expected exactly 1 ACF fixture item in the export, found ".count($kept)."\n");
+    exit(1);
+  }
+  $acf = $kept[0]["acf"] ?? array();
+  $n = count($acf);
+  if ($n <= 0) {
+    fwrite(STDERR, "FAIL: no acf keys exported at all -- the assertions below would have passed vacuously\n");
+    exit(1);
+  }
+  $expected = array(
+    "pll_text", "pll_textarea", "pll_wysiwyg",
+    "pll_group.pll_group_text",
+    "pll_repeater.0.pll_rep_text", "pll_repeater.0.pll_rep_textarea",
+    "pll_repeater.1.pll_rep_text", "pll_repeater.1.pll_rep_textarea",
+    "pll_flex.0.flex_a_text", "pll_flex.1.flex_b_text",
+  );
+  $missing = array_diff($expected, array_keys($acf));
+  if ($missing) {
+    fwrite(STDERR, "FAIL: export is missing expected acf key(s): ".implode(", ", $missing)."\n");
+    exit(1);
+  }
+  $forbidden = array( "pll_number", "pll_true_false", "pll_url", "pll_image", "pll_flex.0.acf_fc_layout", "pll_flex.1.acf_fc_layout" );
+  $leaked = array_intersect($forbidden, array_keys($acf));
+  if ($leaked) {
+    fwrite(STDERR, "FAIL: export leaked a non-translatable key into acf: ".implode(", ", $leaked)."\n");
+    exit(1);
+  }
+  echo "  exported acf keys: $n (".count($expected)." expected present, ".count($forbidden)." forbidden confirmed absent)\n";
+  $m["items"] = $kept;
+  file_put_contents($argv[1], json_encode($m, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+  ' "$ACF_MAN" "$ACF_FIXTURE_ID" || exit 1
+
+  # Translate mechanically -- same convention as the rest of this suite.
+  php -r '
+  $m = json_decode(file_get_contents($argv[1]), true);
+  foreach ($m["items"] as &$it) {
+    foreach ($it["fields"] as $k => $v) {
+      if ($k === "post_name" || $k === "slug") { continue; }
+      if (is_string($v) && $v !== "") { $it["fields"][$k] = "[" . strtoupper($argv[2]) . "] " . $v; }
+    }
+    foreach ($it["acf"] as $k => $v) {
+      $it["acf"][$k] = "[" . strtoupper($argv[2]) . "] " . $v;
+    }
+  }
+  unset($it);
+  file_put_contents($argv[1], json_encode($m, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+  ' "$ACF_MAN" "$DST"
+
+  run "$SCRIPTS/pll-import.php" "$ACF_MAN" >/dev/null || { echo "FAIL: ACF import exited non-zero"; exit 1; }
+
+  ACF_RESULT="$(cd "$SITE" && PLL_TID="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_TID");
+  echo json_encode(get_field_objects($id), JSON_UNESCAPED_UNICODE);
+  ' --allow-root)"
+
+  php -r '
+  $o = json_decode($argv[1], true);
+  if (!is_array($o) || !count($o)) { fwrite(STDERR, "FAIL: get_field_objects() on the target returned nothing\n"); exit(1); }
+
+  $checks = 0;
+  function pll_check(&$checks, $cond, $msg) {
+    $checks++;
+    if (!$cond) { fwrite(STDERR, "FAIL: $msg\n"); exit(1); }
+  }
+
+  pll_check($checks, ($o["pll_text"]["value"] ?? null) === "[EN] Texto simple en espanol", "pll_text did not round-trip translated");
+  pll_check($checks, ($o["pll_textarea"]["value"] ?? null) === "[EN] Area de texto en espanol", "pll_textarea did not round-trip translated");
+  pll_check($checks, strpos($o["pll_wysiwyg"]["value"] ?? "", "[EN]") !== false, "pll_wysiwyg did not round-trip translated");
+  pll_check($checks, ($o["pll_group"]["value"]["pll_group_text"] ?? null) === "[EN] Texto dentro de un grupo", "group sub-field did not round-trip translated");
+
+  // Guarded with is_array(), not just ??: a field that failed to save can come
+  // back as an explicit `false` value rather than a missing key, and count()
+  // on that throws instead of failing the assertion with a readable message.
+  $rep = $o["pll_repeater"]["value"] ?? array();
+  if ( ! is_array( $rep ) ) { $rep = array(); }
+  pll_check($checks, count($rep) === 2, "repeater row count changed across the round trip (".count($rep)." rows)");
+  pll_check($checks, ($rep[0]["pll_rep_text"] ?? null) === "[EN] Fila uno texto", "repeater row 0 text did not round-trip translated");
+  pll_check($checks, ($rep[0]["pll_rep_textarea"] ?? null) === "[EN] Fila uno area de texto", "repeater row 0 textarea did not round-trip translated");
+  pll_check($checks, ($rep[1]["pll_rep_text"] ?? null) === "[EN] Fila dos texto", "repeater row 1 text did not round-trip translated");
+  pll_check($checks, ($rep[1]["pll_rep_textarea"] ?? null) === "[EN] Fila dos area de texto", "repeater row 1 textarea did not round-trip translated");
+
+  $flex = $o["pll_flex"]["value"] ?? array();
+  if ( ! is_array( $flex ) ) { $flex = array(); }
+  pll_check($checks, count($flex) === 2, "flexible-content row count changed across the round trip (".count($flex)." rows)");
+  pll_check($checks, ($flex[0]["acf_fc_layout"] ?? null) === "layout_a", "flexible-content row 0 lost its acf_fc_layout");
+  pll_check($checks, ($flex[0]["flex_a_text"] ?? null) === "[EN] Texto de diseno A", "flexible-content row 0 text did not round-trip translated");
+  pll_check($checks, ($flex[1]["acf_fc_layout"] ?? null) === "layout_b", "flexible-content row 1 lost its acf_fc_layout");
+  pll_check($checks, ($flex[1]["flex_b_text"] ?? null) === "[EN] Texto de diseno B", "flexible-content row 1 text did not round-trip translated");
+
+  pll_check($checks, (int) ($o["pll_number"]["value"] ?? null) === -1, "negative control pll_number was altered by the import");
+  pll_check($checks, ($o["pll_true_false"]["value"] ?? null) === false, "negative control pll_true_false was altered by the import");
+  pll_check($checks, ($o["pll_url"]["value"] ?? null) === "https://example.com/target-sentinel", "negative control pll_url was altered by the import");
+  pll_check($checks, (int) ($o["pll_image"]["value"] ?? null) === 80, "negative control pll_image was altered by the import");
+
+  echo "  round-trip checks passed: $checks\n";
+  ' "$ACF_RESULT" || exit 1
+
+  # The SOURCE post itself must never be mutated by any of the above -- not
+  # by the export (read-only, but worth confirming) and not by the importer
+  # writing into the wrong post_id by mistake.
+  ACF_SOURCE_STILL="$(cd "$SITE" && PLL_FID="$ACF_FIXTURE_ID" wp eval '
+  $id = (int) getenv("PLL_FID");
+  echo json_encode(array(
+    "text"   => get_field("pll_text", $id),
+    "number" => get_field("pll_number", $id),
+    "bool"   => get_field("pll_true_false", $id),
+    "url"    => get_field("pll_url", $id),
+    "image"  => get_field("pll_image", $id),
+  ));
+  ' --allow-root)"
+  php -r '
+  $s = json_decode($argv[1], true);
+  $n = 0;
+  if (($s["text"] ?? null) === "Texto simple en espanol") { $n++; } else { fwrite(STDERR, "FAIL: source pll_text was mutated\n"); exit(1); }
+  if ((int) ($s["number"] ?? -999) === 42) { $n++; } else { fwrite(STDERR, "FAIL: source pll_number was mutated\n"); exit(1); }
+  if (($s["bool"] ?? null) === true) { $n++; } else { fwrite(STDERR, "FAIL: source pll_true_false was mutated\n"); exit(1); }
+  if (($s["url"] ?? null) === "https://example.com/no-traducir") { $n++; } else { fwrite(STDERR, "FAIL: source pll_url was mutated\n"); exit(1); }
+  if ((int) ($s["image"] ?? -1) === 85) { $n++; } else { fwrite(STDERR, "FAIL: source pll_image was mutated\n"); exit(1); }
+  if ($n <= 0) { fwrite(STDERR, "FAIL: no negative controls were checked at all -- the assertions above would have passed vacuously\n"); exit(1); }
+  echo "  negative controls confirmed unaltered (source and target): $n source + 4 target\n";
+  ' "$ACF_SOURCE_STILL" || exit 1
+
+  rm -rf "$ACF_TMPDIR"
+else
+  echo "  (skipping ACF assertions: no custom-fields plugin active)"
+  SKIPPED="${SKIPPED:+$SKIPPED, }ACF"
+fi
+
+if [[ -n "${SKIPPED:-}" ]]; then
+  echo "PASS (skipped: $SKIPPED)"
+else
+  echo "PASS"
+fi

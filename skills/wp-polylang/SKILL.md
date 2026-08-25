@@ -104,6 +104,67 @@ What does need the paid Polylang for WooCommerce addon is the runtime plumbing �
 per-language cart, checkout and account page mapping, product variations, WC
 emails. That is not content and is out of scope for content translation.
 
+## ACF / SCF custom fields
+
+`pllx_acf_payload()` in `pll-lib.php` flattens a post's custom-field values to a
+dot-notation map (`pllx_acf_walk()`); `pllx_acf_write()` in `pll-import.php`
+writes that map back through `update_field()`/`get_field()`. Both work against
+whatever plugin defines `get_field_objects()`, `get_field()` and
+`update_field()` — that is ACF or SCF, never both (see below).
+
+**Translated** (the value is walked, sent through translation, written back):
+
+| Field type | Key shape |
+|---|---|
+| `text`, `textarea`, `wysiwyg` | `name` |
+| `group` (one level) | `group_name.sub_name` |
+| `repeater` (one level) | `repeater_name.ROW_INDEX.sub_name` |
+| `flexible_content` (one level) | `flex_name.ROW_INDEX.sub_name` |
+
+A `flexible_content` row's own `acf_fc_layout` tag is never emitted as a
+translatable key — it is a machine identifier, not text — but the importer
+still needs it to write a valid row. A row the target already has keeps its
+existing tag untouched by the read-modify-write; a row being created for the
+first time (a brand-new translation counterpart) gets it backfilled from the
+corresponding row on the *source* post, since that's the only other place
+that still identifies the row's layout. Without this, a fresh flexible-content
+row written through the same dot-notation path as a repeater row is invalid
+and SCF/ACF silently drops the whole field — this was measured, not assumed
+(see `tests/checks/wp-polylang-live.sh` and the Task 8 report in
+`.superpowers/sdd/2026-08-21-wp-polylang-retrofit/`).
+
+**Copied verbatim, never translated** (present in the field group, absent
+from the dot-notation map, untouched by the importer): `image`, `number`,
+`true_false`, `url`, and any other type not listed above.
+
+**`clone` fields are deliberately never walked as their own type.** With the
+default *seamless* display, a clone's sub-fields surface as ordinary siblings
+under their own names in `get_field_objects()` and are already covered by the
+branches above — walking `clone` too would re-emit the same value under a
+second key. With *group* display, `get_field_objects()` returns the clone as
+a **second** object (type `clone`) whose value duplicates the original
+field's, backed by the same underlying meta; walking that would emit the same
+text twice under two different dotted keys, and writing both back
+independently risks the second write clobbering the first with a different
+translation. Both shapes were probed live before reaching this conclusion —
+adding a `clone` branch would open the exact "translate the same thing twice
+and let the last write win" defect class this plan exists to close, not
+prevent it.
+
+**Ceiling:** one level of nesting inside `group`, `repeater` and
+`flexible_content` — a group nested inside a repeater or a flexible-content
+layout is not walked. Widen `pllx_acf_walk()` if a project needs more.
+
+Verified against **Secure Custom Fields (SCF) 6.9.5** — the free,
+wordpress.org fork that ships `repeater`, `group`, `flexible_content` and
+`clone`, which ACF sells as PRO. ACF's free tier has none of those four types
+and exposes the rest of this surface (`text`, `textarea`, `wysiwyg`, plain
+`group`, plain `repeater`) through the identical API, so passing against SCF
+implies passing against ACF free. ACF PRO was not available to test against
+(no licence). **ACF and SCF cannot both be active** — both define
+`get_field()`, `get_field_objects()` and `update_field()`, and activating the
+second one over the first fatals the site. Install exactly one.
+
 ## Strings
 
 `pll_register_string()` registers a string for translation, but only the theme or
