@@ -71,6 +71,9 @@ For each element in the HTML:
 **MUST remove:**
 - `<style>` blocks (rules converted to utility classes)
 - Inline `style` attributes (converted to utility classes)
+- The demo's own project stylesheet `<link rel="stylesheet">` — its rules are utility
+  classes now, and a converted page that still links it is not Tailwind-native. (A Google
+  Fonts link, or a Tailwind CDN/build-output link, stays: those are not project CSS.)
 - Unused CSS class definitions
 
 ### Step 5: Write Output

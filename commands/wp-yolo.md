@@ -99,14 +99,46 @@ downstream takes a new filename, because the demo page's own filename never chan
 Walk **every** page in the manifest's `pages[]` — the home page and every inner page,
 not just `index`. For each page, in this order:
 
-1. **Detect, per page.** Read `demo/<slug>.html`. If it has no `<style>` block and no
-   static `style="` attribute, it is already Tailwind-native: leave the file alone, do
-   not back it up, do not convert it, and note
-   `demo already tailwind-native — conversion skipped` in the report for that page. This
-   is what makes *this step* idempotent — a second `/wp-yolo` pass over an already-converted
-   demo detects and skips instead of converting twice. It does **not** make a re-run safe:
-   by the time Step 2.6 runs again, Step 2 has already re-dispatched `wp-normalize` and
-   emptied the manifest's `cssRules`, `fonts` and `backgrounds`. See Step 3's abort branch.
+1. **Detect, per page.** Read `demo/<slug>.html` and decide whether it is *already
+   Tailwind-native*. The absence of inline CSS does not answer that question: a plain-CSS
+   demo that keeps its rules in an external stylesheet carries no `<style>` block and no
+   static `style="` attribute either, and that is the commonest demo shape there is —
+   every fixture under `tests/fixtures/` has exactly that signature. Nothing upstream
+   inlines it first: `wp-normalize` resolves external stylesheet rules into the *manifest*,
+   not into the HTML, so the page arrives here still linking its stylesheet. Decide on
+   evidence, not on the absence of one delivery mechanism:
+
+   - **Plain-CSS evidence — any one of these means convert.** A `<style>` block; a static
+     `style="` attribute; or a `<link rel="stylesheet">` whose `href` is a project-local
+     `.css` file (a relative or site-rooted path such as `assets/styles.css` or
+     `css/main.css`). A linked stylesheet delivers CSS to the page exactly as much as a
+     `<style>` block does. A Google Fonts `<link>` is not plain-CSS evidence, and neither
+     is a Tailwind CDN or Tailwind build-output `<link>`.
+   - **Tailwind evidence — what a converted page actually looks like.** Its `class`
+     attributes are predominantly Tailwind utilities: layout (`flex`, `grid`, `hidden`),
+     spacing and sizing (`px-4`, `mt-8`, `w-full`), typography (`text-lg`, `font-bold`),
+     colour (`bg-slate-900`, `text-white`) and variant prefixes (`md:`, `lg:`, `hover:`).
+     Semantic or BEM class names (`site-header__logo`, `hero`, `card__title`) are the
+     plain-CSS shape, not Tailwind evidence.
+   - **Skip only on Tailwind evidence and no plain-CSS evidence.** Then, and only then,
+     leave the file alone, do not back it up, do not convert it, and note
+     `demo already tailwind-native — conversion skipped` in the report for that page.
+   - **Ambiguous input converts.** A page carrying both utilities and a project
+     stylesheet, a page carrying neither, a page you cannot classify with confidence:
+     convert it. The two mistakes are not symmetrical. Converting a page that was already
+     Tailwind-native costs one redundant pass over markup that is already in the target
+     form. Skipping a page that was not voids the entire tailwind path — the section walk
+     transcribes the manifest's plain-CSS `cssRules` instead, and the theme ships with BEM
+     CSS and no utility classes — while reporting success for every page. Bias every tie
+     towards converting.
+
+   Skipping on positive evidence is what makes *this step* idempotent — a second
+   `/wp-yolo` pass over an already-converted demo detects and skips instead of converting
+   twice, because conversion strips the `<style>` blocks *and* the project stylesheet
+   `<link>` whose rules it absorbed (`@agents/wp-tailwind`, MUST remove), leaving Tailwind
+   evidence and no plain-CSS evidence behind. It does **not** make a re-run safe: by the
+   time Step 2.6 runs again, Step 2 has already re-dispatched `wp-normalize` and emptied
+   the manifest's `cssRules`, `fonts` and `backgrounds`. See Step 3's abort branch.
 2. **Back up, per page.** Otherwise create `demo/.original/` if it does not exist and
    copy `demo/<slug>.html` to `demo/.original/<slug>.html` — but **only if
    `demo/.original/<slug>.html` does not already exist**. If it does, it is already the
@@ -121,8 +153,9 @@ not just `index`. For each page, in this order:
    fails and the backup exists, restore `demo/<slug>.html` from
    `demo/.original/<slug>.html` and report the page as unconverted. Never leave a
    truncated or half-converted page at `demo/<slug>.html`: item 1 would read the wreckage
-   on the next run, find no `<style>` block, declare the page already Tailwind-native and
-   skip it forever, and items 2-6 below would build from the wreckage.
+   on the next run, see utility classes and no project stylesheet, declare the page
+   already Tailwind-native and skip it forever, and items 2-6 below would build from the
+   wreckage.
 5. **Re-point — nothing to re-point.** Because conversion is in place, every later
    reader picks up Tailwind-native markup with no argument change and no new flag:
    item 2 (`/wp-cpt <name> --from-demo <section>`, which reads `demo/index.html`),

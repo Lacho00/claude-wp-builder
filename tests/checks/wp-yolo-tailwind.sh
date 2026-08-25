@@ -27,11 +27,18 @@
 set -euo pipefail
 f=commands/wp-yolo.md
 t=commands/wp-tailwindify.md
+# agents/wp-tailwind.md is here for exactly one assertion, and it is not a
+# digression: Step 2.6's skip rule is "utilities and no project stylesheet", and
+# that rule only terminates because the CONVERSION removes the project
+# stylesheet link. If the agent keeps the link, every converted page keeps
+# plain-CSS evidence and re-converts on every later run.
+a=agents/wp-tailwind.md
 
 fail() { echo "FAIL: $1"; exit 1; }
 
 test -f "$f" || fail "$f missing"
 test -f "$t" || fail "$t missing"
+test -f "$a" || fail "$a missing"
 
 # ---------------------------------------------------------------------------
 # Regions. A file-wide grep is what let mutation 4 pass: the routing notes
@@ -65,6 +72,26 @@ printf '%s\n' "$s55" | tail -1 | grep -q '^## Step 6:' \
 # Strip only the leading blockquote marker (line-wise) — a global s/>//g would
 # also eat the `>` in `demo/.original/<slug>.html` and in `<style>`.
 flat() { printf '%s' "$1" | sed 's/^[[:space:]]*>[[:space:]]\?//' | tr '\n' ' ' | sed 's/  */ /g'; }
+
+# `span <flat-text> <start-marker> <end-marker>` prints the run of text that
+# begins at <start-marker> and stops before the next <end-marker> (or runs to the
+# end when the terminator is absent), and exits 1 when <start-marker> is missing.
+# Same idiom as tests/checks/wp-section-tailwind.sh's `basic` bullet: scoping an
+# assertion to one bullet's own span is what makes it DIRECTED. A clause moved
+# from the plain-CSS bullet into the Tailwind-evidence bullet — which is exactly
+# the inversion of this rule — leaves the span and fails, where a region-wide
+# grep for the same clause would not notice.
+span() {
+  printf '%s' "$1" | awk -v a="$2" -v b="$3" '
+  {
+    i = index($0, a)
+    if (i == 0) exit 1
+    s = substr($0, i)
+    j = index(substr(s, length(a) + 1), b)
+    print (j > 0) ? substr(s, 1, length(a) + j - 1) : s
+  }'
+}
+
 f26=$(flat "$s26")
 f3=$(flat "$s3")
 f4=$(flat "$s4")
@@ -249,6 +276,141 @@ fi
 # hit the bare word "skip" 12 times in unrelated steps and so gated nothing.
 printf '%s' "$f26" | grep -qF 'conversion skipped' \
   || fail "Step 2.6 has no skip path for an already-converted demo"
+
+# ---------------------------------------------------------------------------
+# The detect RULE itself. This is the one defect on this branch that was a
+# design defect rather than a check defect: item 1 used to read
+#
+#     If it has no `<style>` block and no static `style="` attribute, it is
+#     already Tailwind-native
+#
+# which treats the absence of ONE CSS delivery mechanism as proof of
+# Tailwind-nativeness. A plain-CSS demo that keeps its rules in an external
+# stylesheet has neither marker, and that is the shape of every demo fixture in
+# this repo. The gate meant to prevent the branch's original bug reproduced it:
+# every page was reported `demo already tailwind-native — conversion skipped`,
+# nothing was converted, the section walk transcribed the manifest's plain-CSS
+# cssRules, and the theme shipped with BEM CSS and no utility classes — while
+# reporting success.
+#
+# So the assertions below gate the SHAPE of the replacement rule, not one
+# sentence of it: plain-CSS evidence must include a linked stylesheet and must
+# resolve to "convert"; the skip must require POSITIVE Tailwind evidence plus the
+# absence of plain-CSS evidence; ambiguity must convert. Each is scoped to its own
+# bullet, so moving a clause between bullets fails rather than passing.
+# ---------------------------------------------------------------------------
+plain_ev=$(span "$f26" '- **Plain-CSS evidence' '- **Tailwind evidence') \
+  || fail "Step 2.6's detect step has no \"Plain-CSS evidence\" bullet — the rule must enumerate what counts as evidence of plain CSS, or it is back to testing for the absence of a <style> block"
+tw_ev=$(span "$f26" '- **Tailwind evidence' '- **Skip only') \
+  || fail "Step 2.6's detect step has no \"Tailwind evidence\" bullet — a skip needs positive evidence of Tailwind-nativeness to rest on"
+skip_ev=$(span "$f26" '- **Skip only' '- **Ambiguous') \
+  || fail "Step 2.6's detect step has no \"Skip only ...\" bullet stating the condition under which a page is left unconverted"
+amb_ev=$(span "$f26" '- **Ambiguous' '2. **Back up') \
+  || fail "Step 2.6's detect step has no \"Ambiguous\" bullet — the tie has to be broken explicitly, and towards converting"
+
+# 1. A linked stylesheet is plain-CSS evidence. This is the whole defect: without
+#    it, every fixture in tests/fixtures/ (no <style>, no style=, rules in
+#    assets/styles.css) classifies as already Tailwind-native.
+printf '%s' "$plain_ev" | grep -qF '<link rel="stylesheet">' \
+  || fail 'Step 2.6 does not count a `<link rel="stylesheet">` as plain-CSS evidence. A demo that keeps its rules in an external stylesheet has no <style> block and no style=" attribute, so under a rule that only tests for those it is silently declared already Tailwind-native and never converted — which is the original defect this branch exists to fix, reproduced at the gate meant to prevent it.'
+# ...and the bullet has to resolve to CONVERT. Naming the evidence and then
+# skipping on it would satisfy the assertion above and change nothing.
+printf '%s' "$plain_ev" | grep -qiF 'convert' \
+  || fail "Step 2.6's plain-CSS evidence bullet never says what plain-CSS evidence means for the page: it means convert"
+if printf '%s' "$plain_ev" | grep -Eqi 'means skip|means it is (already )?tailwind|\bskip (it|the page|that page|them)\b'; then
+  fail "Step 2.6's plain-CSS evidence bullet directs a SKIP — plain-CSS evidence is the reason to convert, not the reason to skip"
+fi
+
+# 2. Tailwind evidence must be defined POSITIVELY, by utilities. Defining it as
+#    "no <style> block" is the defect wearing the new rule's clothes.
+printf '%s' "$tw_ev" | grep -qi 'utilit' \
+  || fail "Step 2.6's Tailwind-evidence bullet does not define Tailwind-nativeness by the presence of utility classes — absence of inline CSS is not evidence of anything"
+if printf '%s' "$tw_ev" | grep -qF 'no `<style>` block'; then
+  fail "Step 2.6 defines Tailwind evidence as the ABSENCE of a <style> block. That is the original heuristic: a plain-CSS demo with an external stylesheet satisfies it and is skipped."
+fi
+
+# 3. The skip needs BOTH halves — positive Tailwind evidence AND no plain-CSS
+#    evidence — and the skip ACTION has to sit in the same bullet as its
+#    condition, so the two cannot drift apart.
+printf '%s' "$skip_ev" | grep -qF 'Tailwind evidence' \
+  || fail "Step 2.6's skip bullet does not require positive Tailwind evidence — a skip on anything less is a skip on ignorance"
+printf '%s' "$skip_ev" | grep -qF 'no plain-CSS evidence' \
+  || fail "Step 2.6's skip bullet does not require the ABSENCE of plain-CSS evidence — a page with both utilities and a project stylesheet must still be converted"
+printf '%s' "$skip_ev" | grep -qF 'conversion skipped' \
+  || fail "Step 2.6's skip condition and the skip it authorises are in different bullets — the report line \`demo already tailwind-native — conversion skipped\` must be emitted by the bullet that states the condition, or the two drift apart"
+
+# 4. Ambiguity converts, and the tie is broken in that direction on purpose.
+# A bare `grep -F convert` here would be subsumed by the bullet's own
+# explanatory prose ("Converting a page that was already Tailwind-native costs
+# ..."), which survives inverting the instruction. Require the verb in the
+# DECISION position instead.
+printf '%s' "$amb_ev" | grep -Eqi '\bconverts\b|\bconvert (it|them|the page|that page)\b' \
+  || fail "Step 2.6's ambiguous-input bullet does not resolve to convert"
+if printf '%s' "$amb_ev" | grep -Eqi '\bskip (it|the page|that page|them)\b|leave (it|the file|the page) alone'; then
+  fail "Step 2.6 skips on ambiguous input. The two errors are not symmetrical: a redundant conversion costs one pass over markup already in the target form, a wrong skip voids the whole tailwind path and reports success while doing it."
+fi
+# `conver` and not `convert`: "Bias the tie toward conversion" is the same claim
+# and used to exit 1 here. Scoped to the ambiguous bullet, and the verb list is
+# short: a region-wide version with `resolve` in it was silently satisfied by
+# item 5's "all resolve to the converted file", so the inverted tie-break
+# ("bias every tie towards skipping") still printed PASS. Subsumption, exactly
+# the failure mode this file keeps re-learning.
+printf '%s' "$amb_ev" | grep -Eqi '(bias|break|breaks) [^.]{0,40}conver|in doubt[^.]{0,24}conver' \
+  || fail "Step 2.6's ambiguous-input bullet does not state which way to break a tie. It must break towards converting."
+
+# 5. Literal backstop against the exact sentence this task removed. The bullet
+#    assertions above already fail if the rule is replaced wholesale; this
+#    catches the other shape of regression — the old sentence being ADDED BACK
+#    alongside the new bullets, leaving the step self-contradictory with the
+#    wrong half stated first.
+if printf '%s' "$f26" | grep -qF 'no `<style>` block and no static `style="` attribute, it is already Tailwind-native'; then
+  fail "Step 2.6's detect step carries the original heuristic again: absence of inline CSS is not proof of Tailwind-nativeness, and every demo fixture in this repo is the counter-example"
+fi
+
+# 6. The rule against a real page, which is closer to a test than any grep over
+#    prose. tests/fixtures/demo-acme/index.html is the exact shape the old
+#    heuristic mis-classified: no <style>, no style=", every rule in
+#    assets/styles.css, BEM class names. Under the rule above it has plain-CSS
+#    evidence and no Tailwind evidence, so it must come out "convert" — under the
+#    old one it came out "skip".
+fx=tests/fixtures/demo-acme/index.html
+test -f "$fx" || fail "the plain-CSS worked example $fx is gone. Re-point this assertion at a demo fixture that still keeps its rules in an external stylesheet — without one, nothing here checks the rule against a real page."
+if grep -q '<style' "$fx"; then
+  fail "$fx now carries a <style> block, so it no longer exercises the case the old heuristic got wrong (external stylesheet, zero inline CSS). Re-point this assertion at a fixture that still does."
+fi
+if grep -q 'style="' "$fx"; then
+  fail "$fx now carries a static style= attribute, so it no longer exercises the case the old heuristic got wrong (external stylesheet, zero inline CSS). Re-point this assertion at a fixture that still does."
+fi
+grep -q '<link rel="stylesheet"' "$fx" \
+  || fail "$fx no longer links a project stylesheet, so the detect rule's plain-CSS evidence has no worked example in this repo"
+grep -q 'site-header__' "$fx" \
+  || fail "$fx no longer carries BEM class names, so it no longer demonstrates a page with plain-CSS evidence and no Tailwind evidence"
+
+# 7. The premise the skip rests on, in the agent that has to make it true. The
+#    skip terminates only because a converted page carries NO plain-CSS evidence;
+#    if the conversion leaves the project stylesheet <link> in the head, every
+#    converted page still has plain-CSS evidence and re-converts forever.
+# The two lists, taken as the bullet block each heading owns: from the heading to
+# the first line that is neither a bullet nor a bullet continuation. An awk range
+# ending on `/^### /` looked tighter than it was — deleting the `###` that was
+# supposed to close it just ran the range on to the NEXT `###` heading, so the
+# closure proof printed PASS while the region silently grew. A block that ends at
+# its own blank line cannot grow at all.
+bullets() { # <file> <heading-line>
+  awk -v h="$2" '$0 == h {inb = 1; next} inb && /^(- |  [^ ])/ {print; next} inb {exit}' "$1"
+}
+mustkeep=$(bullets "$a" '**MUST preserve:**')
+mustrm=$(bullets "$a" '**MUST remove:**')
+[ -n "$mustrm" ] || fail "$a has no '**MUST remove:**' bullet list for the conversion to be held to"
+[ -n "$mustkeep" ] || fail "$a has no '**MUST preserve:**' bullet list"
+if printf '%s\n' "$mustrm" | grep -q '^#'; then
+  fail "$a's MUST remove block swallowed a heading — the assertion below would be satisfiable from outside the list"
+fi
+printf '%s' "$(flat "$mustrm")" | grep -qF '<link rel="stylesheet">' \
+  || fail "$a's MUST remove list does not remove the demo's own project stylesheet <link>. /wp-yolo Step 2.6 skips a page only when it has Tailwind evidence and no plain-CSS evidence, and a linked project stylesheet IS plain-CSS evidence — so a conversion that leaves the link behind makes every converted page re-convert on every later run, and leaves a page that is not actually Tailwind-native."
+if printf '%s' "$(flat "$mustkeep")" | grep -qF '<link rel="stylesheet">'; then
+  fail "$a preserves the project stylesheet <link> through conversion — the converted page then still carries plain-CSS evidence and is not Tailwind-native. Google Fonts and Tailwind CDN links are the ones that stay."
+fi
 
 # ...and that skip path must not be sold as making the RUN safe. See
 # no_rerun_safe above: this is the claim round 4 deleted from Step 3 and left
@@ -456,10 +618,44 @@ grep -qiF 'in-place' "$t" \
 grep -qF 'demo/.original/<slug>.html' "$t" \
   || fail "$t still describes /wp-yolo Step 2.6's backup as a sibling of demo/*.html rather than demo/.original/<slug>.html"
 
+# ---------------------------------------------------------------------------
+# $t restates the detect heuristic twice — once in its own Step 2 validate list,
+# once in the truncated-write hazard under Step 3 — and both restatements were
+# the defective one ("no <style> blocks or inline styles → it may already be
+# Tailwind-native"). Two documents disagreeing about the rule is how the rule
+# gets applied wrongly, so both have to agree with Step 2.6.
+# ---------------------------------------------------------------------------
+s2t=$(awk '/^## Step 2: Read and Validate/,/^## Step 3:/' "$t")
+[ -n "$s2t" ] || fail "$t has no Step 2 read/validate region delimited by '## Step 3:'"
+printf '%s\n' "$s2t" | tail -1 | grep -q '^## Step 3:' \
+  || fail "$t's Step 2 region is not terminated by its '## Step 3:' heading — the validate assertions would silently become file-wide"
+f2t=$(flat "$s2t")
+printf '%s' "$f2t" | grep -qF '<link rel="stylesheet">' \
+  || fail "$t's Step 2 validate list does not count a linked stylesheet as CSS to convert — it must agree with /wp-yolo Step 2.6, where a project-local <link rel=\"stylesheet\"> is plain-CSS evidence"
+printf '%s' "$f2t" | grep -qi 'positive evidence' \
+  || fail "$t's Step 2 validate list does not require positive evidence before calling a demo already Tailwind-native"
+if printf '%s' "$f2t" | grep -qF 'Does it contain `<style>` blocks or inline styles? (If not, it may already be Tailwind-native'; then
+  fail "$t's Step 2 validate list is back to the original heuristic — absence of inline CSS is not proof of Tailwind-nativeness"
+fi
+
 # An in-place write that is interrupted destroys the demo page with no recovery
 # path, and prose ("must not emit a partial file") is not a mechanism. Require
 # temp-then-move, gated on the Step 4 verification.
 ft=$(flat "$(cat "$t")")
+
+# Every claim in $t that something is/was declared "already Tailwind-native" has
+# to key on the positive rule, not on a missing <style> block. Forgiving on
+# purpose (any of utilities / stylesheet / evidence satisfies it), because this
+# scans sentences the author has not written yet; the reverted wording — "finds
+# no `<style>` block, declares the page already Tailwind-native" — carries none
+# of the three.
+while IFS= read -r sent; do
+  [ -n "$sent" ] || continue
+  if printf '%s' "$sent" | grep -Eqi 'utilit|stylesheet|evidence'; then
+    continue
+  fi
+  fail "$t decides Tailwind-nativeness without naming the evidence it rests on. Absence of a <style> block is not evidence: a plain-CSS demo with an external stylesheet has none either, which is what made Step 2.6 skip the conversion on every page. Say what the page must positively carry: $sent"
+done <<< "$(sentences "$ft" 'already Tailwind-native')"
 printf '%s' "$ft" | grep -qF 'writes the converted HTML to a temporary path (`<output-path>.tmp`)' \
   || fail "$t does not require the agent to write to a temporary path (\`<output-path>.tmp\`) instead of the output path"
 printf '%s' "$ft" | grep -qF "moves it over the output path **only after** Step 4's verification passes" \

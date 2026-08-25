@@ -30,7 +30,13 @@ Verify the input file exists and is an HTML file.
 ## Step 2: Read and Validate
 
 Read the demo HTML file. Check:
-- Does it contain `<style>` blocks or inline styles? (If not, it may already be Tailwind-native — confirm with user.)
+- **Is it already Tailwind-native?** Absence of `<style>` blocks does not settle that — a
+  plain-CSS demo can keep every rule in a linked stylesheet. Count a `<style>` block, a
+  static `style="` attribute **or** a `<link rel="stylesheet">` pointing at a
+  project-local `.css` file as plain CSS to convert. Treat the demo as already
+  Tailwind-native only on positive evidence: `class` attributes that are predominantly
+  Tailwind utilities (`flex`, `px-4`, `text-lg`, `md:`) and no project stylesheet. If it
+  is ambiguous, convert — confirm with the user first when running standalone.
 - Does it have section delimiters? (Warn if missing — suggest running `/wp-polish` first.)
 
 ## Step 3: Dispatch Conversion Agent
@@ -64,8 +70,9 @@ Under it the agent never overwrites its own input, even when `--out` names that 
 reads `<output-path>` and writes `<output-path>.tmp`, which are different files.
 An interrupted write leaves a truncated `.tmp` nobody reads, which costs nothing. An
 interrupted write straight onto `demo/<slug>.html` destroys the page with no recovery
-path: `/wp-yolo` Step 2.6's detect step reads the truncated remains, finds no `<style>`
-block, declares the page already Tailwind-native and skips it on every later run.
+path. `/wp-yolo` Step 2.6's detect step then reads the truncated remains, sees utility
+classes and no project stylesheet, declares the page already Tailwind-native and skips it
+on every later run.
 
 ## Step 4: Verify Output
 
