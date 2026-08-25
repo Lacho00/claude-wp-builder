@@ -151,6 +151,20 @@ function pllx_acf_walk( $objects, &$out ) {
 			continue;
 		}
 
+		// A `link` field's `title` is translatable text; its `url` is a
+		// reference and is re-pointed by the link-rewrite pass in
+		// pll-import.php instead (pllx_repoint_acf_refs()), never walked
+		// here. `name.title` is written back through the same 2-part
+		// (group-shaped) branch of pllx_acf_write() that already
+		// read-modify-writes a `link` array's `title` key without
+		// disturbing `url`/`target`.
+		if ( 'link' === $type && is_array( $val ) ) {
+			if ( isset( $val['title'] ) && is_string( $val['title'] ) && '' !== $val['title'] ) {
+				$out[ "$name.title" ] = $val['title'];
+			}
+			continue;
+		}
+
 		if ( 'group' === $type && is_array( $val ) ) {
 			foreach ( $subs as $sub ) {
 				$sname = $sub['name'];
@@ -238,4 +252,46 @@ function pllx_hash( $payload ) {
 	ksort( $f );
 	ksort( $a );
 	return hash( 'sha256', wp_json_encode( array( 'fields' => $f, 'acf' => $a ) ) );
+}
+
+/**
+ * True when $href is a candidate for pll_url_to_postid()-based resolution:
+ * same host as this site (or host-less, i.e. root-relative), and an http(s)
+ * URL rather than mailto:, tel:, javascript:, etc.
+ *
+ * Compared by HOST, not by a home_url() string prefix. Measured on the live
+ * site (task-9-report.md, the T9-D probe): home_url() is NOT localized by
+ * Polylang under WP-CLI (it returns the same value regardless of
+ * PLL()->curlang), so a prefix test would happen to work here -- but
+ * url_to_postid() itself is tolerant of a scheme mismatch (it matched an
+ * https:// href against an http:// site in the same probe), and a literal
+ * prefix comparison is not. Comparing hosts is the correct test either way.
+ */
+function pllx_is_internal_url( $href ) {
+	$parts = wp_parse_url( (string) $href );
+	if ( ! is_array( $parts ) ) {
+		return false; // unparseable -- never touch it.
+	}
+	if ( isset( $parts['scheme'] ) && ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+		return false; // mailto:, tel:, javascript:, etc.
+	}
+	if ( empty( $parts['host'] ) ) {
+		return true; // root-relative http(s) path on this site.
+	}
+	$home_host = wp_parse_url( home_url(), PHP_URL_HOST );
+	return is_string( $home_host ) && 0 === strcasecmp( $parts['host'], $home_host );
+}
+
+/**
+ * Resolve $href to the post id it points at, or 0 when it is not a post URL
+ * at all (an archive, a term, the home page) or not an internal URL
+ * (see pllx_is_internal_url()).
+ */
+function pllx_url_to_postid( $href ) {
+	if ( ! pllx_is_internal_url( $href ) ) {
+		return 0;
+	}
+	$parts  = wp_parse_url( (string) $href );
+	$lookup = ! empty( $parts['host'] ) ? $href : ( home_url() . $href );
+	return (int) url_to_postid( $lookup );
 }

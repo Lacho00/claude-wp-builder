@@ -460,6 +460,120 @@ foreach ( $post_counterparts as $source_id => $target_id ) {
 	$parents_fixed++;
 }
 
+// ── Internal link rewrite pass ──────────────────────────────────────────────
+//
+// A source post's content, or an ACF reference field, may point at another
+// source-language post by its own permalink or id. The main loop above
+// copies post_content (and reference-holding ACF field types are not part of
+// the translatable payload at all -- see pllx_acf_payload()'s docblock), so
+// that reference still points at the SOURCE-language post after import: a
+// visitor on the English page clicks a button and lands back on the Spanish
+// site. This is the same defect pll-verify.php's menu check exists to catch,
+// in a different store.
+//
+// Scope: every TARGET-language post with a SOURCE-language counterpart, not
+// only the ones (re)written by the loop above. A link's target may gain its
+// own counterpart only in THIS run, on a post that hashed as unchanged and
+// was therefore skipped by the main loop -- restricting this pass to
+// $post_counterparts would leave that link pointing at the source language
+// forever, since the linking post's hash never changes again to bring it
+// back through the main loop. The pass is idempotent (each rewrite is
+// compared against the current value before writing, so a second run finds
+// nothing left to change) and cheap, so it runs over every post every time.
+$links_rewritten    = 0;
+$acf_refs_rewritten = 0;
+
+$translated_types = array_keys( PLL()->model->get_translated_post_types() );
+$candidate_ids     = get_posts( array(
+	'post_type'        => $translated_types,
+	'post_status'      => array( 'publish', 'draft', 'pending', 'private', 'inherit' ),
+	'numberposts'      => -1,
+	'fields'           => 'ids',
+	'suppress_filters' => false,
+) );
+
+$has_acf = function_exists( 'get_field_objects' ) && function_exists( 'update_field' );
+
+foreach ( $candidate_ids as $target_post_id ) {
+	if ( pll_get_post_language( $target_post_id ) !== $target ) {
+		continue;
+	}
+	$group = pll_get_post_translations( $target_post_id );
+	if ( empty( $group[ $source ] ) ) {
+		continue; // no source counterpart -- nothing to have inherited a stale link from.
+	}
+	$source_post_id = (int) $group[ $source ];
+
+	$post = get_post( $target_post_id );
+	if ( ! $post || false === strpos( (string) $post->post_content, 'href=' ) ) {
+		// No href at all -- cheap skip before the regex, not a correctness
+		// requirement (preg_replace_callback would simply find nothing).
+	} else {
+		$content     = $post->post_content;
+		$new_content = preg_replace_callback(
+			'/href=(["\'])([^"\']+)\1/',
+			function ( $m ) use ( $target, $target_post_id ) {
+				return 'href=' . $m[1] . pllx_repoint_internal_url( $m[2], $target, "post $target_post_id" ) . $m[1];
+			},
+			$content
+		);
+
+		if ( $new_content !== $content ) {
+			$res = wp_update_post( array( 'ID' => $target_post_id, 'post_content' => $new_content ), true );
+			if ( is_wp_error( $res ) ) {
+				pllx_warn( "post $target_post_id: could not rewrite internal link(s): " . $res->get_error_message() );
+			} else {
+				$links_rewritten++;
+			}
+		}
+	}
+
+	if ( $has_acf ) {
+		$acf_refs_rewritten += pllx_repoint_acf_refs( $source_post_id, $target_post_id, $target );
+	}
+}
+
+pllx_info( sprintf(
+	'Rewrote internal link(s) in %d post(s) and %d ACF reference field(s).',
+	$links_rewritten,
+	$acf_refs_rewritten
+) );
+
+// ── Custom menu items pointing at a post (ruling T9-F) ──────────────────────
+//
+// The menu branch above copies a 'custom' item's URL verbatim, on the theory
+// that a custom item is an arbitrary external URL -- but that is false
+// whenever the URL happens to be one of the site's own permalinks: a
+// duplicated menu produces exactly this shape (a literal href, not an
+// object id + type Polylang can re-point through pll_get_post_translations),
+// so a stale source-language slug here is the same defect this whole task
+// exists to close, in a different store. pll-verify.php's check 1 only ever
+// inspected 'post_type' and 'taxonomy' items, so it could not see this at
+// all. Scope: every TARGET-language menu recorded in the 'polylang' option,
+// run every time, for the same reason as the pass above.
+$custom_menu_items_rewritten = 0;
+$theme_slug                  = get_stylesheet();
+$polylang_options            = get_option( 'polylang' );
+$nav_menu_locations          = isset( $polylang_options['nav_menus'][ $theme_slug ] ) ? $polylang_options['nav_menus'][ $theme_slug ] : array();
+
+foreach ( $nav_menu_locations as $per_lang ) {
+	if ( empty( $per_lang[ $target ] ) ) {
+		continue;
+	}
+	foreach ( (array) wp_get_nav_menu_items( (int) $per_lang[ $target ] ) as $mi ) {
+		if ( 'custom' !== $mi->type ) {
+			continue;
+		}
+		$new_url = pllx_repoint_internal_url( $mi->url, $target, "menu item {$mi->ID}" );
+		if ( $new_url !== $mi->url ) {
+			update_post_meta( (int) $mi->ID, '_menu_item_url', $new_url );
+			$custom_menu_items_rewritten++;
+		}
+	}
+}
+
+pllx_info( sprintf( 'Rewrote %d custom menu item URL(s).', $custom_menu_items_rewritten ) );
+
 pllx_info( sprintf(
 	'Wrote %d item(s): %d post(s), %d attachment(s), %d term(s), %d string(s).',
 	$written,
@@ -536,6 +650,212 @@ function pllx_acf_write( $post_id, $dotted, $value, $source_id = 0 ) {
 
 		update_field( $parts[0], $rows, $post_id );
 	}
+}
+
+/**
+ * Resolve $href to its $target_lang counterpart's permalink if it is a
+ * same-host link to a post; otherwise return it unchanged.
+ *
+ * - External links (a different host) are never this function's business.
+ * - A same-host URL that is not a post at all (an archive, a term, the home
+ *   page -- pllx_url_to_postid() returns 0) has no per-language object to
+ *   re-point at and is left exactly as it is.
+ * - A same-host post URL whose target has no $target_lang counterpart yet
+ *   is left pointed at the source and reported with pllx_warn(): a link
+ *   into the wrong language is bad, but a broken link is worse.
+ * - Otherwise the href is rewritten to the counterpart's permalink, with the
+ *   original query string and fragment preserved, and written back in the
+ *   same root-relative-or-absolute form it arrived in.
+ *
+ * $context is a short human label ("post 605", "menu item 123") used only in
+ * the warning message.
+ */
+function pllx_repoint_internal_url( $href, $target_lang, $context ) {
+	$found_id = pllx_url_to_postid( $href );
+	if ( ! $found_id ) {
+		return $href;
+	}
+
+	$target_id = pll_get_post( $found_id, $target_lang );
+	if ( ! $target_id ) {
+		pllx_warn( "$context links to post $found_id, which has no '$target_lang' counterpart; leaving the link pointed at the source" );
+		return $href;
+	}
+
+	if ( (int) $target_id === (int) $found_id ) {
+		return $href; // already pointing at the correct language (or itself).
+	}
+
+	$new_permalink = get_permalink( (int) $target_id );
+	if ( ! $new_permalink ) {
+		return $href;
+	}
+
+	$parts = wp_parse_url( (string) $href );
+	$home  = home_url();
+
+	// Root-relative in, root-relative out: strip the scheme+host this pass
+	// is not supposed to introduce. get_permalink() may itself carry a query
+	// string (?page_id=NN, on a site without pretty permalinks) rather than
+	// a clean path, so this strips a literal prefix instead of reassembling
+	// pieces from wp_parse_url(), which would silently drop that query
+	// string.
+	$result = ( empty( $parts['host'] ) && 0 === strpos( $new_permalink, $home ) )
+		? substr( $new_permalink, strlen( $home ) )
+		: $new_permalink;
+
+	if ( ! empty( $parts['query'] ) ) {
+		$result .= ( false === strpos( $result, '?' ) ? '?' : '&' ) . $parts['query'];
+	}
+	if ( ! empty( $parts['fragment'] ) ) {
+		$result .= '#' . $parts['fragment'];
+	}
+
+	return $result;
+}
+
+/**
+ * Re-point the reference-holding ACF field types on $target_id from
+ * $source_id's own field values, translated into $target_lang.
+ *
+ * Covers `link` (its `url` key -- `title` travels through the manifest and
+ * pllx_acf_write() instead), `page_link` (a permalink string), `post_object`
+ * and `relationship` (post ids, given SCF/ACF's `return_format => 'id'`;
+ * see pll-acf-fixture.php on the test site and SKILL.md for what was
+ * actually measured). Only top-level fields are handled, matching
+ * pllx_acf_walk()'s one-level ceiling.
+ *
+ * Reads from the SOURCE post every run rather than from whatever is already
+ * on the target: these field types are never part of the translatable
+ * payload (pllx_acf_payload() does not walk them), so nothing else ever
+ * gives the target a value to begin with. Idempotent: each write is
+ * compared against the target's current value first, so a second run with
+ * no source change makes zero writes.
+ *
+ * Returns the number of fields actually rewritten.
+ */
+function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
+	$source_objects = get_field_objects( $source_id );
+	if ( ! is_array( $source_objects ) ) {
+		return 0;
+	}
+
+	$count = 0;
+
+	foreach ( $source_objects as $name => $obj ) {
+		$type = isset( $obj['type'] ) ? $obj['type'] : '';
+		$val  = isset( $obj['value'] ) ? $obj['value'] : null;
+
+		if ( 'link' === $type ) {
+			if ( ! is_array( $val ) || empty( $val['url'] ) ) {
+				continue;
+			}
+			$new_url = pllx_repoint_internal_url( $val['url'], $target_lang, "post $target_id, field '$name'" );
+
+			$target_val = get_field( $name, $target_id );
+			if ( ! is_array( $target_val ) ) {
+				$target_val = array();
+			}
+			$current_url = isset( $target_val['url'] ) ? $target_val['url'] : '';
+			if ( $current_url !== $new_url ) {
+				$target_val['url'] = $new_url;
+				if ( ! isset( $target_val['title'] ) ) {
+					$target_val['title'] = '';
+				}
+				if ( ! isset( $target_val['target'] ) ) {
+					$target_val['target'] = '';
+				}
+				update_field( $name, $target_val, $target_id );
+				$count++;
+			}
+			continue;
+		}
+
+		if ( 'page_link' === $type ) {
+			if ( ! is_string( $val ) || '' === $val ) {
+				continue;
+			}
+			$new_url = pllx_repoint_internal_url( $val, $target_lang, "post $target_id, field '$name'" );
+			$current = get_field( $name, $target_id );
+			if ( $current !== $new_url ) {
+				update_field( $name, $new_url, $target_id );
+				$count++;
+			}
+			continue;
+		}
+
+		if ( 'post_object' === $type ) {
+			$source_post_id = pllx_acf_ref_id( $val );
+			if ( ! $source_post_id ) {
+				continue;
+			}
+			$new_id = (int) pll_get_post( $source_post_id, $target_lang );
+			if ( ! $new_id ) {
+				pllx_warn( "post $target_id, field '$name': post_object references post $source_post_id, which has no '$target_lang' counterpart; leaving it pointed at the source" );
+				continue;
+			}
+			$current_id = pllx_acf_ref_id( get_field( $name, $target_id ) );
+			if ( $current_id !== $new_id ) {
+				update_field( $name, $new_id, $target_id );
+				$count++;
+			}
+			continue;
+		}
+
+		if ( 'relationship' === $type ) {
+			if ( ! is_array( $val ) || ! $val ) {
+				continue;
+			}
+			$new_ids = array();
+			foreach ( $val as $row ) {
+				$row_id = pllx_acf_ref_id( $row );
+				if ( ! $row_id ) {
+					continue;
+				}
+				$mapped = (int) pll_get_post( $row_id, $target_lang );
+				if ( ! $mapped ) {
+					pllx_warn( "post $target_id, field '$name': relationship references post $row_id, which has no '$target_lang' counterpart; leaving that entry pointed at the source" );
+					$new_ids[] = $row_id; // leave pointed at the source rather than silently drop it.
+					continue;
+				}
+				$new_ids[] = $mapped;
+			}
+
+			$current_ids = array();
+			foreach ( (array) get_field( $name, $target_id ) as $row ) {
+				$id = pllx_acf_ref_id( $row );
+				if ( $id ) {
+					$current_ids[] = $id;
+				}
+			}
+
+			if ( $current_ids !== $new_ids ) {
+				update_field( $name, $new_ids, $target_id );
+				$count++;
+			}
+			continue;
+		}
+	}
+
+	return $count;
+}
+
+/**
+ * A post_object/relationship field's row can come back as a bare id or, with
+ * return_format => 'object', a WP_Post -- normalise either shape to an int
+ * id, or 0 for anything else (unset, false, a stray string).
+ */
+function pllx_acf_ref_id( $value ) {
+	if ( is_numeric( $value ) ) {
+		return (int) $value;
+	}
+	if ( is_array( $value ) && isset( $value['ID'] ) ) {
+		return (int) $value['ID'];
+	}
+	if ( is_object( $value ) && isset( $value->ID ) ) {
+		return (int) $value->ID;
+	}
+	return 0;
 }
 
 /**

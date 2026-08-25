@@ -17,7 +17,7 @@ pllx_require_langs( $source, $target );
 
 $failures = array();
 $warnings = array();
-$counts   = array( 'posts' => 0, 'terms' => 0, 'menu_items' => 0 );
+$counts   = array( 'posts' => 0, 'terms' => 0, 'menu_items' => 0, 'internal_links' => 0 );
 
 // ── 1. Menu items point at target-language objects ──────────────────────────
 $theme   = get_stylesheet();
@@ -48,6 +48,22 @@ foreach ( $locs as $location => $per_lang ) {
 			$lang = pll_get_term_language( (int) $mi->object_id );
 			if ( $lang !== $target ) {
 				$failures[] = "menu item '{$mi->title}' points at a '" . ( $lang ? $lang : 'none' ) . "' term ({$mi->object_id}), expected '$target'";
+			}
+		} elseif ( 'custom' === $mi->type ) {
+			// Ruling T9-F: a 'custom' item carries a literal href, not an
+			// object id + type this check could otherwise resolve through
+			// pll_get_post_translations() -- exactly what a duplicated menu
+			// produces, and exactly the gap the link-rewrite pass in
+			// pll-import.php closes. Only checked when the URL actually
+			// resolves to a post; an item that is genuinely a mailto:,
+			// external site, or non-post internal URL has no per-language
+			// object to be wrong about.
+			$found_id = pllx_url_to_postid( $mi->url );
+			if ( $found_id ) {
+				$lang = pll_get_post_language( $found_id );
+				if ( $lang !== $target ) {
+					$failures[] = "menu item '{$mi->title}' (custom URL) points at a '" . ( $lang ? $lang : 'none' ) . "' post ($found_id), expected '$target'";
+				}
 			}
 		}
 	}
@@ -191,12 +207,42 @@ foreach ( array_keys( PLL()->model->get_translated_taxonomies() ) as $taxonomy )
 	}
 }
 
+// ── 9. Internal links inside translated content point at translated targets ─
+//
+// Same defect as check 1 (menu items), same severity, in a different store:
+// a same-host href inside a target-language post's content that resolves to
+// a post must resolve to a post IN THE TARGET LANGUAGE. A hard failure, not
+// a warning -- pll-import.php's link-rewrite pass exists to make this true,
+// so a failure here means that pass missed something or ran on a site whose
+// content was hand-edited afterwards. $target_posts was classified above,
+// in the same pass as $source_posts.
+foreach ( $target_posts as $target_id ) {
+	$content = get_post_field( 'post_content', $target_id );
+	if ( ! is_string( $content ) || false === strpos( $content, 'href=' ) ) {
+		continue;
+	}
+	if ( ! preg_match_all( '/href=(["\'])([^"\']+)\1/', $content, $m ) ) {
+		continue;
+	}
+	foreach ( $m[2] as $href ) {
+		$found_id = pllx_url_to_postid( $href );
+		if ( ! $found_id ) {
+			continue; // external, or not a post URL -- nothing to check.
+		}
+		$counts['internal_links']++;
+		$lang = pll_get_post_language( $found_id );
+		if ( $lang !== $target ) {
+			$failures[] = "post $target_id links to a '" . ( $lang ? $lang : 'none' ) . "' post ($found_id) via an internal href, expected '$target'";
+		}
+	}
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────
 // Machine-readable so the live suite can assert on the numbers rather than on
 // the mere exit code. An audit that examined nothing must not report success.
 pllx_info( sprintf(
-	'Audited posts=%d terms=%d menu_items=%d unassigned=%d for %s -> %s',
-	$counts['posts'], $counts['terms'], $counts['menu_items'], array_sum( $unassigned ), $source, $target
+	'Audited posts=%d terms=%d menu_items=%d internal_links=%d unassigned=%d for %s -> %s',
+	$counts['posts'], $counts['terms'], $counts['menu_items'], $counts['internal_links'], array_sum( $unassigned ), $source, $target
 ) );
 
 $unassigned_total = array_sum( $unassigned );

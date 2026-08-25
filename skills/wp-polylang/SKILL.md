@@ -94,6 +94,68 @@ common Polylang misconfiguration, and it is invisible until a visitor clicks and
 lands in the wrong language. Re-point every item with
 `pll_get_post_translations()`.
 
+A `custom` menu item (a literal href, not an object id + type) is not
+automatically safe just because it is not `post_type` or `taxonomy`: a
+duplicated menu produces exactly this shape, and a `custom` item whose URL
+happens to be one of the site's own permalinks needs re-pointing the same
+way — see "Internal links inside translated content" below, which covers
+this case too.
+
+## Internal links inside translated content
+
+A source post's content, or an ACF reference field, may link to another
+source-language post by its own permalink. That href is copied verbatim into
+the translated counterpart along with the rest of the content — nothing
+parses it — so after import it still points at the SOURCE-language post: a
+button on the English page sends the visitor back to the Spanish site. This
+is the same defect as an untranslated menu item, in post content instead of
+a menu.
+
+`pll-import.php` closes this with a link-rewrite pass that runs **after
+every post's counterpart exists**, for the same reason the parent-fixup pass
+does: a link's target may gain its own counterpart later than the post
+containing the link, on a run where the linking post itself was skipped by
+hash. The pass therefore runs over **every target-language post with a
+source-language counterpart**, not only the posts (re)written in the current
+run — cheap and idempotent, so this is safe to do unconditionally on every
+import, including a real site's already-translated pages. It applies to:
+
+- same-host `href="..."` attributes inside `post_content`;
+- ACF/SCF `link` (its `url` key — the `title` is translatable text and
+  travels through the manifest instead), `page_link`, `post_object` and
+  `relationship` fields (read from the SOURCE post every run, since these
+  types are never part of the translatable payload — see below — so nothing
+  else ever gives the target a value to begin with);
+- `custom` menu items, whenever their URL resolves to a post.
+
+Rules:
+
+- **Same host only.** Compared by *host*, not by a `home_url()` string
+  prefix — `url_to_postid()` itself tolerates a scheme mismatch (measured:
+  an `https://` href against an `http://` site still resolved), and a
+  literal prefix test would not. A different host is never touched.
+- **Resolved with `url_to_postid()`.** A zero result means it is not a post
+  URL (an archive, a term, the home page) and is left exactly as it is.
+  Measured on this test site: a WooCommerce shop page's own permalink does
+  **not** resolve through `url_to_postid()` even with the correct host —
+  this is a real, observed limitation of WordPress's own resolver, not a
+  bug in this pass, and such links are silently left alone like any other
+  non-post URL.
+- **Re-pointed via `pll_get_post( $id, $target_lang )`.** If it returns
+  nothing, the target has no counterpart yet: the link is left pointed at
+  the source and `pllx_warn()` names both posts. A link into the other
+  language is bad; a broken link is worse.
+- **Query string and fragment are preserved**, and a root-relative href is
+  written back root-relative (`/servicios/?x=1#contacto` keeps both parts).
+- Idempotent: every candidate rewrite is compared against the current value
+  first, so a second run over unchanged content writes nothing and
+  `post_content` stays byte-identical.
+
+`pll-verify.php`'s check 9 audits the same condition on `post_content` as a
+**hard failure** — the same severity as its menu-item check, for the same
+reason — and check 1 (menus) now also inspects `custom` items whose URL
+resolves to a post.
+
 ## What free Polylang covers
 
 Verified on Polylang 3.8.7 with no paid addon: `product` is translatable as a
@@ -120,6 +182,7 @@ whatever plugin defines `get_field_objects()`, `get_field()` and
 | `group` (one level) | `group_name.sub_name` |
 | `repeater` (one level) | `repeater_name.ROW_INDEX.sub_name` |
 | `flexible_content` (one level) | `flex_name.ROW_INDEX.sub_name` |
+| `link` (title only) | `link_name.title` |
 
 A `flexible_content` row's own `acf_fc_layout` tag is never emitted as a
 translatable key — it is a machine identifier, not text — but the importer
@@ -136,6 +199,41 @@ and SCF/ACF silently drops the whole field — this was measured, not assumed
 **Copied verbatim, never translated** (present in the field group, absent
 from the dot-notation map, untouched by the importer): `image`, `number`,
 `true_false`, `url`, and any other type not listed above.
+
+**Re-pointed, not translated** (never walked into the manifest at all; fixed
+up directly on the target post by the link-rewrite pass in `pll-import.php`
+— see "Internal links inside translated content" above): `link`'s `url` key,
+`page_link` (a permalink string, not an id — measured; see below), and
+`post_object` / `relationship` (ids, given `return_format => 'id'` — see
+below). `pllx_repoint_acf_refs()` reads these from the SOURCE post on every
+run, resolves each reference through `pll_get_post()`, and writes the
+target-language equivalent onto the target post, since nothing else ever
+gives the target a value for these types to begin with.
+
+Measured on the test site's fixture (`pll-acf-fixture.php`, extended for
+Task 9): with `return_format` left at its default, `page_link` returns a
+permalink **string**, never an id, and is not configurable to return one —
+this is what "handle what you actually observe rather than what the
+documentation implies" turned up here. `post_object` and `relationship` were
+configured with `return_format => 'id'` for this pass to have a stable shape
+to write; `pllx_acf_ref_id()` in `pll-import.php` also tolerates the
+`return_format => 'object'` shape (`WP_Post`/array with `ID`) defensively,
+though that was not the configuration measured.
+
+**A plain `url` field stays a negative control, deliberately.** An ACF `url`
+field that happens to hold an internal link is **not** re-pointed by this
+pass, even though a `link` or `page_link` field holding the identical value
+would be. The reasoning: `url`, `image`, `number` and `true_false` are all
+generic scalar types with no reference semantics ACF itself is aware of —
+treating "the string looks like this site's URL" as a signal would mean
+guessing intent from content rather than from the field's declared type,
+and would make a project's actual "do not touch this URL" field (exactly
+what this test site's `pll_url` fixture field represents) unpredictably
+mutable depending on what a translator happens to paste into it. `link`,
+`page_link`, `post_object` and `relationship` are unambiguous because ACF
+itself defines them as references; `url` is not, so it is left alone like
+any other scalar. If a project needs a plain `url` field re-pointed, model
+it as `link` or `page_link` instead.
 
 **`clone` fields are deliberately never walked as their own type.** With the
 default *seamless* display, a clone's sub-fields surface as ordinary siblings

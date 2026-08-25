@@ -296,6 +296,26 @@ FIXTURE_ARCHIVE_PT="$ARCHIVE_PT"
 
 echo "  menu $FIXTURE_MENU_ID: pages $FIXTURE_PARENT_ID/$FIXTURE_CHILD_ID, media $FIXTURE_MEDIA_ID, items $FIXTURE_ITEM_IDS ($FIXTURE_ARCHIVE_PT archive)"
 
+# Give the fixture parent page a link into the fixture child page BEFORE the
+# first export below, so the export -> translate -> import cycle exercised
+# further down this file (the "import writes linked, correctly-languaged
+# counterparts" section) already carries this href straight through the
+# import it does anyway. See "internal links in translated content point at
+# translated targets" further down for the assertion built on it -- built on
+# THIS RUN'S OWN fixture pages (ruling T9-A), never on the site's real
+# content, so cleanup() tears it down for free along with the rest of the
+# fixture.
+FIXTURE_CHILD_PERMALINK="$(cd "$SITE" && PLL_CHILD="$FIXTURE_CHILD_ID" wp eval 'echo get_permalink((int) getenv("PLL_CHILD"));' --allow-root)"
+[[ -n "$FIXTURE_CHILD_PERMALINK" ]] || { echo "FAIL: could not read the fixture child page's permalink"; exit 1; }
+
+(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_HREF="$FIXTURE_CHILD_PERMALINK" wp eval '
+$res = wp_update_post(array(
+  "ID"           => (int) getenv("PLL_PARENT"),
+  "post_content" => "<p>See the <a href=\"" . getenv("PLL_HREF") . "\">fixture child page</a>.</p>",
+), true);
+if (is_wp_error($res)) { fwrite(STDERR, $res->get_error_message()); exit(1); }
+' --allow-root) || { echo "FAIL: could not add an internal link to the fixture parent page"; exit 1; }
+
 echo "── export produces a valid manifest ──"
 MAN="$FIXTURE_TMPDIR/manifest.json"
 run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$MAN" >/dev/null || { echo "FAIL: export exited non-zero"; exit 1; }
@@ -469,6 +489,117 @@ echo "  checked $checked attachment(s)\n";
 if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated attachments have broken file linkage"; exit 1; }
+
+echo "── internal links in translated content point at translated targets ──"
+# Built explicitly on THIS RUN's own fixture pages (ruling T9-A), not by
+# hunting the site's real content -- editing a real page's content on a
+# failure path is exactly the class of defect three other findings on this
+# branch already came from, and cleanup() only knows how to remove what it
+# itself created. The href was written into the fixture parent's
+# post_content BEFORE the export/translate/import cycle above ran (see the
+# fixture-seeding section), so MAN2 already carried it and the import above
+# already exercised the link-rewrite pass on it once.
+#
+# Distinct exit codes for distinct reasons (ruling T9-B): 2 means the
+# assertion checked nothing (no href to test -- a fixture defect, not an
+# importer defect), 3 means a fixture counterpart is missing (setup broke
+# earlier and this test cannot run at all), anything else nonzero means a
+# real language mismatch was found. The caller below matches on the code,
+# not just "nonzero", so each path reports its own reason instead of all
+# three collapsing into one message.
+set +e
+LINK_OUT="$(cd "$SITE" && PLL_DST="$DST" PLL_PARENT="$FIXTURE_PARENT_ID" PLL_CHILD="$FIXTURE_CHILD_ID" wp eval '
+$dst    = getenv("PLL_DST");
+$parent = (int) getenv("PLL_PARENT");
+$child  = (int) getenv("PLL_CHILD");
+
+$t = pll_get_post_translations($parent);
+if (empty($t[$dst])) { fwrite(STDERR, "fixture parent has no $dst counterpart\n"); exit(3); }
+$parent_target = (int) $t[$dst];
+
+$ct = pll_get_post_translations($child);
+if (empty($ct[$dst])) { fwrite(STDERR, "fixture child has no $dst counterpart\n"); exit(3); }
+$child_target = (int) $ct[$dst];
+
+$content = get_post_field("post_content", $parent_target);
+// \x27 is an apostrophe. A literal one cannot appear here: the whole PHP
+// body is inside bash single quotes, which have no escape mechanism at all.
+if (!preg_match_all("/href=([\"\x27])([^\"\x27]+)\\1/", $content, $m)) {
+  fwrite(STDERR, "no href found in the fixture parent counterpart content\n");
+  exit(2);
+}
+
+$checked = 0; $bad = 0;
+foreach ($m[2] as $url) {
+  $found = url_to_postid($url);
+  if (!$found) { continue; } // external, or not a post URL -- nothing to check
+  $checked++;
+  $lang = pll_get_post_language($found);
+  if ($lang !== $dst) {
+    echo "  post $parent_target links to a $lang post ($found)\n";
+    $bad++;
+  } elseif ((int) $found !== $child_target) {
+    echo "  post $parent_target links to $dst post $found, expected the fixture child counterpart $child_target\n";
+    $bad++;
+  }
+}
+echo "  checked $checked internal link(s)\n";
+if ($checked === 0) { exit(2); }
+exit($bad === 0 ? 0 : 1);
+' --allow-root)"
+LINK_STATUS=$?
+set -e
+echo "$LINK_OUT"
+case $LINK_STATUS in
+  0) ;;
+  2) echo "FAIL: internal-link assertion checked nothing -- the fixture parent's translated content has no internal link to test"; exit 1 ;;
+  3) echo "FAIL: fixture parent or child counterpart is missing -- cannot test link rewriting"; exit 1 ;;
+  *) echo "FAIL: translated content links into the wrong language"; exit 1 ;;
+esac
+
+echo "── internal-link rewrite pass is idempotent (ruling T9-G) ──"
+# A second IMPORT over the SAME manifest FILE is not the right way to
+# exercise this: pll-import.php never writes target_id back into the
+# manifest on disk, so replaying MAN2 verbatim makes every item look
+# uncreated again and wp_insert_post() mints a SECOND counterpart --
+# a pre-existing importer behaviour with or without this task's change, and
+# not what a real second run looks like (measured: doing exactly this made
+# the site grow duplicate posts on every "second run", which is the actual
+# bug this comment exists to explain rather than reproduce as a false
+# failure). A real second run always re-EXPORTS first, which is what
+# "re-export after import is empty" a few lines below already proves yields
+# ZERO items once a site is fully translated -- so a fresh export, imported
+# again, is what actually exercises the link-rewrite/menu passes a second
+# time against unchanged site content, since those two passes run
+# unconditionally on every import regardless of what the manifest contains.
+PARENT_TARGET_ID="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_PARENT"));
+$dst = getenv("PLL_DST");
+echo empty($t[$dst]) ? "0" : (int) $t[$dst];
+' --allow-root)"
+[[ -n "$PARENT_TARGET_ID" && "$PARENT_TARGET_ID" != "0" ]] || { echo "FAIL: could not resolve the fixture parent counterpart for the idempotency check"; exit 1; }
+
+CONTENT_BEFORE="$(cd "$SITE" && PLL_TID="$PARENT_TARGET_ID" wp eval 'echo get_post_field("post_content", (int) getenv("PLL_TID"));' --allow-root)"
+
+IDEMPOTENT_MAN="$FIXTURE_TMPDIR/manifest-idempotent.json"
+run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$IDEMPOTENT_MAN" >/dev/null || { echo "FAIL: re-export for the idempotency check exited non-zero"; exit 1; }
+
+IDEMPOTENT_OUT="$(run "$SCRIPTS/pll-import.php" "$IDEMPOTENT_MAN")" || { echo "FAIL: second import (idempotency check) exited non-zero"; echo "$IDEMPOTENT_OUT"; exit 1; }
+echo "$IDEMPOTENT_OUT"
+rm -f "$IDEMPOTENT_MAN"
+
+grep -qE "Rewrote internal link\(s\) in 0 post\(s\) and 0 ACF reference field\(s\)\." <<<"$IDEMPOTENT_OUT" || {
+  echo "FAIL: second import over an unchanged, fully-translated site rewrote a nonzero number of links/fields -- the link-rewrite pass is not idempotent"
+  exit 1
+}
+grep -qE "Rewrote 0 custom menu item URL\(s\)\." <<<"$IDEMPOTENT_OUT" || {
+  echo "FAIL: second import over an unchanged, fully-translated site rewrote a nonzero number of custom menu item URLs -- the pass is not idempotent"
+  exit 1
+}
+
+CONTENT_AFTER="$(cd "$SITE" && PLL_TID="$PARENT_TARGET_ID" wp eval 'echo get_post_field("post_content", (int) getenv("PLL_TID"));' --allow-root)"
+[[ "$CONTENT_BEFORE" == "$CONTENT_AFTER" ]] || { echo "FAIL: post_content changed on a re-run with no source change -- the link-rewrite pass is not idempotent"; exit 1; }
+echo "  post_content byte-identical across the re-run (${#CONTENT_AFTER} bytes)"
 
 echo "── re-export after import is empty (idempotent) ──"
 MAN3="$FIXTURE_TMPDIR/manifest-reexport.json"
@@ -1011,18 +1142,47 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
 
   echo "  fixture page: $SRC=$ACF_FIXTURE_ID, $DST=$ACF_TARGET_ID"
 
+  # Task 9 (ruling T9-E): the permanent reference target for pll_link,
+  # pll_page_link, pll_post_object and pll_relationship. Looked up by slug
+  # for the same reason as ACF_FIXTURE_ID above. This pair is set up once,
+  # by hand, on the test site -- see pll-acf-fixture.php's header comment --
+  # and is never created or removed by this script.
+  REF_SRC_ID="$(cd "$SITE" && wp post list --post_type=page --name=pll-acf-ref-target --field=ID --allow-root)"
+  [[ -n "$REF_SRC_ID" ]] || { echo "FAIL: SCF is active but the 'PLL ACF ref target' fixture page is missing -- Task 9 (ruling T9-E) keeps it permanently, see pll-acf-fixture.php in the site's mu-plugins"; exit 1; }
+  REF_EN_ID="$(cd "$SITE" && PLL_RID="$REF_SRC_ID" wp eval '
+  $t = pll_get_post_translations((int) getenv("PLL_RID"));
+  echo empty($t["en"]) ? "" : (int) $t["en"];
+  ' --allow-root)"
+  [[ -n "$REF_EN_ID" ]] || { echo "FAIL: the 'PLL ACF ref target' fixture page has no en counterpart"; exit 1; }
+  REF_EN_PERMALINK="$(cd "$SITE" && PLL_RID="$REF_EN_ID" wp eval 'echo get_permalink((int) getenv("PLL_RID"));' --allow-root)"
+  [[ -n "$REF_EN_PERMALINK" ]] || { echo "FAIL: could not read the ref-target en permalink"; exit 1; }
+  echo "  ref target: es=$REF_SRC_ID, en=$REF_EN_ID"
+
   # Seed the TARGET's negative-control fields with values that DIFFER from the
   # source's, and force the export to see this post as stale. Without this,
   # "unchanged after import" would be trivially true (the fields were simply
   # never written) instead of proving the importer actively leaves someone
   # else's already-different data alone, and a site where nothing looks stale
   # would export zero items, making every assertion below pass vacuously.
-  (cd "$SITE" && PLL_TID="$ACF_TARGET_ID" wp eval '
-  $id = (int) getenv("PLL_TID");
+  (cd "$SITE" && PLL_TID="$ACF_TARGET_ID" PLL_REF_SRC="$REF_SRC_ID" wp eval '
+  $id      = (int) getenv("PLL_TID");
+  $ref_src = (int) getenv("PLL_REF_SRC");
   update_field("pll_number", -1, $id);
   update_field("pll_true_false", 0, $id);
   update_field("pll_url", "https://example.com/target-sentinel", $id);
   update_field("pll_image", 80, $id);
+  // Task 9 (ruling T9-E): stage the four reference fields pointing at the
+  // SOURCE-language ref target, exactly what a naive verbatim copy (or a
+  // prior run, before this pass existed) would leave behind. The assertions
+  // after import prove the pass re-points every one of them to the en
+  // counterpart -- without this staging step "re-pointed after import"
+  // would be trivially true only because nothing was ever wrong to begin
+  // with, the same vacuous-pass shape the sentinel seeding above exists to
+  // avoid for the negative controls.
+  update_field("pll_link", array("title" => "stale title", "url" => get_permalink($ref_src), "target" => ""), $id);
+  update_field("pll_page_link", get_permalink($ref_src), $id);
+  update_field("pll_post_object", $ref_src, $id);
+  update_field("pll_relationship", array($ref_src), $id);
   // Clear the target\x27s repeater and flexible-content rows so every run
   // exercises the FIRST-WRITE path, where pllx_acf_write() has to build a row
   // from nothing. Without this the rows survive from the previous run, the
@@ -1067,13 +1227,21 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
     "pll_repeater.0.pll_rep_text", "pll_repeater.0.pll_rep_textarea",
     "pll_repeater.1.pll_rep_text", "pll_repeater.1.pll_rep_textarea",
     "pll_flex.0.flex_a_text", "pll_flex.1.flex_b_text",
+    "pll_link.title",
   );
   $missing = array_diff($expected, array_keys($acf));
   if ($missing) {
     fwrite(STDERR, "FAIL: export is missing expected acf key(s): ".implode(", ", $missing)."\n");
     exit(1);
   }
-  $forbidden = array( "pll_number", "pll_true_false", "pll_url", "pll_image", "pll_flex.0.acf_fc_layout", "pll_flex.1.acf_fc_layout" );
+  // pll_link.url, pll_page_link, pll_post_object and pll_relationship are
+  // references, not translatable text -- Task 9 (ruling T9-E) re-points them
+  // in the link-rewrite pass instead, so none of them may ever appear here.
+  $forbidden = array(
+    "pll_number", "pll_true_false", "pll_url", "pll_image",
+    "pll_flex.0.acf_fc_layout", "pll_flex.1.acf_fc_layout",
+    "pll_link.url", "pll_link.target", "pll_page_link", "pll_post_object", "pll_relationship",
+  );
   $leaked = array_intersect($forbidden, array_keys($acf));
   if ($leaked) {
     fwrite(STDERR, "FAIL: export leaked a non-translatable key into acf: ".implode(", ", $leaked)."\n");
@@ -1146,8 +1314,23 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   pll_check($checks, ($o["pll_url"]["value"] ?? null) === "https://example.com/target-sentinel", "negative control pll_url was altered by the import");
   pll_check($checks, (int) ($o["pll_image"]["value"] ?? null) === 80, "negative control pll_image was altered by the import");
 
+  // Task 9 (ruling T9-E): the four reference fields were staged above
+  // pointing at the SOURCE-language ref target -- prove the link-rewrite
+  // pass re-pointed every one of them to the en counterpart, and that the
+  // link field title (translatable text, routed through the manifest like
+  // any other text field) round-tripped independently of its url.
+  $ref_en       = (int) $argv[2];
+  $ref_en_perm  = $argv[3];
+  pll_check($checks, ($o["pll_link"]["value"]["url"] ?? null) === $ref_en_perm, "link field url was not re-pointed to the en ref target (got " . ($o["pll_link"]["value"]["url"] ?? "null") . ")");
+  pll_check($checks, strpos($o["pll_link"]["value"]["title"] ?? "", "[EN]") !== false, "link field title did not round-trip translated");
+  pll_check($checks, ($o["pll_page_link"]["value"] ?? null) === $ref_en_perm, "page_link field was not re-pointed to the en ref target (got " . ($o["pll_page_link"]["value"] ?? "null") . ")");
+  pll_check($checks, (int) ($o["pll_post_object"]["value"] ?? 0) === $ref_en, "post_object field was not re-pointed to the en ref target (got " . ($o["pll_post_object"]["value"] ?? "null") . ")");
+  $rel = $o["pll_relationship"]["value"] ?? array();
+  if (!is_array($rel)) { $rel = array(); }
+  pll_check($checks, in_array($ref_en, array_map("intval", $rel), true), "relationship field was not re-pointed to the en ref target (got " . json_encode($rel) . ")");
+
   echo "  round-trip checks passed: $checks\n";
-  ' "$ACF_RESULT" || exit 1
+  ' "$ACF_RESULT" "$REF_EN_ID" "$REF_EN_PERMALINK" || exit 1
 
   # The SOURCE post itself must never be mutated by any of the above -- not
   # by the export (read-only, but worth confirming) and not by the importer
