@@ -37,8 +37,27 @@ $source = $manifest['source_lang'];
 $target = $manifest['target_lang'];
 pllx_require_langs( $source, $target );
 
+if ( ! is_array( $manifest['items'] ) ) {
+	pllx_fail( "Manifest 'items' is not a list." );
+}
+
 // ── Validate every item before writing anything ─────────────────────────────
 $errors = array();
+
+// Every id in a manifest is meaningful on exactly one site. pll-export.php
+// records home_url() so that applying a manifest somewhere else -- a staging
+// copy, a second install, a colleague's machine -- is refused instead of
+// overwriting whatever content happens to occupy those ids here.
+if ( empty( $manifest['site_url'] ) ) {
+	$errors[] = "manifest has no 'site_url', so it was not produced by pll-export.php";
+} elseif ( untrailingslashit( $manifest['site_url'] ) !== untrailingslashit( home_url() ) ) {
+	$errors[] = sprintf(
+		"manifest was exported from '%s' but this site is '%s'; ids are not portable between sites",
+		$manifest['site_url'],
+		home_url()
+	);
+}
+
 foreach ( $manifest['items'] as $i => $item ) {
 	foreach ( array( 'id', 'kind', 'hash', 'fields' ) as $key ) {
 		if ( ! isset( $item[ $key ] ) ) {
@@ -54,6 +73,24 @@ foreach ( $manifest['items'] as $i => $item ) {
 	if ( isset( $item['kind'] ) && 'post' === $item['kind'] ) {
 		if ( empty( $item['source_id'] ) || ! get_post( $item['source_id'] ) ) {
 			$errors[] = "item $i references post {$item['source_id']}, which does not exist";
+		} elseif ( ! empty( $item['target_id'] ) ) {
+			// target_id decides which post gets OVERWRITTEN -- title, content,
+			// excerpt, type, status and translation group all come from the
+			// source. Existence alone is not a safe check: one wrong digit in
+			// an AI-generated manifest would silently convert an unrelated
+			// live page into a translation of this source and orphan its real
+			// counterpart. Polylang's own group is the only authority on which
+			// post is legitimately this source's counterpart.
+			$known    = pll_get_post_translations( (int) $item['source_id'] );
+			$expected = isset( $known[ $target ] ) ? (int) $known[ $target ] : 0;
+			if ( (int) $item['target_id'] !== $expected ) {
+				$errors[] = sprintf(
+					"item $i names target_id %d for post %d, but Polylang says %s; refusing to overwrite an unrelated post",
+					(int) $item['target_id'],
+					(int) $item['source_id'],
+					$expected ? "its $target counterpart is $expected" : "it has no $target counterpart"
+				);
+			}
 		}
 	}
 	if ( isset( $item['kind'] ) && 'term' === $item['kind'] ) {
@@ -64,6 +101,18 @@ foreach ( $manifest['items'] as $i => $item ) {
 		// a valid taxonomy -- is_wp_error() alone lets that case through.
 		if ( empty( $item['taxonomy'] ) || empty( $item['source_id'] ) || ! $term || is_wp_error( $term ) ) {
 			$errors[] = "item $i references a term that does not exist";
+		} elseif ( ! empty( $item['target_id'] ) ) {
+			// Same reasoning as the post branch above.
+			$known    = pll_get_term_translations( (int) $item['source_id'] );
+			$expected = isset( $known[ $target ] ) ? (int) $known[ $target ] : 0;
+			if ( (int) $item['target_id'] !== $expected ) {
+				$errors[] = sprintf(
+					"item $i names target_id %d for term %d, but Polylang says %s; refusing to overwrite an unrelated term",
+					(int) $item['target_id'],
+					(int) $item['source_id'],
+					$expected ? "its $target counterpart is $expected" : "it has no $target counterpart"
+				);
+			}
 		}
 	}
 }

@@ -858,13 +858,124 @@ FIXTURE_THIRD_LANG=""
 
 fi # third-language block
 
+# The two static fixtures below carry site_url "http://example.test", which the
+# importer now refuses outright. Left as-is they would still make these tests
+# "pass" -- for the wrong reason, with the dangling-reference checks they exist
+# to exercise never reached. Each is copied to a temp file with site_url
+# rewritten to this site, and each assertion now names the message it expects,
+# so a refusal for any other reason is itself a failure.
+SITE_HOME="$(cd "$SITE" && wp eval 'echo home_url();' --allow-root)"
+[[ -n "$SITE_HOME" ]] || { echo "FAIL: could not read the site home_url"; exit 1; }
+
+localize_manifest() { # <src fixture> <dest>
+  PLL_M_SRC="$1" PLL_M_DST="$2" PLL_M_HOME="$SITE_HOME" php -r '
+    $m = json_decode(file_get_contents(getenv("PLL_M_SRC")), true);
+    $m["site_url"] = getenv("PLL_M_HOME");
+    file_put_contents(getenv("PLL_M_DST"), json_encode($m));
+  '
+}
+
 echo "── import refuses a manifest referencing missing objects ──"
 BEFORE="$(cd "$SITE" && wp post list --post_type=any --format=count --allow-root)"
-if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-translated.json" >/dev/null 2>&1; then
+DANGLING_MAN="$FIXTURE_TMPDIR/manifest-dangling.json"
+localize_manifest "$REPO/tests/fixtures/polylang/manifest-translated.json" "$DANGLING_MAN"
+if DANGLING_OUT="$(run "$SCRIPTS/pll-import.php" "$DANGLING_MAN" 2>&1)"; then
   echo "FAIL: import accepted a manifest with dangling references"; exit 1
 fi
+grep -qF "which does not exist" <<<"$DANGLING_OUT" || {
+  echo "$DANGLING_OUT"
+  echo "FAIL: import refused the manifest, but not for its dangling post reference -- some other check fired first, so that check is untested"
+  exit 1
+}
+rm -f "$DANGLING_MAN"
 AFTER="$(cd "$SITE" && wp post list --post_type=any --format=count --allow-root)"
 [[ "$BEFORE" == "$AFTER" ]] || { echo "FAIL: import wrote posts despite failing validation ($BEFORE -> $AFTER)"; exit 1; }
+
+echo "── import refuses a manifest exported from another site ──"
+FOREIGN_MAN="$FIXTURE_TMPDIR/manifest-foreign.json"
+cp "$REPO/tests/fixtures/polylang/manifest-translated.json" "$FOREIGN_MAN"
+if FOREIGN_OUT="$(run "$SCRIPTS/pll-import.php" "$FOREIGN_MAN" 2>&1)"; then
+  echo "FAIL: import accepted a manifest exported from a different site"; exit 1
+fi
+grep -qF "ids are not portable between sites" <<<"$FOREIGN_OUT" || {
+  echo "$FOREIGN_OUT"
+  echo "FAIL: import refused the foreign manifest, but not because of its site_url -- the site_url check is untested"
+  exit 1
+}
+echo "  import reported: $(grep -F "ids are not portable" <<<"$FOREIGN_OUT" | head -1)"
+rm -f "$FOREIGN_MAN"
+
+echo "── import refuses a manifest whose target_id is not the real counterpart ──"
+# The hijack case. target_id decides which post gets overwritten: title,
+# content, excerpt, post_type, post_status and the translation group are all
+# taken from the source. Before this check, existence was the only test -- so
+# one wrong digit in an AI-generated manifest silently converted an unrelated
+# live page into a translation of the source and orphaned that page's real
+# counterpart.
+#
+# The victim here is the fixture CHILD's counterpart, aimed at by an item
+# whose source is the fixture PARENT. Both are real, both are published, and
+# they are genuinely unrelated -- which is exactly the shape of the accident.
+HIJACK_VICTIM="$(cd "$SITE" && PLL_CHILD="$FIXTURE_CHILD_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_CHILD"));
+echo empty($t[getenv("PLL_DST")]) ? "" : (int) $t[getenv("PLL_DST")];
+' --allow-root)"
+[[ -n "$HIJACK_VICTIM" ]] || { echo "FAIL: fixture child has no $DST counterpart to use as the hijack victim"; exit 1; }
+
+HIJACK_BEFORE="$(cd "$SITE" && PLL_V="$HIJACK_VICTIM" wp eval '
+$p = get_post((int) getenv("PLL_V"));
+echo $p->post_title . "|" . $p->post_type . "|" . md5($p->post_content);
+' --allow-root)"
+
+HIJACK_MAN="$FIXTURE_TMPDIR/manifest-hijack.json"
+(cd "$SITE" && PLL_OUT="$HIJACK_MAN" PLL_SRC_L="$SRC" PLL_DST_L="$DST" PLL_PARENT="$FIXTURE_PARENT_ID" PLL_VICTIM="$HIJACK_VICTIM" wp eval '
+$parent = (int) getenv("PLL_PARENT");
+$m = array(
+  "source_lang" => getenv("PLL_SRC_L"),
+  "target_lang" => getenv("PLL_DST_L"),
+  "site_url"    => home_url(),
+  "items"       => array(array(
+    "id"        => "post:" . $parent,
+    "kind"      => "post",
+    "post_type" => "page",
+    "source_id" => $parent,
+    "target_id" => (int) getenv("PLL_VICTIM"),
+    "hash"      => str_repeat("0", 64),
+    "fields"    => array(
+      "post_title"   => "HIJACKED",
+      "post_content" => "HIJACKED",
+      "post_excerpt" => "",
+      "post_name"    => "hijacked",
+    ),
+    "acf"       => new stdClass(),
+  )),
+);
+file_put_contents(getenv("PLL_OUT"), json_encode($m));
+' --allow-root)
+[[ -s "$HIJACK_MAN" ]] || { echo "FAIL: could not build the hijack manifest"; exit 1; }
+
+if HIJACK_OUT="$(run "$SCRIPTS/pll-import.php" "$HIJACK_MAN" 2>&1)"; then
+  echo "$HIJACK_OUT"
+  echo "FAIL: import accepted a manifest naming an unrelated post as target_id -- a live page was overwritten"; exit 1
+fi
+grep -qF "refusing to overwrite an unrelated post" <<<"$HIJACK_OUT" || {
+  echo "$HIJACK_OUT"
+  echo "FAIL: import refused the hijack manifest, but not because of its target_id -- that check is untested"
+  exit 1
+}
+echo "  import reported: $(grep -F "refusing to overwrite" <<<"$HIJACK_OUT" | head -1)"
+
+HIJACK_AFTER="$(cd "$SITE" && PLL_V="$HIJACK_VICTIM" wp eval '
+$p = get_post((int) getenv("PLL_V"));
+echo $p->post_title . "|" . $p->post_type . "|" . md5($p->post_content);
+' --allow-root)"
+[[ "$HIJACK_BEFORE" == "$HIJACK_AFTER" ]] || {
+  echo "FAIL: the victim post $HIJACK_VICTIM was modified despite the import failing validation"
+  echo "      before: $HIJACK_BEFORE"
+  echo "      after:  $HIJACK_AFTER"
+  exit 1
+}
+rm -f "$HIJACK_MAN"
 
 echo "── import refuses a term-only manifest with a dangling source_id ──"
 # Isolated from the post item on purpose: get_term() returns NULL (not a
@@ -873,9 +984,17 @@ echo "── import refuses a term-only manifest with a dangling source_id ─�
 # the post check fails first and masks a broken term check. This fixture
 # contains nothing else that could cause validation to fail.
 TERM_BEFORE="$(cd "$SITE" && wp term list category --format=count --allow-root)"
-if run "$SCRIPTS/pll-import.php" "$REPO/tests/fixtures/polylang/manifest-translated-term-only.json" >/dev/null 2>&1; then
+TERM_MAN="$FIXTURE_TMPDIR/manifest-term-only.json"
+localize_manifest "$REPO/tests/fixtures/polylang/manifest-translated-term-only.json" "$TERM_MAN"
+if TERM_OUT="$(run "$SCRIPTS/pll-import.php" "$TERM_MAN" 2>&1)"; then
   echo "FAIL: import accepted a term-only manifest with a dangling source_id"; exit 1
 fi
+grep -qF "references a term that does not exist" <<<"$TERM_OUT" || {
+  echo "$TERM_OUT"
+  echo "FAIL: import refused the term-only manifest, but not for its dangling term reference -- that check is untested"
+  exit 1
+}
+rm -f "$TERM_MAN"
 TERM_AFTER="$(cd "$SITE" && wp term list category --format=count --allow-root)"
 [[ "$TERM_BEFORE" == "$TERM_AFTER" ]] || { echo "FAIL: import created a term despite failing validation ($TERM_BEFORE -> $TERM_AFTER)"; exit 1; }
 
