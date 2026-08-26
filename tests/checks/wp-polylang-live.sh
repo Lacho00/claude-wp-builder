@@ -72,6 +72,8 @@ FIXTURE_CHILD_ID=""
 ORPHAN_PARENT_ID=""
 ORPHAN_CHILD_ID=""
 FIXTURE_TERM_IDS=""
+FIXTURE_PROBE_MENU_ID=""
+SELF_PROBE_ARMED=""
 FIXTURE_MEDIA_ID=""
 FIXTURE_ITEM_IDS=""
 FIXTURE_MENU_ID=""
@@ -97,13 +99,14 @@ cleanup() {
   # Nothing was created yet -- do not run a site mutation just to delete zero
   # objects. This matters because the trap is armed before the first fixture
   # object exists, on purpose, so the temp dir above is always removed.
-  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM$ORPHAN_PARENT_ID$ORPHAN_CHILD_ID$FIXTURE_TERM_IDS" ]]; then
+  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM$ORPHAN_PARENT_ID$ORPHAN_CHILD_ID$FIXTURE_TERM_IDS$FIXTURE_PROBE_MENU_ID$SELF_PROBE_ARMED" ]]; then
     return $status
   fi
   (cd "$SITE" \
     && PLL_FIX_POSTS="$FIXTURE_PARENT_ID,$FIXTURE_CHILD_ID,$FIXTURE_MEDIA_ID,$ORPHAN_PARENT_ID,$ORPHAN_CHILD_ID" \
        PLL_FIX_ITEMS="$FIXTURE_ITEM_IDS" \
        PLL_FIX_TERMS="$FIXTURE_TERM_IDS" \
+       PLL_FIX_PROBE_MENU="$FIXTURE_PROBE_MENU_ID" \
        PLL_FIX_MENU="$FIXTURE_MENU_ID" \
        PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" \
        PLL_FIX_SRC="$SRC" \
@@ -126,6 +129,21 @@ $third      = (string) getenv( "PLL_FIX_THIRD" );
 $victim = (int) getenv( "PLL_FIX_VICTIM" );
 if ( $victim && get_post( $victim ) ) {
   pll_set_post_language( $victim, (string) getenv( "PLL_FIX_VICTIM_LANG" ) );
+}
+
+$probe_menu = (int) getenv( "PLL_FIX_PROBE_MENU" );
+if ( $probe_menu && wp_get_nav_menu_object( $probe_menu ) ) {
+  wp_delete_nav_menu( $probe_menu );
+}
+// The probe location is stripped unconditionally, not only when the menu id
+// is still known: the import writes the assignment BEFORE this script gets a
+// chance to record anything, so a run that dies mid-import would otherwise
+// leave the site with a bogus location wired to a real menu.
+$pll_opts  = get_option( "polylang" );
+$pll_theme = get_stylesheet();
+if ( isset( $pll_opts["nav_menus"][ $pll_theme ]["pll-selftarget-probe"] ) ) {
+  unset( $pll_opts["nav_menus"][ $pll_theme ]["pll-selftarget-probe"] );
+  update_option( "polylang", $pll_opts );
 }
 
 // Fixture terms and their counterparts. Deleted before the posts below for the
@@ -338,10 +356,19 @@ FIXTURE_CHILD_PERMALINK="$(cd "$SITE" && PLL_CHILD="$FIXTURE_CHILD_ID" wp eval '
 # below proves the fixture really carries the sentinel before anything else
 # runs.
 FIXTURE_SLASH='C:\Users\test and a literal backslash \\ pair'
-(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_HREF="$FIXTURE_CHILD_PERMALINK" PLL_SLASH="$FIXTURE_SLASH" wp eval '
+(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_HREF="$FIXTURE_CHILD_PERMALINK" PLL_SLASH="$FIXTURE_SLASH" PLL_CHILD_ID="$FIXTURE_CHILD_ID" wp eval '
 $res = wp_update_post(wp_slash(array(
   "ID"           => (int) getenv("PLL_PARENT"),
   "post_content" => "<p>See the <a href=\"" . getenv("PLL_HREF") . "\">fixture child page</a>.</p>"
+                  // Two hrefs that both resolve to the same child page by a
+                  // route the rewrite pass used to mishandle. ?page_id= is
+                  // what url_to_postid() matches FIRST, and re-appending it
+                  // produced "...?page_id=NEW&page_id=OLD", which WordPress
+                  // still resolves to the SOURCE. The other drops the www.
+                  // this site\x27s home_url() carries, which core accepts and
+                  // the host comparison used to reject outright.
+                  . "<p><a href=\"" . home_url("/?page_id=" . (int) getenv("PLL_CHILD_ID")) . "\">by query</a></p>"
+                  . "<p><a href=\"" . preg_replace("#://www\\.#", "://", getenv("PLL_HREF")) . "\">no www</a></p>"
                   . "<p>" . getenv("PLL_SLASH") . "</p>",
 )), true);
 if (is_wp_error($res)) { fwrite(STDERR, $res->get_error_message()); exit(1); }
@@ -530,6 +557,65 @@ echo "  checked $checked attachment(s)\n";
 if ($checked === 0) { echo "  FAIL: assertion checked nothing\n"; exit(1); }
 exit($bad === 0 ? 0 : 1);
 ' --allow-root) || { echo "FAIL: translated attachments have broken file linkage"; exit 1; }
+
+echo "── tricky hrefs are rewritten, not mangled ──"
+# The existing block above proves every internal href resolves to the target
+# language. These two assertions name the specific SHAPES that used to break,
+# so a regression says which one broke instead of just "wrong language":
+#   * an identifying query arg re-appended alongside the new one, giving
+#     "?page_id=NEW&page_id=OLD" -- still resolving to the SOURCE, stably and
+#     wrongly, and failing verify's check 9 forever after.
+#   * a www.-less host on a www. site, which the host comparison rejected, so
+#     the href was neither rewritten nor audited: it fell out of the pipeline
+#     unseen. Core's url_to_postid() strips www. from both sides.
+TRICKY_TARGET_ID="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_PARENT"));
+echo empty($t[getenv("PLL_DST")]) ? "" : (int) $t[getenv("PLL_DST")];
+' --allow-root)"
+[[ -n "$TRICKY_TARGET_ID" ]] || { echo "FAIL: fixture parent has no $DST counterpart to inspect hrefs in"; exit 1; }
+
+TRICKY_CONTENT="$(cd "$SITE" && PLL_TID="$TRICKY_TARGET_ID" wp eval '
+echo get_post_field("post_content", (int) getenv("PLL_TID"));
+' --allow-root)"
+
+grep -qE 'page_id=[0-9]+&(amp;)?page_id=' <<<"$TRICKY_CONTENT" && {
+  echo "  content: $TRICKY_CONTENT"
+  echo "FAIL: the rewrite re-appended the query arg that identified the source post, so the link still resolves to the source"
+  exit 1
+}
+
+# Asserted by RESOLUTION, not by shape: a correct rewrite replaces the whole
+# URL with a clean permalink, so the ?page_id= and the missing www. are gone
+# from the output by design. What proves each fix is where the href now leads.
+#   * without the query fix the result was "...?page_id=<source>", and
+#     url_to_postid() matches ?page_id= first, so it resolved to the SOURCE.
+#   * without the www fix the href was not internal, so it was never rewritten
+#     and still pointed at the source child.
+# Both therefore show up as "resolves to <source> not <target>", and the count
+# check catches the third failure mode, an href silently dropped.
+TRICKY_RESULT="$(cd "$SITE" && PLL_TID="$TRICKY_TARGET_ID" PLL_DST="$DST" PLL_CHILD="$FIXTURE_CHILD_ID" wp eval '
+$dst = getenv("PLL_DST");
+$ct  = pll_get_post_translations((int) getenv("PLL_CHILD"));
+if (empty($ct[$dst])) { echo "no-child-counterpart"; return; }
+$want = (int) $ct[$dst];
+
+$content = get_post_field("post_content", (int) getenv("PLL_TID"));
+if (!preg_match_all("/href=([\"\x27])([^\"\x27]+)\\1/", $content, $m)) { echo "no-hrefs"; return; }
+
+$bad = array();
+if (count($m[2]) !== 3) { $bad[] = "expected 3 hrefs, found " . count($m[2]) . " -- one was dropped"; }
+foreach ($m[2] as $url) {
+  $id = (int) url_to_postid($url);
+  if ($id !== $want) { $bad[] = "\x27$url\x27 resolves to $id, expected $want"; }
+}
+echo $bad ? implode("; ", $bad) : "ok";
+' --allow-root)"
+[[ "$TRICKY_RESULT" == "ok" ]] || {
+  echo "  content: $TRICKY_CONTENT"
+  echo "FAIL: tricky hrefs were not rewritten correctly ($TRICKY_RESULT)"
+  exit 1
+}
+echo "  ?page_id= and www-less hrefs both re-pointed at the child counterpart"
 
 echo "── internal links in translated content point at translated targets ──"
 # Built explicitly on THIS RUN's own fixture pages (ruling T9-A), not by
@@ -921,6 +1007,93 @@ grep -qF "ids are not portable between sites" <<<"$FOREIGN_OUT" || {
 }
 echo "  import reported: $(grep -F "ids are not portable" <<<"$FOREIGN_OUT" | head -1)"
 rm -f "$FOREIGN_MAN"
+
+echo "── import refuses a menu manifest that names one menu as both ends ──"
+# The menu branch rebuilds the target from scratch, hard-deleting its items.
+# That delete loop used to run BEFORE the source items were read, so a
+# manifest naming the source menu as its own target emptied a real menu and
+# then found nothing to copy back -- total, unrecoverable loss. Menu ids are
+# not covered by the validation loop, so nothing stopped it.
+# Run against a THROWAWAY menu, never the site's real one. The whole point of
+# this test is to drive a path that hard-deletes menu items, so if the refusal
+# it exercises ever regresses, the damage has to land somewhere disposable.
+# Measured the hard way: an earlier version of this block pointed at
+# menu-principal, a mutation run disabled the refusal, and the real menu lost
+# its eight taxonomy items. Ruling T5-M -- a harness must not be able to
+# damage real content on its failure path.
+SELF_MENU_ID="$(cd "$SITE" && wp menu create "PLL selftarget probe" --porcelain --allow-root)"
+[[ -n "$SELF_MENU_ID" ]] || { echo "FAIL: could not create the throwaway menu"; exit 1; }
+FIXTURE_PROBE_MENU_ID="$SELF_MENU_ID"
+(cd "$SITE" && PLL_M="$SELF_MENU_ID" PLL_P="$FIXTURE_PARENT_ID" wp eval '
+wp_update_nav_menu_item((int) getenv("PLL_M"), 0, wp_slash(array(
+  "menu-item-type"      => "post_type",
+  "menu-item-object"    => "page",
+  "menu-item-object-id" => (int) getenv("PLL_P"),
+  "menu-item-title"     => "probe entry",
+  "menu-item-status"    => "publish",
+)));
+' --allow-root >/dev/null)
+
+SELF_MENU_BEFORE="$(cd "$SITE" && wp menu item list "$SELF_MENU_ID" --format=count --allow-root)"
+[[ "$SELF_MENU_BEFORE" -gt 0 ]] || { echo "FAIL: the throwaway menu is empty, so this test would prove nothing"; exit 1; }
+
+SELF_MAN="$FIXTURE_TMPDIR/manifest-selfmenu.json"
+(cd "$SITE" && PLL_OUT="$SELF_MAN" PLL_SRC_L="$SRC" PLL_DST_L="$DST" PLL_MENU="$SELF_MENU_ID" wp eval '
+$menu = (int) getenv("PLL_MENU");
+$m = array(
+  "source_lang" => getenv("PLL_SRC_L"),
+  "target_lang" => getenv("PLL_DST_L"),
+  "site_url"    => home_url(),
+  "items"       => array(array(
+    "id"        => "menu:" . $menu,
+    "kind"      => "menu",
+    "menu_id"   => $menu,
+    "target_id" => $menu,
+    // A location name no theme registers, so even a regression cannot
+    // overwrite a real one. The earlier version used "primary" and a mutation
+    // run wrote nav_menus[theme]["primary"]["en"] = <the es menu>, wiring the
+    // source menu in as the target language site-wide.
+    "location"  => "pll-selftarget-probe",
+    "hash"      => str_repeat("0", 64),
+    "fields"    => new stdClass(),
+  )),
+);
+file_put_contents(getenv("PLL_OUT"), json_encode($m));
+' --allow-root)
+[[ -s "$SELF_MAN" ]] || { echo "FAIL: could not build the self-target menu manifest"; exit 1; }
+
+SELF_PROBE_ARMED=1
+if SELF_OUT="$(run "$SCRIPTS/pll-import.php" "$SELF_MAN" 2>&1)"; then
+  echo "$SELF_OUT"
+  echo "FAIL: import accepted a menu manifest naming one menu as both source and target"; exit 1
+fi
+grep -qF "as both source and target" <<<"$SELF_OUT" || {
+  echo "$SELF_OUT"
+  echo "FAIL: import refused the self-target menu manifest, but not for that reason -- the check is untested"
+  exit 1
+}
+rm -f "$SELF_MAN"
+
+SELF_MENU_AFTER="$(cd "$SITE" && wp menu item list "$SELF_MENU_ID" --format=count --allow-root)"
+
+# Removed before the assertion, so a failure cannot leave the probe menu
+# behind on the site.
+(cd "$SITE" && wp menu delete "$SELF_MENU_ID" --allow-root >/dev/null 2>&1)
+(cd "$SITE" && wp eval '
+$o = get_option("polylang"); $t = get_stylesheet();
+if (isset($o["nav_menus"][$t]["pll-selftarget-probe"])) {
+  unset($o["nav_menus"][$t]["pll-selftarget-probe"]);
+  update_option("polylang", $o);
+}
+' --allow-root >/dev/null)
+FIXTURE_PROBE_MENU_ID=""
+SELF_PROBE_ARMED=""
+
+[[ "$SELF_MENU_BEFORE" == "$SELF_MENU_AFTER" ]] || {
+  echo "FAIL: the source menu lost items to a refused import ($SELF_MENU_BEFORE -> $SELF_MENU_AFTER)"
+  exit 1
+}
+echo "  throwaway source menu intact: $SELF_MENU_AFTER item(s)"
 
 echo "── import refuses a manifest whose target_id is not the real counterpart ──"
 # The hijack case. target_id decides which post gets overwritten: title,

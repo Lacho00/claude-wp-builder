@@ -387,17 +387,30 @@ foreach ( $manifest['items'] as $item ) {
 			}
 		}
 
-		// Rebuild from scratch so a re-run cannot accumulate duplicates.
-		foreach ( (array) wp_get_nav_menu_items( $target_menu_id ) as $old ) {
-			wp_delete_post( $old->ID, true );
+		// A manifest naming the SOURCE menu as its own target would make the
+		// rebuild below hard-delete every item out of a real menu and then
+		// find nothing to copy back. Unrecoverable, and the validation loop
+		// never looks at menu ids, so it is refused here.
+		if ( $target_menu_id === (int) $item['menu_id'] ) {
+			pllx_fail( "item {$item['id']} names menu {$item['menu_id']} as both source and target; refusing to empty a real menu." );
 		}
 
+		// Read BEFORE the delete loop. When these two were the other way
+		// round, any path that made target and source the same menu emptied it
+		// and then read zero items back.
+		//
 		// Reconciliation counters: every source item must land as either
 		// written or skipped-with-a-reason. A translated menu silently missing
 		// most of its entries is a worse outcome for a visitor than one
 		// mis-pointed item, and nothing else would ever catch it -- so this is
 		// asserted by the caller, not just logged.
 		$source_items    = (array) wp_get_nav_menu_items( (int) $item['menu_id'] );
+
+		// Rebuild from scratch so a re-run cannot accumulate duplicates.
+		foreach ( (array) wp_get_nav_menu_items( $target_menu_id ) as $old ) {
+			wp_delete_post( $old->ID, true );
+		}
+
 		$menu_source_ct  = count( $source_items );
 		$menu_written_ct = 0;
 		$menu_skipped_ct = 0;
@@ -884,7 +897,19 @@ function pllx_repoint_internal_url( $href, $target_lang, $context ) {
 		: $new_permalink;
 
 	if ( ! empty( $parts['query'] ) ) {
-		$result .= ( false === strpos( $result, '?' ) ? '?' : '&' ) . $parts['query'];
+		// Drop the arguments that IDENTIFIED the source post rather than
+		// carrying them onto the translation. url_to_postid() matches ?p=N
+		// and ?page_id=N first (core rewrite.php:524-530), so re-appending
+		// them produced hrefs like '/?page_id=20&page_id=10' -- which
+		// WordPress still resolves to the SOURCE post, stably and wrongly, on
+		// every run, and which verify's check 9 then failed the site over
+		// forever.
+		parse_str( $parts['query'], $query_args );
+		unset( $query_args['p'], $query_args['page_id'], $query_args['attachment_id'] );
+		$carry = http_build_query( $query_args );
+		if ( '' !== $carry ) {
+			$result .= ( false === strpos( $result, '?' ) ? '?' : '&' ) . $carry;
+		}
 	}
 	if ( ! empty( $parts['fragment'] ) ) {
 		$result .= '#' . $parts['fragment'];

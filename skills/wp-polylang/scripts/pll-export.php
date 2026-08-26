@@ -273,9 +273,16 @@ foreach ( get_registered_nav_menus() as $location => $label ) {
 	$already = isset( $assignments[ $location ][ $target ] ) ? (int) $assignments[ $location ][ $target ] : 0;
 
 	$menu_items = wp_get_nav_menu_items( $source_menu_id );
-	if ( ! $menu_items ) {
+	if ( false === $menu_items ) {
+		// The menu itself could not be read -- nothing to say about it.
 		continue;
 	}
+	// An EMPTY source menu is still emitted, deliberately. Skipping it meant
+	// the importer never created a target menu for the location, so
+	// pll-verify.php failed the site with "menu location has no $target menu"
+	// on every run, for good, with no way for the pipeline to fix it. An empty
+	// menu that exists and is assigned is a valid, verifiable state.
+	$menu_items = (array) $menu_items;
 
 	$labels = array();
 	foreach ( $menu_items as $mi ) {

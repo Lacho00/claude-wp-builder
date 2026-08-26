@@ -294,7 +294,18 @@ function pllx_is_internal_url( $href ) {
 		return true; // root-relative http(s) path on this site.
 	}
 	$home_host = wp_parse_url( home_url(), PHP_URL_HOST );
-	return is_string( $home_host ) && 0 === strcasecmp( $parts['host'], $home_host );
+	if ( ! is_string( $home_host ) ) {
+		return false;
+	}
+	// A leading 'www.' is stripped from BOTH sides, which is what core's
+	// url_to_postid() does (rewrite.php:504-517). Without this a www. href on
+	// a non-www. site was neither rewritten by the importer nor audited by the
+	// verifier -- it simply fell out of the pipeline unseen. Distinct from the
+	// documented limitation about hosts that do not match at all.
+	$strip = function ( $host ) {
+		return preg_replace( '/^www\./i', '', $host );
+	};
+	return 0 === strcasecmp( $strip( $parts['host'] ), $strip( $home_host ) );
 }
 
 /**
