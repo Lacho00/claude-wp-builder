@@ -1737,6 +1737,13 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   // row count changed across the round trip (0 rows)".
   delete_field("pll_repeater", $id);
   delete_field("pll_flex", $id);
+  // Same reasoning one step further: the reference pass records what it last
+  // wrote so it can tell its own writes from an editor\x27s. Left behind, that
+  // record makes the next run start from a state no fresh counterpart is ever
+  // in. Dropped so every run exercises the ownership path from scratch.
+  foreach (array("pll_link", "pll_page_link", "pll_post_object", "pll_relationship") as $f) {
+    delete_post_meta($id, "_pll_ref_" . $f);
+  }
   delete_post_meta($id, "_pll_src_hash");
   ' --allow-root)
 
@@ -1899,6 +1906,52 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   if ($n <= 0) { fwrite(STDERR, "FAIL: no negative controls were checked at all -- the assertions above would have passed vacuously\n"); exit(1); }
   echo "  negative controls confirmed unaltered (source and target): $n source + 4 target\n";
   ' "$ACF_SOURCE_STILL" || exit 1
+
+  echo "── an editor's own reference value survives the next import ──"
+  # The reference pass derives every value from the SOURCE on every import and
+  # runs over EVERY target post, not just newly created ones. Its docblock
+  # justified that with "nothing else ever gives the target a value", which is
+  # false -- an editor sets these in wp-admin, and their choice was silently
+  # re-derived away on the next import of any unrelated item, with no warning.
+  #
+  # Pointed at the fixture's own en page here, which is a TARGET-language post:
+  # that is what makes it a deliberate editorial choice rather than the stale
+  # unmapped copy the pass legitimately does repair.
+  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  update_field("pll_post_object", (int) getenv("PLL_T"), (int) getenv("PLL_T"));
+  ' --allow-root >/dev/null)
+  EDITOR_SET="$(cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $v = get_field("pll_post_object", (int) getenv("PLL_T"));
+  echo is_object($v) ? (int) $v->ID : (int) $v;
+  ' --allow-root)"
+  [[ "$EDITOR_SET" == "$ACF_TARGET_ID" ]] || { echo "FAIL: could not stage an editor-set post_object (got '$EDITOR_SET')"; exit 1; }
+
+  EDITOR_MAN="$ACF_TMPDIR/manifest-editor.json"
+  run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$EDITOR_MAN" >/dev/null || { echo "FAIL: export for the editor-override check exited non-zero"; exit 1; }
+  EDITOR_OUT="$(run "$SCRIPTS/pll-import.php" "$EDITOR_MAN" 2>&1)" || { echo "$EDITOR_OUT"; echo "FAIL: import for the editor-override check exited non-zero"; exit 1; }
+  rm -f "$EDITOR_MAN"
+
+  EDITOR_AFTER="$(cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $v = get_field("pll_post_object", (int) getenv("PLL_T"));
+  echo is_object($v) ? (int) $v->ID : (int) $v;
+  ' --allow-root)"
+  [[ "$EDITOR_AFTER" == "$ACF_TARGET_ID" ]] || {
+    echo "$EDITOR_OUT"
+    echo "FAIL: the import overwrote an editor-set post_object ($ACF_TARGET_ID -> $EDITOR_AFTER)"
+    exit 1
+  }
+  grep -qF "post_object was changed after the last import" <<<"$EDITOR_OUT" || {
+    echo "$EDITOR_OUT"
+    echo "FAIL: the import left the editor's value alone but said nothing about it"
+    exit 1
+  }
+  echo "  editor-set post_object preserved, and the skip was reported"
+
+  # Put the fixture back so the permanent target is left exactly as found.
+  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" PLL_R="$REF_EN_ID" wp eval '
+  update_field("pll_post_object", (int) getenv("PLL_R"), (int) getenv("PLL_T"));
+  delete_post_meta((int) getenv("PLL_T"), "_pll_ref_pll_post_object");
+  ' --allow-root >/dev/null)
 
   rm -rf "$ACF_TMPDIR"
 else

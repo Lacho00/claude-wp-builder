@@ -891,15 +891,75 @@ function pllx_repoint_internal_url( $href, $target_lang, $context ) {
  * actually measured). Only top-level fields are handled, matching
  * pllx_acf_walk()'s one-level ceiling.
  *
- * Reads from the SOURCE post every run rather than from whatever is already
- * on the target: these field types are never part of the translatable
- * payload (pllx_acf_payload() does not walk them), so nothing else ever
- * gives the target a value to begin with. Idempotent: each write is
- * compared against the target's current value first, so a second run with
- * no source change makes zero writes.
+ * Derives each value from the SOURCE post every run, but only WRITES it when
+ * the target's field is still empty or still holds what this pass last put
+ * there (see pllx_ref_may_write()). An earlier version claimed nothing else
+ * could give the target a value, which is untrue -- an editor can set any of
+ * these in wp-admin, and re-deriving them unconditionally undid that on every
+ * import, with no warning. Idempotent either way: each write is compared
+ * against the target's current value first, so a second run with no source
+ * change makes zero writes.
  *
  * Returns the number of fields actually rewritten.
  */
+/**
+ * Normalise any reference value to one comparable string.
+ *
+ * Reference fields come back in several shapes (a string URL, an int, a
+ * WP_Post, an array of either), so comparisons are done on this instead.
+ */
+function pllx_ref_norm( $value ) {
+	if ( is_array( $value ) && isset( $value['url'] ) ) {
+		return (string) $value['url'];
+	}
+	if ( is_array( $value ) ) {
+		$ids = array();
+		foreach ( $value as $row ) {
+			$id = pllx_acf_ref_id( $row );
+			if ( $id ) {
+				$ids[] = $id;
+			}
+		}
+		return implode( ',', $ids );
+	}
+	if ( is_string( $value ) ) {
+		return $value;
+	}
+	$id = pllx_acf_ref_id( $value );
+	return $id ? (string) $id : '';
+}
+
+/**
+ * May the importer overwrite this reference field?
+ *
+ * Yes when the field is still empty, or when it holds exactly what the
+ * importer itself last wrote there. No when a human has since changed it in
+ * wp-admin -- that is a deliberate editorial choice about the translated
+ * page, and re-deriving it from the source would silently undo their work on
+ * every subsequent import.
+ *
+ * Comparing against the SOURCE cannot make this distinction: a source whose
+ * reference legitimately changed and a target an editor overrode look
+ * identical from there. Recording our own writes is what separates them.
+ */
+function pllx_ref_may_write( $target_id, $name, $current_norm, $source_norm = null ) {
+	if ( '' === $current_norm ) {
+		return true;
+	}
+	$stored = get_post_meta( $target_id, PLLX_REF_META . $name, true );
+	if ( '' !== $stored && (string) $stored === $current_norm ) {
+		return true;
+	}
+	// Still holding the SOURCE's own unmapped value. That is never a
+	// deliberate editorial choice for a translated page -- it is a stale copy
+	// pointing into the wrong language, which is exactly what pll-verify.php
+	// fails a site over. Counterparts created before this ownership tracking
+	// existed all look like this, and refusing to touch them would freeze
+	// them wrong forever. An editor's real override points somewhere else,
+	// so it is not caught by this branch.
+	return null !== $source_norm && '' !== $source_norm && $current_norm === $source_norm;
+}
+
 function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 	$source_objects = get_field_objects( $source_id );
 	if ( ! is_array( $source_objects ) ) {
@@ -924,6 +984,10 @@ function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 			}
 			$current_url = isset( $target_val['url'] ) ? $target_val['url'] : '';
 			if ( $current_url !== $new_url ) {
+				if ( ! pllx_ref_may_write( $target_id, $name, $current_url, (string) $val['url'] ) ) {
+					pllx_warn( "post $target_id, field '$name': link was changed after the last import; leaving '$current_url' alone" );
+					continue;
+				}
 				$target_val['url'] = $new_url;
 				if ( ! isset( $target_val['title'] ) ) {
 					$target_val['title'] = '';
@@ -932,6 +996,7 @@ function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 					$target_val['target'] = '';
 				}
 				update_field( $name, $target_val, $target_id );
+				update_post_meta( $target_id, PLLX_REF_META . $name, $new_url );
 				$count++;
 			}
 			continue;
@@ -944,7 +1009,13 @@ function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 			$new_url = pllx_repoint_internal_url( $val, $target_lang, "post $target_id, field '$name'" );
 			$current = get_field( $name, $target_id );
 			if ( $current !== $new_url ) {
+				$current_norm = pllx_ref_norm( $current );
+				if ( ! pllx_ref_may_write( $target_id, $name, $current_norm, (string) $val ) ) {
+					pllx_warn( "post $target_id, field '$name': page_link was changed after the last import; leaving '$current_norm' alone" );
+					continue;
+				}
 				update_field( $name, $new_url, $target_id );
+				update_post_meta( $target_id, PLLX_REF_META . $name, $new_url );
 				$count++;
 			}
 			continue;
@@ -962,7 +1033,13 @@ function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 			}
 			$current_id = pllx_acf_ref_id( get_field( $name, $target_id ) );
 			if ( $current_id !== $new_id ) {
+				$current_norm = $current_id ? (string) $current_id : '';
+				if ( ! pllx_ref_may_write( $target_id, $name, $current_norm, (string) $source_post_id ) ) {
+					pllx_warn( "post $target_id, field '$name': post_object was changed after the last import; leaving post $current_id alone" );
+					continue;
+				}
 				update_field( $name, $new_id, $target_id );
+				update_post_meta( $target_id, PLLX_REF_META . $name, (string) $new_id );
 				$count++;
 			}
 			continue;
@@ -996,7 +1073,13 @@ function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {
 			}
 
 			if ( $current_ids !== $new_ids ) {
+				$current_norm = implode( ',', $current_ids );
+				if ( ! pllx_ref_may_write( $target_id, $name, $current_norm, pllx_ref_norm( $val ) ) ) {
+					pllx_warn( "post $target_id, field '$name': relationship was changed after the last import; leaving [$current_norm] alone" );
+					continue;
+				}
 				update_field( $name, $new_ids, $target_id );
+				update_post_meta( $target_id, PLLX_REF_META . $name, implode( ',', $new_ids ) );
 				$count++;
 			}
 			continue;

@@ -13,6 +13,17 @@ if ( ! defined( 'PLLX_HASH_META' ) ) {
 	define( 'PLLX_HASH_META', '_pll_src_hash' );
 }
 
+if ( ! defined( 'PLLX_REF_META' ) ) {
+	// Meta key PREFIX on the TRANSLATION recording what the importer itself
+	// last wrote into a given ACF reference field. Suffixed with the field
+	// name. Lets the reference pass tell "this is my own earlier write, safe
+	// to update" from "a human changed this in wp-admin, leave it alone" --
+	// a distinction it cannot make by comparing against the source, since a
+	// legitimately changed source and an editor's override look identical
+	// from there.
+	define( 'PLLX_REF_META', '_pll_ref_' );
+}
+
 /**
  * Bridge wp eval-file's $args into $GLOBALS.
  *
