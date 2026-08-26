@@ -111,8 +111,17 @@ foreach ( $source_posts as $source_id ) {
 
 	$target_id = (int) $translations[ $target ];
 
-	if ( ! get_post( $target_id ) ) {
+	$target_post = get_post( $target_id );
+	if ( ! $target_post ) {
 		$failures[] = "post $source_id points at $target_id, which does not exist";
+		continue;
+	}
+
+	// Polylang cleans a translation group on before_delete_post only, so
+	// trashing a counterpart leaves the group and the stored hash untouched.
+	// Every other check below then passes on a page that 404s.
+	if ( 'trash' === $target_post->post_status ) {
+		$failures[] = "post $source_id points at $target_id, which is in the trash";
 		continue;
 	}
 

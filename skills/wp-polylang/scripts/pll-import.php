@@ -143,6 +143,12 @@ $post_counterparts = array();
 // unresolved parent leaves the child dirty for the next run.
 $post_hashes       = array();
 $parents_unresolved = array();
+// Terms get the same treatment: wp_update_term() writes parent unconditionally
+// and defaults it to 0, so a translated tree is flattened on every re-import
+// unless a later pass puts the mapped parent back.
+$term_counterparts  = array();
+$term_hashes        = array();
+$term_parents_unresolved = array();
 
 foreach ( $manifest['items'] as $item ) {
 	if ( 'post' === $item['kind'] ) {
@@ -273,7 +279,15 @@ foreach ( $manifest['items'] as $item ) {
 			continue;
 		}
 
-		if ( ! empty( $item['target_id'] ) && ! is_wp_error( get_term( $item['target_id'], $taxonomy ) ) ) {
+		// instanceof, not ! is_wp_error(): get_term() returns NULL for an id that
+		// does not exist, so the old test was TRUE for a dangling target_id and
+		// took the update branch, where wp_update_term() fails with
+		// invalid_term_id and the term is skipped for good. This is the same
+		// trap already documented in the validation loop above -- the post
+		// branch gets it right by using get_post(), which falls through to
+		// insert. A dangling id reaches here whenever Polylang's group still
+		// names a term that was removed without its hooks running.
+		if ( ! empty( $item['target_id'] ) && get_term( $item['target_id'], $taxonomy ) instanceof WP_Term ) {
 			$target_id = (int) $item['target_id'];
 			$res       = wp_update_term( $target_id, $taxonomy, wp_slash( array(
 				'name'        => $name,
@@ -290,10 +304,25 @@ foreach ( $manifest['items'] as $item ) {
 		}
 
 		if ( is_wp_error( $res ) ) {
-			pllx_warn( "term $source_id: " . $res->get_error_message() );
-			continue;
+			// A term already carrying this name/slug but sitting outside the
+			// translation group is the single most likely way an insert fails
+			// here, and it never healed itself: every re-run repeated the same
+			// warning while verify kept failing. Polylang's language suffix
+			// cannot rescue it either, because pll_set_term_language() runs
+			// after the insert and PLL_Term_Slug needs a filter that nothing
+			// supplies under wp eval-file. The id needed to fix it is already
+			// in the error data, so adopt that term and let the group merge
+			// below claim it.
+			$existing = 'term_exists' === $res->get_error_code() ? (int) $res->get_error_data() : 0;
+			if ( ! $existing ) {
+				pllx_warn( "term $source_id: " . $res->get_error_message() );
+				continue;
+			}
+			pllx_info( "  term $source_id: adopting existing term $existing ($taxonomy)" );
+			$target_id = $existing;
+		} else {
+			$target_id = (int) $res['term_id'];
 		}
-		$target_id = (int) $res['term_id'];
 
 		// Merge into the existing group -- see the equivalent comment in the
 		// post branch above. pll_save_term_translations() also replaces rather
@@ -304,7 +333,8 @@ foreach ( $manifest['items'] as $item ) {
 		$term_group[ $target ] = $target_id;
 		pll_save_term_translations( $term_group );
 
-		update_term_meta( $target_id, PLLX_HASH_META, $item['hash'] );
+		$term_counterparts[ $source_id ] = array( $target_id, $taxonomy );
+		$term_hashes[ $source_id ]       = $item['hash'];
 		$written++;
 		$written_terms++;
 		pllx_info( "  term $source_id -> $target_id ($taxonomy)" );
@@ -530,6 +560,47 @@ foreach ( $post_counterparts as $source_id => $target_id ) {
 	$parents_fixed++;
 }
 
+// ── Term parent fixup ─────────────────────────────────────────────────────
+//
+// Core's wp_update_term() defaults 'parent' to 0 and writes it
+// (taxonomy.php:3292 and :3446), so every update of a translated term reset
+// its parent -- destroying a hierarchy an editor set by hand -- and
+// wp_insert_term() was passed no parent either, so a source tree came out as
+// a set of root terms. pllx_term_payload() carries no parent, on purpose:
+// export order is not parent-first here any more than it is for posts, so the
+// mapping can only be done once every counterpart in this run exists.
+$term_parents_fixed = 0;
+foreach ( $term_counterparts as $source_id => $pair ) {
+	list( $target_id, $taxonomy ) = $pair;
+	$source_term = get_term( $source_id, $taxonomy );
+	if ( ! $source_term instanceof WP_Term || 0 === (int) $source_term->parent ) {
+		continue;
+	}
+
+	$parent_group = pll_get_term_translations( (int) $source_term->parent );
+	if ( empty( $parent_group[ $target ] ) ) {
+		// Same rule as posts: nothing to point at, so leave it at the root and
+		// withhold the hash so the next run retries instead of calling it done.
+		$term_parents_unresolved[ $source_id ] = true;
+		continue;
+	}
+
+	$res = wp_update_term( $target_id, $taxonomy, array( 'parent' => (int) $parent_group[ $target ] ) );
+	if ( is_wp_error( $res ) ) {
+		pllx_warn( "term $target_id: could not set parent: " . $res->get_error_message() );
+		$term_parents_unresolved[ $source_id ] = true;
+		continue;
+	}
+	$term_parents_fixed++;
+}
+
+foreach ( $term_hashes as $source_id => $hash ) {
+	if ( isset( $term_parents_unresolved[ $source_id ] ) ) {
+		continue;
+	}
+	update_term_meta( $term_counterparts[ $source_id ][0], PLLX_HASH_META, $hash );
+}
+
 // Now, and only now, are post hashes safe to record. A child written with
 // post_parent = 0 whose parent turned out to have no counterpart -- because
 // the parent's own write failed earlier in this run, or it simply is not
@@ -677,6 +748,7 @@ pllx_info( sprintf(
 	$written_strings
 ) );
 pllx_info( sprintf( 'Fixed %d parent-child relationship(s).', $parents_fixed ) );
+pllx_info( sprintf( 'Fixed %d term parent relationship(s).', $term_parents_fixed ) );
 
 /**
  * Write one flattened ACF value back.

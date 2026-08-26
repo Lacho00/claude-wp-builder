@@ -34,12 +34,28 @@ $items      = array();
 $skipped    = 0;
 $unassigned = array(); // post_type or taxonomy name => count with no language at all.
 
-/** Decide whether an item needs work. Returns [include(bool), target_id|null]. */
-function pllx_needs_work( $translations, $target, $hash, $meta_reader ) {
+/**
+ * Decide whether an item needs work. Returns [include(bool), target_id|null].
+ *
+ * $usable_check answers "is the id this group names still a real, live object?"
+ * Naming an id is not proof of one. Polylang cleans a translation group on
+ * before_delete_post only, so a TRASHED counterpart stays in the group with its
+ * hash intact: without this check the item read as fully translated, was never
+ * re-exported, and pll-verify.php passed it too -- while the translated page
+ * 404s. A term removed without Polylang's hooks leaves the same dangling name,
+ * and the importer never got a chance to rebuild it because the item never
+ * reached a manifest.
+ */
+function pllx_needs_work( $translations, $target, $hash, $meta_reader, $usable_check = null ) {
 	if ( empty( $translations[ $target ] ) ) {
 		return array( true, null );
 	}
 	$target_id = (int) $translations[ $target ];
+	if ( $usable_check && ! call_user_func( $usable_check, $target_id ) ) {
+		// Hand back the id: the importer still needs it to tell "rebuild this
+		// counterpart" from "create a first one".
+		return array( true, $target_id );
+	}
 	$stored    = call_user_func( $meta_reader, $target_id );
 	if ( $stored === $hash ) {
 		return array( false, $target_id );
@@ -81,7 +97,11 @@ foreach ( $posts as $post_id ) {
 		pll_get_post_translations( $post_id ),
 		$target,
 		$hash,
-		function ( $id ) { return get_post_meta( $id, PLLX_HASH_META, true ); }
+		function ( $id ) { return get_post_meta( $id, PLLX_HASH_META, true ); },
+		function ( $id ) {
+			$p = get_post( $id );
+			return $p && 'trash' !== $p->post_status;
+		}
 	);
 
 	if ( ! $include ) {
@@ -130,7 +150,8 @@ foreach ( $taxonomies as $taxonomy ) {
 			pll_get_term_translations( $term->term_id ),
 			$target,
 			$hash,
-			function ( $id ) { return get_term_meta( $id, PLLX_HASH_META, true ); }
+			function ( $id ) { return get_term_meta( $id, PLLX_HASH_META, true ); },
+			function ( $id ) use ( $taxonomy ) { return get_term( $id, $taxonomy ) instanceof WP_Term; }
 		);
 
 		if ( ! $include ) {

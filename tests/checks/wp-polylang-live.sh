@@ -71,6 +71,7 @@ FIXTURE_PARENT_ID=""
 FIXTURE_CHILD_ID=""
 ORPHAN_PARENT_ID=""
 ORPHAN_CHILD_ID=""
+FIXTURE_TERM_IDS=""
 FIXTURE_MEDIA_ID=""
 FIXTURE_ITEM_IDS=""
 FIXTURE_MENU_ID=""
@@ -96,12 +97,13 @@ cleanup() {
   # Nothing was created yet -- do not run a site mutation just to delete zero
   # objects. This matters because the trap is armed before the first fixture
   # object exists, on purpose, so the temp dir above is always removed.
-  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM$ORPHAN_PARENT_ID$ORPHAN_CHILD_ID" ]]; then
+  if [[ -z "$FIXTURE_PARENT_ID$FIXTURE_CHILD_ID$FIXTURE_MEDIA_ID$FIXTURE_ITEM_IDS$FIXTURE_ARCHIVE_PT$FIXTURE_THIRD_LANG$VERIFY_VICTIM$ORPHAN_PARENT_ID$ORPHAN_CHILD_ID$FIXTURE_TERM_IDS" ]]; then
     return $status
   fi
   (cd "$SITE" \
     && PLL_FIX_POSTS="$FIXTURE_PARENT_ID,$FIXTURE_CHILD_ID,$FIXTURE_MEDIA_ID,$ORPHAN_PARENT_ID,$ORPHAN_CHILD_ID" \
        PLL_FIX_ITEMS="$FIXTURE_ITEM_IDS" \
+       PLL_FIX_TERMS="$FIXTURE_TERM_IDS" \
        PLL_FIX_MENU="$FIXTURE_MENU_ID" \
        PLL_FIX_PT="$FIXTURE_ARCHIVE_PT" \
        PLL_FIX_SRC="$SRC" \
@@ -124,6 +126,19 @@ $third      = (string) getenv( "PLL_FIX_THIRD" );
 $victim = (int) getenv( "PLL_FIX_VICTIM" );
 if ( $victim && get_post( $victim ) ) {
   pll_set_post_language( $victim, (string) getenv( "PLL_FIX_VICTIM_LANG" ) );
+}
+
+// Fixture terms and their counterparts. Deleted before the posts below for the
+// same reason: pll_get_term_translations() only answers while the group lives.
+foreach ( array_filter( array_map( "intval", explode( ",", (string) getenv( "PLL_FIX_TERMS" ) ) ) ) as $tid ) {
+  $t = get_term( $tid );
+  if ( ! $t instanceof WP_Term ) { continue; }
+  $tax = $t->taxonomy;
+  $group = (array) pll_get_term_translations( $tid );
+  foreach ( $group as $one ) {
+    if ( get_term( (int) $one, $tax ) instanceof WP_Term ) { wp_delete_term( (int) $one, $tax ); }
+  }
+  if ( get_term( $tid, $tax ) instanceof WP_Term ) { wp_delete_term( $tid, $tax ); }
 }
 
 // Counterparts first, while the translation groups still exist.
@@ -979,6 +994,131 @@ echo $p->post_title . "|" . $p->post_type . "|" . md5($p->post_content);
 }
 rm -f "$HIJACK_MAN"
 
+echo "── a term hierarchy survives translation and re-import ──"
+# wp_update_term() writes 'parent' unconditionally and defaults it to 0 (core
+# taxonomy.php:3292/3446), and wp_insert_term() was passed no parent at all, so
+# a source tree came out as loose root terms and any hierarchy an editor fixed
+# by hand was flattened again on the next import. pll-verify.php never compares
+# term parents, so none of it was visible end to end.
+TERM_PARENT_ID="$(cd "$SITE" && wp term create category "PLL cat parent" --porcelain --allow-root)"
+TERM_CHILD_ID="$(cd "$SITE" && wp term create category "PLL cat child" --parent="$TERM_PARENT_ID" --porcelain --allow-root)"
+[[ -n "$TERM_PARENT_ID" && -n "$TERM_CHILD_ID" ]] || { echo "FAIL: could not create the fixture category tree"; exit 1; }
+FIXTURE_TERM_IDS="$TERM_PARENT_ID,$TERM_CHILD_ID"
+(cd "$SITE" && PLL_SRC_L="$SRC" PLL_TIDS="$FIXTURE_TERM_IDS" wp eval '
+foreach (array_filter(array_map("intval", explode(",", getenv("PLL_TIDS")))) as $id) {
+  pll_set_term_language($id, getenv("PLL_SRC_L"));
+}
+' --allow-root) >/dev/null
+
+term_cycle() { # translate + import a fresh export; echoes the import output
+  local man="$FIXTURE_TMPDIR/manifest-terms-$1.json"
+  run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$man" >/dev/null || return 1
+  PLL_M="$man" PLL_DST="$DST" php -r '
+    $m = json_decode(file_get_contents(getenv("PLL_M")), true);
+    foreach ($m["items"] as &$it) {
+      foreach ($it["fields"] as $k => $v) {
+        if ($k === "post_name" || $k === "slug") { $it["fields"][$k] = $v . "-" . getenv("PLL_DST"); continue; }
+        if (is_string($v) && $v !== "") { $it["fields"][$k] = "[" . strtoupper(getenv("PLL_DST")) . "] " . $v; }
+      }
+    }
+    unset($it);
+    file_put_contents(getenv("PLL_M"), json_encode($m));
+  '
+  run "$SCRIPTS/pll-import.php" "$man"
+  local rc=$?
+  rm -f "$man"
+  return $rc
+}
+
+term_hierarchy_check() { # echoes "ok" when the translated child sits under the translated parent
+  (cd "$SITE" && PLL_TP="$TERM_PARENT_ID" PLL_TC="$TERM_CHILD_ID" PLL_DST="$DST" wp eval '
+$dst = getenv("PLL_DST");
+$pg  = pll_get_term_translations((int) getenv("PLL_TP"));
+$cg  = pll_get_term_translations((int) getenv("PLL_TC"));
+if (empty($pg[$dst]) || empty($cg[$dst])) { echo "no-counterpart"; return; }
+$child = get_term((int) $cg[$dst], "category");
+if (!$child instanceof WP_Term) { echo "child-missing"; return; }
+echo ((int) $child->parent === (int) $pg[$dst]) ? "ok" : ("parent=" . (int) $child->parent . " expected=" . (int) $pg[$dst]);
+' --allow-root)
+}
+
+TERM_OUT1="$(term_cycle 1)" || { echo "$TERM_OUT1"; echo "FAIL: term import (first cycle) exited non-zero"; exit 1; }
+TERM_H1="$(term_hierarchy_check)"
+[[ "$TERM_H1" == "ok" ]] || { echo "FAIL: the translated category tree was not built ($TERM_H1)"; exit 1; }
+
+# The re-import is the half that actually catches the flattening: the first
+# cycle inserts, the second UPDATES, and it is the update that resets parent.
+TERM_OUT2="$(term_cycle 2)" || { echo "$TERM_OUT2"; echo "FAIL: term import (second cycle) exited non-zero"; exit 1; }
+TERM_H2="$(term_hierarchy_check)"
+[[ "$TERM_H2" == "ok" ]] || { echo "FAIL: the translated category tree was flattened by a re-import ($TERM_H2)"; exit 1; }
+echo "  translated tree intact across insert and update"
+
+echo "── import recovers a translation group naming a deleted term ──"
+# get_term() returns NULL, not a WP_Error, for an id that no longer exists, so
+# the old guard took the UPDATE branch, wp_update_term() failed with
+# invalid_term_id, and the term was warned about and skipped on every run
+# forever. Reproduced by removing the counterpart the way something without
+# Polylang's hooks would: straight out of the tables, leaving the group intact.
+DANGLING_TERM_ID="$(cd "$SITE" && PLL_TC="$TERM_CHILD_ID" PLL_DST="$DST" wp eval '
+$g = pll_get_term_translations((int) getenv("PLL_TC"));
+echo empty($g[getenv("PLL_DST")]) ? "" : (int) $g[getenv("PLL_DST")];
+' --allow-root)"
+[[ -n "$DANGLING_TERM_ID" ]] || { echo "FAIL: no $DST counterpart term to dangle"; exit 1; }
+
+(cd "$SITE" && PLL_D="$DANGLING_TERM_ID" wp eval '
+global $wpdb;
+$id = (int) getenv("PLL_D");
+$wpdb->delete($wpdb->term_taxonomy, array("term_id" => $id));
+$wpdb->delete($wpdb->terms, array("term_id" => $id));
+clean_term_cache($id, "category");
+' --allow-root) >/dev/null
+
+STILL_NAMED="$(cd "$SITE" && PLL_TC="$TERM_CHILD_ID" PLL_DST="$DST" wp eval '
+$g = pll_get_term_translations((int) getenv("PLL_TC"));
+echo empty($g[getenv("PLL_DST")]) ? "gone" : "named";
+' --allow-root)"
+[[ "$STILL_NAMED" == "named" ]] || { echo "FAIL: the group no longer names the deleted term, so this test would check nothing"; exit 1; }
+
+TERM_OUT3="$(term_cycle 3)" || { echo "$TERM_OUT3"; echo "FAIL: term import (recovery cycle) exited non-zero"; exit 1; }
+TERM_H3="$(term_hierarchy_check)"
+[[ "$TERM_H3" == "ok" ]] || {
+  echo "$TERM_OUT3"
+  echo "FAIL: import did not rebuild a counterpart for a group naming a deleted term ($TERM_H3)"
+  exit 1
+}
+echo "  counterpart rebuilt and re-parented after a raw delete"
+
+echo "── import adopts an existing term instead of failing on term_exists ──"
+# A term already carrying the name/slug the importer is about to insert, but
+# sitting outside the translation group, made wp_insert_term() return
+# term_exists. That was warned about and skipped, exit 0, and it never healed:
+# the id needed to fix it was sitting unread in the error data.
+ADOPT_SRC_ID="$(cd "$SITE" && wp term create category "PLL cat adoptme" --porcelain --allow-root)"
+[[ -n "$ADOPT_SRC_ID" ]] || { echo "FAIL: could not create the adoption source term"; exit 1; }
+FIXTURE_TERM_IDS="$FIXTURE_TERM_IDS,$ADOPT_SRC_ID"
+(cd "$SITE" && PLL_SRC_L="$SRC" PLL_ID="$ADOPT_SRC_ID" wp eval 'pll_set_term_language((int) getenv("PLL_ID"), getenv("PLL_SRC_L"));' --allow-root) >/dev/null
+
+# The slug the cycle above would mint for it, created up front in the target
+# language and deliberately NOT joined to any group.
+ADOPT_EXISTING_ID="$(cd "$SITE" && wp term create category "[EN] PLL cat adoptme" --slug="pll-cat-adoptme-$DST" --porcelain --allow-root)"
+[[ -n "$ADOPT_EXISTING_ID" ]] || { echo "FAIL: could not create the pre-existing target-language term"; exit 1; }
+FIXTURE_TERM_IDS="$FIXTURE_TERM_IDS,$ADOPT_EXISTING_ID"
+(cd "$SITE" && PLL_DST_L="$DST" PLL_ID="$ADOPT_EXISTING_ID" wp eval 'pll_set_term_language((int) getenv("PLL_ID"), getenv("PLL_DST_L"));' --allow-root) >/dev/null
+
+TERM_OUT4="$(term_cycle 4)" || { echo "$TERM_OUT4"; echo "FAIL: term import (adoption cycle) exited non-zero"; exit 1; }
+ADOPTED="$(cd "$SITE" && PLL_SRC_ID="$ADOPT_SRC_ID" PLL_EXPECT="$ADOPT_EXISTING_ID" PLL_DST="$DST" wp eval '
+$g = pll_get_term_translations((int) getenv("PLL_SRC_ID"));
+$dst = getenv("PLL_DST");
+if (empty($g[$dst])) { echo "no-counterpart"; return; }
+echo ((int) $g[$dst] === (int) getenv("PLL_EXPECT")) ? "adopted" : ("other:" . (int) $g[$dst]);
+' --allow-root)"
+[[ "$ADOPTED" == "adopted" ]] || {
+  echo "$TERM_OUT4"
+  echo "FAIL: import did not adopt the pre-existing target-language term ($ADOPTED)"
+  exit 1
+}
+echo "  pre-existing term $ADOPT_EXISTING_ID adopted into the group"
+
 echo "── a child whose parent has no counterpart stays dirty for the next run ──"
 # Every post is written with post_parent = 0 and repaired by a later fixup pass,
 # because export order is not parent-first. The hash used to be recorded inline,
@@ -1335,6 +1475,55 @@ echo "  verify reported: $(grep -F "points at a '$SRC' post" <<<"$MENU_BROKEN_OU
 update_post_meta((int) getenv("PLL_ITEM"), "_menu_item_object_id", (int) getenv("PLL_OBJ"));
 ' --allow-root)
 run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the menu item was re-pointed back"; exit 1; }
+
+echo "── a trashed counterpart is caught by verify and re-exported ──"
+# Polylang cleans a translation group on before_delete_post only, never on
+# trash. So a trashed counterpart kept its group entry AND its stored hash:
+# export called the item current and skipped it, and every check in verify
+# passed -- while the translated page 404s. Both halves are asserted here,
+# because fixing only one still leaves the site silently broken.
+TRASH_TARGET_ID="$(cd "$SITE" && PLL_PARENT="$FIXTURE_PARENT_ID" PLL_DST="$DST" wp eval '
+$t = pll_get_post_translations((int) getenv("PLL_PARENT"));
+echo empty($t[getenv("PLL_DST")]) ? "" : (int) $t[getenv("PLL_DST")];
+' --allow-root)"
+[[ -n "$TRASH_TARGET_ID" ]] || { echo "FAIL: fixture parent has no $DST counterpart to trash"; exit 1; }
+TRASH_ORIG_STATUS="$(cd "$SITE" && wp post get "$TRASH_TARGET_ID" --field=post_status --allow-root)"
+
+(cd "$SITE" && wp post delete "$TRASH_TARGET_ID" --allow-root >/dev/null)
+
+if TRASH_OUT="$(run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" 2>&1)"; then
+  echo "$TRASH_OUT"
+  echo "FAIL: verify accepted a site whose counterpart is in the trash"; exit 1
+fi
+grep -qF "points at $TRASH_TARGET_ID, which is in the trash" <<<"$TRASH_OUT" || {
+  echo "$TRASH_OUT"
+  echo "FAIL: verify rejected the site, but not for the trashed counterpart -- that check is untested"
+  exit 1
+}
+echo "  verify reported: $(grep -F "which is in the trash" <<<"$TRASH_OUT" | head -1)"
+
+TRASH_MAN="$FIXTURE_TMPDIR/manifest-trash.json"
+run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$TRASH_MAN" >/dev/null || { echo "FAIL: export exited non-zero with a trashed counterpart"; exit 1; }
+TRASH_LISTED="$(PLL_M="$TRASH_MAN" PLL_SRC_ID="$FIXTURE_PARENT_ID" php -r '
+$m = json_decode(file_get_contents(getenv("PLL_M")), true);
+$src = (int) getenv("PLL_SRC_ID");
+foreach ($m["items"] as $it) {
+  if (($it["kind"] ?? "") === "post" && (int) ($it["source_id"] ?? 0) === $src) { echo "yes"; return; }
+}
+echo "no";
+')"
+rm -f "$TRASH_MAN"
+[[ "$TRASH_LISTED" == "yes" ]] || {
+  echo "FAIL: export still treats a post with a TRASHED counterpart as current, so the pipeline can never rebuild it"
+  exit 1
+}
+echo "  export re-listed source $FIXTURE_PARENT_ID for rebuilding"
+
+(cd "$SITE" && PLL_TID="$TRASH_TARGET_ID" PLL_ST="$TRASH_ORIG_STATUS" wp eval '
+wp_untrash_post((int) getenv("PLL_TID"));
+wp_update_post(array("ID" => (int) getenv("PLL_TID"), "post_status" => (string) getenv("PLL_ST")));
+' --allow-root >/dev/null)
+run "$SCRIPTS/pll-verify.php" "$SRC" "$DST" >/dev/null || { echo "FAIL: verify still failing after the counterpart was restored from the trash"; exit 1; }
 
 echo "── verify catches an internal link into the wrong language ──"
 # Check 9 is the headline check of THIS task, and it had no test of its own:
