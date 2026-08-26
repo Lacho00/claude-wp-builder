@@ -149,6 +149,7 @@ $parents_unresolved = array();
 $term_counterparts  = array();
 $term_hashes        = array();
 $term_parents_unresolved = array();
+$acf_copied = 0;
 
 foreach ( $manifest['items'] as $item ) {
 	if ( 'post' === $item['kind'] ) {
@@ -255,10 +256,21 @@ foreach ( $manifest['items'] as $item ) {
 			set_post_thumbnail( $target_id, $thumb );
 		}
 
+		if ( function_exists( 'update_field' ) ) {
+			// Before the translated values: containers arrive whole, then the
+			// manifest overwrites the text keys inside them.
+			$acf_copied += pllx_acf_copy_untranslated( $source_id, $target_id );
+		}
+
 		if ( ! empty( $item['acf'] ) && function_exists( 'update_field' ) ) {
 			foreach ( $item['acf'] as $dotted => $value ) {
 				pllx_acf_write( $target_id, $dotted, $value, $source_id );
 			}
+		} elseif ( ! empty( $item['acf'] ) ) {
+			// #9: no silent skip. Export ran with a fields plugin active and
+			// import did not, so these strings would be dropped -- and the
+			// hash recorded anyway, making them unreachable on every later run.
+			pllx_fail( "item {$item['id']} carries ACF values but no custom-fields plugin is active; activate ACF or SCF and re-run." );
 		}
 
 		$post_counterparts[ $source_id ] = $target_id;
@@ -749,6 +761,7 @@ pllx_info( sprintf(
 ) );
 pllx_info( sprintf( 'Fixed %d parent-child relationship(s).', $parents_fixed ) );
 pllx_info( sprintf( 'Fixed %d term parent relationship(s).', $term_parents_fixed ) );
+pllx_info( sprintf( 'Copied %d untranslated ACF value(s) to new counterparts.', $acf_copied ) );
 
 /**
  * Write one flattened ACF value back.
@@ -958,6 +971,69 @@ function pllx_ref_may_write( $target_id, $name, $current_norm, $source_norm = nu
 	// them wrong forever. An editor's real override points somewhere else,
 	// so it is not caught by this branch.
 	return null !== $source_norm && '' !== $source_norm && $current_norm === $source_norm;
+}
+
+/**
+ * Copy every ACF value the pipeline does NOT translate from source to target.
+ *
+ * pllx_acf_walk() only emits text/textarea/wysiwyg, so images, numbers,
+ * booleans, selects, dates and plain urls never reached a new counterpart at
+ * all: a freshly created translation came out with its text filled in and
+ * everything else blank. pll-lib.php claimed these were "copied verbatim by
+ * the importer" -- nothing did the copying.
+ *
+ * Only fields the target has never had set are copied, so this cannot undo an
+ * editorial change, and re-runs write nothing. Reference types are skipped
+ * because pllx_repoint_acf_refs() owns them: they need MAPPING to the target
+ * language, not a verbatim copy that would point the translation at
+ * source-language content.
+ *
+ * Containers (group, repeater, flexible_content) are copied whole and then
+ * overwritten key by key by the manifest's translated values, which also
+ * means a first-write row arrives with its structure and its acf_fc_layout
+ * tag already intact.
+ *
+ * Ceiling: an image or file id is copied as-is rather than swapped for its
+ * media translation. That matches the documented contract and what the live
+ * fixture asserts; mapping media would be a separate decision.
+ *
+ * Returns the number of fields copied.
+ */
+function pllx_acf_copy_untranslated( $source_id, $target_id ) {
+	$source_objects = get_field_objects( $source_id );
+	if ( ! is_array( $source_objects ) ) {
+		return 0;
+	}
+
+	$translated = array( 'text', 'textarea', 'wysiwyg' );
+	$references = array( 'link', 'page_link', 'post_object', 'relationship' );
+	$copied     = 0;
+
+	foreach ( $source_objects as $name => $obj ) {
+		$type = isset( $obj['type'] ) ? $obj['type'] : '';
+		if ( in_array( $type, $translated, true ) || in_array( $type, $references, true ) ) {
+			continue;
+		}
+		// 'clone' is skipped for the same reason pllx_acf_walk() has no branch
+		// for it: with group display it is a second object over the SAME
+		// underlying meta, so copying it would write the same values twice.
+		if ( 'clone' === $type ) {
+			continue;
+		}
+		// metadata_exists(), not an empty() test: false and 0 are legitimate
+		// values for true_false and number, and an empty() check would keep
+		// overwriting them on every run.
+		if ( metadata_exists( 'post', $target_id, $name ) ) {
+			continue;
+		}
+		if ( ! isset( $obj['value'] ) || null === $obj['value'] ) {
+			continue;
+		}
+		update_field( $name, $obj['value'], $target_id );
+		$copied++;
+	}
+
+	return $copied;
 }
 
 function pllx_repoint_acf_refs( $source_id, $target_id, $target_lang ) {

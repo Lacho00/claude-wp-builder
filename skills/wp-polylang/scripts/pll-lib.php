@@ -125,8 +125,12 @@ function pllx_term_payload( $term_id, $taxonomy ) {
 /**
  * Flatten a post's translatable ACF values to dot notation.
  *
- * Only text-bearing types are included; images, URLs, numbers and booleans are
- * copied verbatim by the importer and never sent for translation.
+ * Only text-bearing types are included. Everything else -- images, URLs,
+ * numbers, booleans, selects, dates -- is never sent for translation and is
+ * instead copied to the counterpart by pllx_acf_copy_untranslated() in
+ * pll-import.php, which runs before the translated values are written. This
+ * comment used to assert that copy happened without any code doing it, so a
+ * new counterpart came out with its text filled in and everything else blank.
  *
  * Ceiling: one level of nesting inside groups, repeaters and flexible-content
  * layouts. Deeper structures (a group nested inside a repeater or a

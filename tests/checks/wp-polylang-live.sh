@@ -1907,6 +1907,82 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   echo "  negative controls confirmed unaltered (source and target): $n source + 4 target\n";
   ' "$ACF_SOURCE_STILL" || exit 1
 
+  echo "── a counterpart with no fields set receives the untranslated values ──"
+  # pllx_acf_walk() only emits text/textarea/wysiwyg, so images, numbers,
+  # booleans and plain urls were never written to a counterpart at all: a
+  # freshly created translation came out with its text filled in and
+  # everything else blank. pll-lib.php claimed the importer copied them
+  # verbatim; nothing did.
+  #
+  # The permanent fixture is exactly what hid this -- 605 is pre-seeded with
+  # sentinel values on every run, so the never-been-set path was never taken.
+  # Same shape as the Task 8 flexible-content masking, and the same fix:
+  # delete the fields first so the run has to build them from nothing.
+  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_T");
+  foreach (array("pll_number", "pll_true_false", "pll_url", "pll_image") as $f) {
+    delete_field($f, $id);
+  }
+  delete_post_meta($id, "_pll_src_hash");
+  ' --allow-root >/dev/null)
+
+  COPY_GONE="$(cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_T"); $n = 0;
+  foreach (array("pll_number", "pll_true_false", "pll_url", "pll_image") as $f) {
+    if (metadata_exists("post", $id, $f)) { $n++; }
+  }
+  echo $n;
+  ' --allow-root)"
+  [[ "$COPY_GONE" == "0" ]] || { echo "FAIL: could not clear the target fields ($COPY_GONE still set), so this test would check nothing"; exit 1; }
+
+  COPY_MAN="$ACF_TMPDIR/manifest-copy.json"
+  run "$SCRIPTS/pll-export.php" "$SRC" "$DST" "$COPY_MAN" >/dev/null || { echo "FAIL: export for the copy check exited non-zero"; exit 1; }
+  COPY_OUT="$(run "$SCRIPTS/pll-import.php" "$COPY_MAN" 2>&1)" || { echo "$COPY_OUT"; echo "FAIL: import for the copy check exited non-zero"; exit 1; }
+  rm -f "$COPY_MAN"
+
+  COPY_GOT="$(cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_T");
+  echo json_encode(array(
+    "number" => get_field("pll_number", $id),
+    "bool"   => get_field("pll_true_false", $id),
+    "url"    => get_field("pll_url", $id),
+    "image"  => get_field("pll_image", $id),
+  ));
+  ' --allow-root)"
+  # Restored BEFORE the assertions, not after (ruling T5-M): a restore that
+  # only runs on the success path leaves the PERMANENT fixture wrecked the
+  # moment the assertion it follows actually fires. Measured the hard way --
+  # a mutation run aborted here and left 605 with four empty fields.
+  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" wp eval '
+  $id = (int) getenv("PLL_T");
+  update_field("pll_number", -1, $id);
+  update_field("pll_true_false", 0, $id);
+  update_field("pll_url", "https://example.com/target-sentinel", $id);
+  update_field("pll_image", 80, $id);
+  ' --allow-root >/dev/null)
+
+  # The SOURCE values, not the sentinels: 42 / true / no-traducir / 85.
+  COPY_RESULT="$(PLL_J="$COPY_GOT" php -r '
+  $v = json_decode(getenv("PLL_J"), true);
+  $bad = array();
+  if ((int) ($v["number"] ?? -999) !== 42) { $bad[] = "number=" . json_encode($v["number"] ?? null); }
+  if (($v["bool"] ?? null) != true)        { $bad[] = "bool=" . json_encode($v["bool"] ?? null); }
+  if (($v["url"] ?? null) !== "https://example.com/no-traducir") { $bad[] = "url=" . json_encode($v["url"] ?? null); }
+  if ((int) ($v["image"] ?? -1) !== 85)    { $bad[] = "image=" . json_encode($v["image"] ?? null); }
+  echo $bad ? implode(", ", $bad) : "ok";
+  ')"
+  [[ "$COPY_RESULT" == "ok" ]] || {
+    echo "$COPY_OUT"
+    echo "FAIL: a counterpart with no fields set did not receive the untranslated values ($COPY_RESULT)"
+    exit 1
+  }
+  grep -qE "Copied [1-9][0-9]* untranslated ACF value" <<<"$COPY_OUT" || {
+    echo "$COPY_OUT"
+    echo "FAIL: the values arrived but the import reported copying none -- some other path wrote them"
+    exit 1
+  }
+  echo "  untranslated values copied to a blank counterpart: $(grep -oE 'Copied [0-9]+ untranslated ACF value\(s\)' <<<"$COPY_OUT" | head -1)"
+
   echo "── an editor's own reference value survives the next import ──"
   # The reference pass derives every value from the SOURCE on every import and
   # runs over EVERY target post, not just newly created ones. Its docblock
@@ -1935,6 +2011,13 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
   $v = get_field("pll_post_object", (int) getenv("PLL_T"));
   echo is_object($v) ? (int) $v->ID : (int) $v;
   ' --allow-root)"
+
+  # Restored before the assertions, for the reason given in the block above.
+  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" PLL_R="$REF_EN_ID" wp eval '
+  update_field("pll_post_object", (int) getenv("PLL_R"), (int) getenv("PLL_T"));
+  delete_post_meta((int) getenv("PLL_T"), "_pll_ref_pll_post_object");
+  ' --allow-root >/dev/null)
+
   [[ "$EDITOR_AFTER" == "$ACF_TARGET_ID" ]] || {
     echo "$EDITOR_OUT"
     echo "FAIL: the import overwrote an editor-set post_object ($ACF_TARGET_ID -> $EDITOR_AFTER)"
@@ -1946,12 +2029,6 @@ if (cd "$SITE" && wp eval 'exit(function_exists("get_field") ? 0 : 1);' --allow-
     exit 1
   }
   echo "  editor-set post_object preserved, and the skip was reported"
-
-  # Put the fixture back so the permanent target is left exactly as found.
-  (cd "$SITE" && PLL_T="$ACF_TARGET_ID" PLL_R="$REF_EN_ID" wp eval '
-  update_field("pll_post_object", (int) getenv("PLL_R"), (int) getenv("PLL_T"));
-  delete_post_meta((int) getenv("PLL_T"), "_pll_ref_pll_post_object");
-  ' --allow-root >/dev/null)
 
   rm -rf "$ACF_TMPDIR"
 else
