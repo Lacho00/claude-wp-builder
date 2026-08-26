@@ -69,6 +69,25 @@ Follow these naming rules WITHOUT exception:
 
 **All field keys MUST be unique across the entire theme.** Use the section name as a namespace to guarantee uniqueness.
 
+## Strategy check (do this before generating any field)
+
+Read `i18n strategy` from the project's `.claude/CLAUDE.md`.
+
+**If it says `polylang`**, generate NO `_<lang>` duplicate fields and no
+language tabs for post/page field groups. Each language has its own post, so
+one field holds one language's value — duplicating fields would create a
+second, competing translation store on top of Polylang's.
+
+The ONE exception is the **theme settings / options group**. ACF options are
+global: a single set of values for the whole site, not one per language, so
+Polylang's one-post-per-language model does not reach them and free Polylang
+does not translate the options page. Keep the `_<lang>` duplicates there, and
+only there — `<prefix>get_field()` still resolves them, which is exactly why
+that helper keeps its suffix lookup in the Polylang variant of `inc/i18n.php`.
+
+**If it says `suffix`** (or the line is absent — older projects predate it),
+everything below applies as written.
+
 ## Complete Field Group Example with Bilingual Support
 
 ```php

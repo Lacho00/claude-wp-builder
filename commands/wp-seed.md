@@ -269,6 +269,50 @@ bash -c "$WP eval \"echo get_field('hero_title', 'option');\""
 
 ## Phase 5: Seed Bilingual Content
 
+**Read `i18n strategy` from the project's `.claude/CLAUDE.md` first.** The two
+strategies produce completely different content, and guessing wrong means
+re-seeding the site.
+
+### If `i18n strategy` is `polylang`
+
+Do NOT write `_<lang>` fields. Under Polylang each language gets its OWN page,
+and the two are joined by a translation group. For each page created in
+Phase 2:
+
+1. Assign the primary language:
+   ```bash
+   bash -c "$WP eval \"pll_set_post_language(<page_id>, '<primary_lang>');\""
+   ```
+
+2. **If the demo already carries the secondary language** — sections with
+   `lang=""` attributes, or duplicate content blocks — create the counterpart
+   page from THAT copy and link the two. The demo's own wording is what the
+   client approved; re-translating it would throw away human copy and replace
+   it with a machine's:
+   ```bash
+   COUNTERPART=$(bash -c "$WP post create --post_type=page --post_title='<translated title>' --post_status=publish --porcelain")
+   bash -c "$WP eval \"pll_set_post_language($COUNTERPART, '<secondary_lang>');\""
+   bash -c "$WP eval \"pll_save_post_translations(['<primary_lang>' => <page_id>, '<secondary_lang>' => $COUNTERPART]);\""
+   ```
+   Then seed that page's ACF fields with the demo's secondary-language values,
+   using the **unsuffixed** field names — the page is already in its language.
+
+3. **If a section has no secondary-language copy in the demo**, leave it and
+   let `/wp-polylang` translate it afterwards. It exports exactly what is
+   still untranslated, so anything seeded in step 2 is skipped rather than
+   overwritten:
+   ```
+   /wp-polylang <primary_lang> <secondary_lang>
+   ```
+
+Report which pages came from the demo and which were left for `/wp-polylang`.
+A page silently missing its counterpart is the failure mode to avoid here.
+
+Menus and internal links are handled by `/wp-polylang`'s import; do not
+hand-build translated menus under this strategy.
+
+### If `i18n strategy` is `suffix` (default)
+
 For each additional language in `.wp-create.json` `languages.additional` array, seed translated content. **Secondary language fields append the language code as a suffix** (e.g., `hero_title_es`). This matches the i18n helper convention in `inc/i18n.php`.
 
 Claude translates the primary language content into each additional language. If the demo HTML contains bilingual sections (elements with `lang=""` attributes or duplicate content blocks), use those translations instead.
@@ -313,6 +357,19 @@ Repeat for every additional language configured in the manifest.
 ---
 
 ## Phase 6: Create Menus
+
+**Under `i18n strategy: polylang`**, create ONE menu per language and assign
+each to the SAME location — Polylang keeps a per-language slot for every
+registered location, and `theme-setup.php` registers `primary` / `footer`
+without language suffixes. Assign with:
+
+```bash
+bash -c "$WP eval \"\$o = get_option('polylang'); \$o['nav_menus'][get_stylesheet()]['primary']['<lang>'] = <menu_id>; update_option('polylang', \$o);\""
+```
+
+Add each language's own pages to its own menu; do not add a page to the menu
+of another language. Everything below this line describes the `suffix`
+strategy.
 
 Create navigation menus for each configured language. Menu location names use **underscore-separated** format matching `theme-setup.php` `register_nav_menus()`.
 

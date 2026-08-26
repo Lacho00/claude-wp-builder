@@ -6,7 +6,22 @@ user-invocable: false
 
 # Bilingual / Multilingual i18n System
 
-This skill defines the translation methodology for WordPress themes that need to support multiple languages. It uses the **ACF/SCF _suffix pattern** -- no WPML, no Polylang, no separate pages per language. One set of pages, one set of fields, with suffixed duplicates for secondary languages.
+This skill defines ONE of the plugin's two translation methodologies: the **ACF/SCF _suffix pattern**. One set of pages, one set of fields, with suffixed duplicates for secondary languages.
+
+> **Which one applies to a project is a decision, not a default.** `/wp-init`
+> asks, and records the answer as **i18n strategy** in the project's
+> `.claude/CLAUDE.md`. Read that line before assuming this skill applies.
+>
+> | Answer | Model | Skill |
+> |---|---|---|
+> | `suffix` | one page, fields duplicated as `_es` | this one |
+> | `polylang` | one page **per language**, joined by translation groups | `wp-polylang` |
+>
+> The two never mix in one project. If the project says `polylang`, stop
+> reading here and use the `wp-polylang` skill instead — the field naming,
+> the menu registration and the helper behaviour all differ. An earlier
+> version of this line claimed the plugin supported no Polylang at all, which
+> stopped being true when `/wp-polylang` shipped.
 
 ---
 

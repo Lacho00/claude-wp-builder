@@ -31,7 +31,35 @@ Read `.claude/CLAUDE.md` at the project root. If it does not exist, refuse:
 Error: No .claude/CLAUDE.md found. Run /wp-init first to scaffold the project.
 ```
 Extract function prefix, theme slug, languages (primary + secondary), template
-(basic|tailwind), and CF plugin (scf|acf) — needed by every downstream command.
+(basic|tailwind), CF plugin (scf|acf), and **i18n strategy (suffix|polylang)** —
+needed by every downstream command.
+
+If the `i18n strategy` line is absent, treat it as `suffix`: projects scaffolded
+before the choice existed all use that model, and assuming `polylang` for them
+would have the agents generate a field layout their theme cannot read.
+
+Under `polylang`, three things change downstream, and every one of them is the
+existing command's own branch — `/wp-yolo` passes the strategy along and does
+not reimplement any of it:
+
+- `/wp-section` and the `wp-acf` agent emit no `_<lang>` duplicate fields,
+  except in the theme settings group.
+- `/wp-header` registers one menu location per name and renders the switcher
+  with `pll_the_languages()`.
+- `/wp-seed` builds a counterpart page per language from the demo's own
+  secondary-language copy, then hands whatever the demo did not cover to
+  `/wp-polylang`.
+
+After Phase 3 seeding completes under `polylang`, run the retrofit for each
+secondary language to translate anything the demo left untranslated, then let
+its verifier gate the result:
+
+```
+/wp-polylang <primary_lang> <secondary_lang>
+```
+
+Treat a non-zero exit from `pll-verify.php` exactly like the demo-parity gate
+below: report it and stop, rather than declaring the build finished.
 
 **Git baseline gate.** `/wp-yolo` rewrites the theme wholesale, so it must run against
 a git repo — for a rollback point and for worktree isolation. In the theme directory:
