@@ -38,6 +38,15 @@ If the `i18n strategy` line is absent, treat it as `suffix`: projects scaffolded
 before the choice existed all use that model, and assuming `polylang` for them
 would have the agents generate a field layout their theme cannot read.
 
+If `Template:` is `cinematic`, stop. This command builds the basic|tailwind
+section flow, and a cinematic project is a different scaffolding shape — one
+continuous reel, scene-based authoring. Point the user at the cinematic flow
+instead (`/wp-cinematic-init`, then `/wp-cinematic-scene <n>` per scene, per
+`/wp-init` Step 0.5) and exit without dispatching anything. Falling through
+would drive the section walk on a reel project and hand its CSS to wp-css,
+which writes `assets/css/styles.css` into a theme that has its own
+`assets/css/cinematic.css`.
+
 Under `polylang`, three things change downstream, and every one of them is the
 existing command's own branch — `/wp-yolo` passes the strategy along and does
 not reimplement any of it:
@@ -102,6 +111,134 @@ Fold `constraints` into the guidance passed to every dispatched agent (e.g. form
 These rules are evaluated in priority order — `delivery` decides first, so the `idx`/`plugin`
 rule always wins over the no-demo-HTML rule.
 
+## Step 2.6: Phase 1.6 — Demo conversion (tailwind template only)
+
+Skip this step entirely when `template == basic`.
+
+When `template == tailwind`, the section walk must transcribe from a Tailwind-native
+demo, not a plain-CSS one. Transcribing plain CSS is what produced themes with zero
+utility classes.
+
+Conversion is **in place**, with a backup. Each `demo/<slug>.html` is replaced by its
+Tailwind-native form and the untouched plain-CSS copy is kept out of the way as
+`demo/.original/<slug>.html`. The backup goes in a dot-prefixed subdirectory on purpose:
+`/wp-seed` (Step 5, item 1) turns **every** `.html` file it finds in `demo/` into a WP
+Page whose slug is the filename, so a sibling backup named `demo/<slug>.original.html` would seed a phantom
+page with slug `<slug>.original` out of unconverted markup — one per demo page.
+`demo/.original/` falls outside the `demo/*.html` pattern entirely, so no reader that
+enumerates the demo with a `demo/*.html` glob can see it: shell globbing, Python's `glob`,
+`ripgrep` and `fd` all skip dot-prefixed entries by default. `/wp-seed` states no glob of
+its own — `commands/wp-seed.md` says only that it processes the `.html` files in `demo/` —
+so the dodge rests on that enumeration honouring the dot rule, as every tool above does. The exception is a recursive descent that does not honour the
+dot rule — `find demo -name '*.html'` walks into `demo/.original/` and returns the backups
+— so anything switching to `find` must add `-not -path 'demo/.original/*'` itself, and
+`-not -path 'demo/.prepolish/*'` alongside it once `/wp-polish` has run over the same
+folder, because that step keeps its own backups there. Nothing downstream takes a new
+filename, because the demo page's own filename never changes.
+
+Walk **every** page in the manifest's `pages[]` — the home page and every inner page,
+not just `index`. For each page, in this order:
+
+1. **Detect, per page.** Read `demo/<slug>.html` and decide whether it is *already
+   Tailwind-native*. The absence of inline CSS does not answer that question, and the shape
+   of the page arriving here is why. `wp-normalize` (Step 2) consolidates every external
+   CSS rule it can *match to a section* inline, into the page it emits, so each page is
+   self-contained — but a rule that matches no section (`:root` custom properties, resets,
+   `body`, `@font-face`, a global `@media` block) is not inlined, and `wp-normalize` is
+   never told to drop the `<link rel="stylesheet">` that still carries it. So the page in
+   front of you may hold an inlined `<style>` block, the original `<link>`, or both, and
+   each of those is CSS this page still depends on. Decide on evidence, not on the absence
+   of one delivery mechanism:
+
+   - **Plain-CSS evidence — any one of these means convert.** A `<style>` block; a static
+     `style="` attribute; or a `<link rel="stylesheet">` pointing at the project's own
+     `.css` file — a relative path (`assets/styles.css`), a site-rooted path
+     (`/css/main.css`) or an absolute URL on the project's own domain all count the same,
+     because the delivery route is not what matters. A linked stylesheet delivers CSS to
+     the page exactly as much as a `<style>` block does. Only three hosts are exempt:
+     `fonts.googleapis.com`, `fonts.gstatic.com` and `cdn.tailwindcss.com`. A `<link>` to
+     any of those is not plain-CSS evidence; every other stylesheet `<link>` is.
+   - **Tailwind evidence — what a converted page actually looks like.** Its `class`
+     attributes are predominantly Tailwind utilities: layout (`flex`, `grid`, `hidden`),
+     spacing and sizing (`px-4`, `mt-8`, `w-full`), typography (`text-lg`, `font-bold`),
+     colour (`bg-slate-900`, `text-white`) and variant prefixes (`md:`, `lg:`, `hover:`).
+     Semantic or BEM class names (`site-header__logo`, `hero`, `card__title`) are the
+     plain-CSS shape, not Tailwind evidence.
+   - **Skip only on Tailwind evidence and no plain-CSS evidence.** Then, and only then,
+     leave the file alone, do not back it up, do not convert it, and note
+     `demo already tailwind-native — conversion skipped` in the report for that page.
+   - **Ambiguous input converts.** A page carrying both utilities and a project
+     stylesheet, a page carrying neither, a page you cannot classify with confidence:
+     convert it. The two mistakes are not symmetrical. Converting a page that was already
+     Tailwind-native costs one redundant pass over markup that is already in the target
+     form. Skipping a page that was not voids the entire tailwind path — the section walk
+     transcribes the manifest's plain-CSS `cssRules` instead, and the theme ships with BEM
+     CSS and no utility classes — while reporting success for every page. Bias every tie
+     towards converting.
+
+   Skipping on positive evidence is what makes *this step* idempotent — a second
+   `/wp-yolo` pass over an already-converted demo detects and skips instead of converting
+   twice, because conversion strips the `<style>` blocks *and* the project stylesheet
+   `<link>` whose rules it absorbed (`@agents/wp-tailwind`, MUST remove), leaving Tailwind
+   evidence and no plain-CSS evidence behind. It does **not** make a re-run safe: by the
+   time Step 2.6 runs again, Step 2 has already re-dispatched `wp-normalize` and emptied
+   the manifest's `cssRules`, `fonts` and `backgrounds`. See Step 3's abort branch.
+2. **Back up, per page.** Otherwise create `demo/.original/` if it does not exist and
+   copy `demo/<slug>.html` to `demo/.original/<slug>.html` — but **only if
+   `demo/.original/<slug>.html` does not already exist**. If it does, it is already the
+   pristine original from an earlier run; overwriting it with an already-converted page
+   would destroy the only plain-CSS reference that exists.
+3. **Convert in place, per page.** Run
+   `/wp-tailwindify demo/<slug>.html --out demo/<slug>.html` — the output path is the
+   demo page itself, so the converted markup lands on the same path the original
+   occupied.
+4. **Verify, or restore.** Read `/wp-tailwindify`'s Step 4 verification result for this
+   page: section delimiters preserved, no `<style>` blocks remaining, and no project-local
+   stylesheet `<link>` remaining. The third item is what makes item 1's skip terminate: a
+   converted page that still links `assets/styles.css` carries plain-CSS evidence, so the
+   next run classifies it as not-yet-Tailwind-native and converts it again, forever.
+
+   On a failure there is normally **nothing to restore**, and the restore below is a
+   belt-and-braces check rather than the main line of defence. `/wp-tailwindify` has the
+   agent write `<output-path>.tmp` and moves it over the demo page only after that
+   verification passes (its Step 3, and Step 4 items 5-6); a page that failed never
+   reaches `demo/<slug>.html`, so what is sitting there is still the pristine original
+   and copying the backup over it changes nothing. Keep the check anyway, but condition
+   it on that invariant instead of assuming it holds: after a reported failure, compare
+   `demo/<slug>.html` byte-for-byte with the backup. **Identical** — the contract held;
+   report the page as unconverted and touch nothing. **Different** — something outside
+   the contract wrote that path (a hand-run conversion, an older plugin version, an
+   editor, or an `mv` that prompted instead of moving), so restore `demo/<slug>.html`
+   from `demo/.original/<slug>.html` and report the page as unconverted. Never leave a
+   truncated or half-converted page at `demo/<slug>.html`: item 1 would read the wreckage
+   on the next run, see utility classes and no project stylesheet, declare the page
+   already Tailwind-native and skip it forever, and items 2-6 below would build from the
+   wreckage.
+5. **Re-point — nothing to re-point.** Because conversion is in place, every later
+   reader picks up Tailwind-native markup with no argument change and no new flag:
+   item 2 (`/wp-cpt <name> --from-demo <section>`, which reads `demo/index.html`),
+   item 3 (`/wp-header`, same file), item 4 (`/wp-footer`, same file), item 5 (the home
+   `sections[]` walk, `--page index` → `demo/index.html`) and item 6 (every inner page's
+   walk, `--page <slug>` → `demo/<slug>.html`) all resolve to the converted file.
+   `demo/.original/<slug>.html` is a reference copy only: it is never a build source, it
+   is not a manifest page, no `--page` value ever resolves to it, and `/wp-seed` never
+   globs it.
+6. **Report.** Record which demo pages were converted, which were skipped as already
+   Tailwind-native, and which were restored from backup after a failed verification.
+
+**Accepted ceiling — a class borrowed across sections loses its provenance.** Demos
+reuse a class wherever the geometry happens to match: a Contact page heading carrying
+`.services__title` is ordinary demo authoring. Conversion inlines that rule's
+declarations onto the element as utilities, so the render stays right and each section
+still transcribes from its own markup — what is lost is the *evidence of sharing*. After
+conversion the two headings read as two independent utility groups, so the decision
+ladder's "same group on two or more pages" test must be run over the converted markup by
+comparing utility strings, there being no class name left to record it. Missing it costs
+a duplicated inline group, never a wrong render, which is why this is accepted here
+rather than worked around.
+
+Under `--careful`, confirm the conversion result with the user before continuing.
+
 ## Step 3: Checkpoint (skipped under --yolo)
 
 Unless `--yolo` is set, print the detected map from the manifest:
@@ -117,7 +254,30 @@ Unless `--yolo` is set, print the detected map from the manifest:
 Ask the user to **approve / edit / abort**:
 - Edit = rename/merge/split a section, drop a page, flip a `kind` between `static` and
   `cpt-teaser`, etc. Apply edits directly to `demo/.yolo-manifest.json` before continuing.
-- Abort = stop here, leave `demo/*.html` and the manifest in place for a later resumed run.
+- Abort = stop here, leaving the manifest and `demo/*.html` on disk. On the `tailwind`
+  path Step 2.6 has already run by this point, so `demo/*.html` is the converted markup
+  and the plain-CSS originals sit in `demo/.original/`.
+
+  A later `/wp-yolo` run is **not** a resume: it starts at Step 2 and dispatches
+  `wp-normalize` over the demo folder unconditionally — there is no manifest guard — so
+  normalize re-derives `cssRules`, `fonts` and `backgrounds` from the now Tailwind-native
+  markup, which no longer carries the plain-CSS declarations or `@font-face` rules they
+  were captured from. Step 2.6 then correctly detects the pages as already Tailwind-native
+  and skips them, but the manifest **that** Step 4.5's font carry and `/wp-finalize`
+  Layer 1 read has already been emptied by then. Nothing fails; the output is quietly
+  degraded.
+
+  So a fresh `/wp-yolo` after an abort must start from plain-CSS demo pages: restore
+  `demo/<slug>.html` from `demo/.original/<slug>.html` for every page first (or re-run
+  against a pristine demo folder), then run `/wp-yolo` again from the top.
+
+  There is no resume entrypoint in this command — not `--yolo`, and not any other flag.
+  `--yolo` suppresses this checkpoint and nothing else (Step 1: "no checkpoint at all"):
+  Step 2 still dispatches `wp-normalize` and still overwrites `demo/.yolo-manifest.json`
+  before Step 3 is ever reached, so re-running with it *is* the unconditional-normalize
+  path described above and it regenerates the very manifest a resume would have to
+  preserve. Restore the originals first: every `/wp-yolo` invocation is a fresh build,
+  never a continuation of an aborted one.
 
 Under `--yolo`, skip this step and proceed straight to Phase 2 with the manifest as
 emitted by `wp-normalize`.
@@ -147,19 +307,38 @@ Drive the existing commands/agents in this exact order, reading everything from 
    section walk: walk its `sections[]` in order and run the `/wp-section` procedure per
    section (defaults: `--page index`, `--target front-page.php`, so no flags are needed
    for home):
-   - `kind: "static"` → `/wp-section <name> --transcribe --block <block> --css <cssRules>`
-     (three-agent parallel dispatch). The `--transcribe` flag activates wp-css Transcription
-     Mode via `/wp-section`'s transcription overlay; `--block` is the section's assigned
-     unique BEM name (every selector is scoped under it); `--css` is its verbatim demo
-     `cssRules` (the source of truth). This reproduces the demo's exact declared CSS under
-     that block instead of drafting fresh styles. Because every section's `block` is already
-     unique, parallel agents can never collide on a selector.
+   - `kind: "static"` → `/wp-section <name> --transcribe --block <block> --css <css-source>`
+     (three-agent parallel dispatch). The `--transcribe` flag activates `/wp-section`'s
+     transcription overlay; `--block` is the section's assigned unique BEM name (every
+     selector is scoped under it). What `<css-source>` is depends on the project's
+     `Template:`, because `/wp-section`'s transcription overlay declares a different
+     source per path:
+     - `basic` → the section's verbatim demo `cssRules` from the manifest, which on this
+       path is the source of truth. This reproduces the demo's exact declared CSS under
+       that block instead of drafting fresh styles.
+     - `tailwind` → the converted demo page itself, `demo/index.html` (converted in place
+       by Step 2.6). The manifest's `cssRules` was captured by `wp-normalize` in Step 2
+       from the plain-CSS original, before Step 2.6 ran, and is stale on this path — do
+       not pass it. Per the overlay, the tailwind instruction is "reproduce this geometry
+       using Tailwind utilities", not "copy the declared values verbatim".
+
+     Because every section's `block` is already unique, parallel agents can never collide
+     on a selector.
    - `kind: "cpt-teaser"` → **SKIP** — do NOT dispatch `/wp-section` for these. The CPT's
      teaser `template-parts/section-<cpt>.php` was already built and injected into
      `front-page.php` by that CPT's `/wp-cpt` run in step 2. Note it in the report as
      "teaser for `<cpt>`, built by /wp-cpt".
-   - `kind: "contact"` → `/wp-section <name> --cf7 --transcribe --block <block> --css <cssRules>`,
-     same transcribe dispatch as `static`.
+   - `kind: "contact"` → `/wp-section <name> --cf7 --transcribe --block <block> --css <css-source>`,
+     same transcribe dispatch as `static`, including the same per-`Template:` choice of
+     `<css-source>`.
+
+   > **Template routing.** Do not pass a template flag — `/wp-section` takes no such
+   > argument and inventing one would do nothing. `/wp-section` reads `Template:` from
+   > `.claude/CLAUDE.md` itself. What the template changes is which agent it dispatches
+   > and what you pass as `--css`: when `Template:` is `tailwind`, `/wp-section`
+   > dispatches `wp-tailwind` in author mode instead of `wp-css` (see its "CSS agent
+   > routing" table), and `--css` is the Step 2.6-converted demo page rather than the
+   > manifest's `cssRules`. When it is `basic` nothing changes.
 6. **Inner pages** — for every `pages[role=inner]` entry: if the scope reconciliation
    (Step 2.5) marked this page `delivery: idx` or `delivery: plugin`, skip the normal
    page/section flow entirely and instead run
@@ -167,12 +346,24 @@ Drive the existing commands/agents in this exact order, reading everything from 
    Otherwise, run `/wp-page custom <slug>`, then build its `sections[]` — but each inner
    section must read from its OWN demo page and inject into its OWN page template, so pass
    `--page <slug> --target page-<slug>.php` on every dispatch:
-   - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php --transcribe --block <block> --css <cssRules>`,
-     passing the section's unique `block` + verbatim `cssRules` via the transcribe flags,
-     exactly as in step 5.
-   - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <cssRules>`,
+   - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source>`,
+     passing the section's unique `block` via the transcribe flags and resolving
+     `<css-source>` by `Template:` exactly as in step 5: on `basic`, the manifest's
+     verbatim `cssRules`; on `tailwind`, this page's converted demo file
+     `demo/<slug>.html` (converted in place by Step 2.6), never the stale manifest
+     `cssRules` and never the backup at `demo/.original/<slug>.html`.
+   - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source>`,
      same transcribe dispatch.
    - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
+
+   > **Template routing.** Do not pass a template flag — `/wp-section` takes no such
+   > argument and inventing one would do nothing. `/wp-section` reads `Template:` from
+   > `.claude/CLAUDE.md` itself. What the template changes is which agent it dispatches
+   > and what you pass as `--css`: when `Template:` is `tailwind`, `/wp-section`
+   > dispatches `wp-tailwind` in author mode instead of `wp-css` (see its "CSS agent
+   > routing" table), and `--css` is the Step 2.6-converted demo page rather than the
+   > manifest's `cssRules`. When it is `basic` nothing changes.
+
    Under `--careful`, confirm with the user before building each inner page.
 7. **`cpt-archive` pages** — no WP Page is created for these (their archive URL is
    `has_archive`, already wired by `/wp-cpt` in step 2). Skip page creation; note them in
@@ -192,10 +383,31 @@ Drive the existing commands/agents in this exact order, reading everything from 
 Before seeding, collect every `section.fonts[]` entry across the manifest (dedupe by
 `family`+`weight`+`style`):
 - Copy each entry's `src` woff2 file(s) from the demo folder into `theme/assets/fonts/`.
+  **When the file is not there.** Demos ship broken font paths as a matter of course —
+  the rehearsal demo declares `src: url("assets/fonts/marcellus.woff2")` and carries no
+  such file. Search the demo folder for the basename first (any subdirectory, matched
+  case-insensitively). If it is genuinely absent, do **not** re-emit a `@font-face`
+  whose `src` points at a file the theme does not have: that rule fails silently, and
+  under `font-display: swap` the page renders the fallback stack with nothing logged
+  anywhere to say why. Skip that family's `@font-face` rule entirely, keep the family
+  name at the head of its font token so the demo's declared fallback stack still
+  applies, and add `font <family>: <src> not found in the demo folder — supply the woff2
+  or the theme renders the fallback stack` to the Step 6 Review list.
 - Re-emit each `@font-face` rule with `src` rewritten to the theme-relative path
-  (`assets/fonts/<file>.woff2`) and enqueue the resulting stylesheet (or add to the
-  theme's existing fonts partial) so every block's `transcribe`d CSS resolves against a
-  self-hosted font, not the demo's original path.
+  (`assets/fonts/<file>.woff2`), and **place it by `Template:`**:
+  - `basic` → enqueue the resulting stylesheet, or add the rule to the theme's existing
+    fonts partial.
+  - `tailwind` → write the rule into `assets/css/src/tailwindcss/base/fonts.css` and add
+    its `@import` to `main.css` in the same step —
+    `skills/wp-tailwind-system/SKILL.md` gives `base` the "resets and font-face" role,
+    and its no-empty-file rule is why the rule and the import go in together.
+    **Enqueue nothing.** A Tailwind theme has no fonts partial and enqueues exactly one
+    stylesheet, the compiled `assets/css/dist/main.css`; a second enqueued stylesheet is
+    the plain-CSS regression this template exists to remove, and
+    `/wp-tailwind-migrate` Step 5 states the same rule — leave exactly one enqueue.
+
+  Either way, every block's `transcribe`d CSS then resolves against a self-hosted font,
+  not the demo's original path.
 - Only add a Google Fonts `<link rel="preconnect">` (fonts.googleapis.com /
   fonts.gstatic.com) when the demo's own `<head>` actually references Google Fonts — never
   as a substitute for a self-hosted font family found in `section.fonts[]`. Self-hosted
@@ -205,9 +417,12 @@ Before seeding, collect every `section.fonts[]` entry across the manifest (dedup
 
 Run, in order:
 1. **`/wp-seed --exclude-slugs <slugs>`** — create WP Pages with matching slugs (so
-   `page-<slug>.php` auto-applies), populate ACF fields from extracted text in the
-   **primary language only** (flag secondary-language strings as untranslated), sideload
-   images into the media library and wire them to fields, and build menus from the nav.
+   `page-<slug>.php` auto-applies), populate ACF fields from extracted text per the
+   project's `i18n strategy` — `/wp-seed` reads it from `.claude/CLAUDE.md` itself:
+   under `suffix` it fills the primary language and flags secondary-language strings
+   as untranslated; under `polylang` it builds a counterpart page per language from
+   the demo's secondary-language copy — sideload images into the media library and
+   wire them to fields, and build menus from the nav.
    Pass the manifest's top-level `assets[]` (role-tagged: `logo` / `nav-graphic` / `hero` /
    `content`) through so `/wp-seed` seeds each image by its role instead of guessing.
    Set `--exclude-slugs` to the comma-joined slugs of every `pages[role=cpt-archive]` entry
@@ -227,17 +442,49 @@ Run, in order:
 `/wp-finalize` (Step 5, item 3 above) already ran the 3-layer demo-parity gate (Layers 1-3).
 Before this run can report success, walk every **critical** finding from that gate:
 
-1. **Auto-fix mechanical findings** — no judgment required, apply directly:
+1. **Auto-fix mechanical findings** — no judgment required, apply directly.
+
+   > **Template branch — read before applying any repair that writes CSS.** Every repair
+   > below branches on the project's `Template:` value from Step 1.
+   > On `basic`, a repair is a literal CSS declaration written into the theme CSS, read
+   > from the demo's recorded CSS in the manifest.
+   > On `tailwind`, a repair is expressed as **Tailwind utility classes in the markup** —
+   > or an `@apply` rule, and only where the decision ladder in
+   > `skills/wp-tailwind-system/SKILL.md` demands one — and is read from the
+   > **Step 2.6-converted** demo page (`demo/<slug>.html`), never from the backup at
+   > `demo/.original/<slug>.html` and never from the manifest's plain-CSS `cssRules`.
+   > Never write a raw CSS declaration into a theme CSS file on the tailwind path: that
+   > re-injects exactly the plain CSS this template exists to remove.
+   >
+   > **`@font-face` is the one carve-out, and the only one.** Tailwind has no utility
+   > and no `@apply` form for it, so it is rung 4 of the ladder — raw CSS for what
+   > Tailwind cannot express — not a breach of the line above. The missing-font repair
+   > below therefore does re-emit a raw `@font-face` block; it goes into
+   > `assets/css/src/tailwindcss/base/fonts.css` with its `@import` added to
+   > `main.css`, exactly as in Step 4.5, and never into a section's component file or a
+   > second enqueued stylesheet. No other repair on this path may write raw CSS.
+
    - Token-drifted value with a clear literal source in the demo → replace it with the
-     demo's literal value.
+     demo's literal value on `basic`; on `tailwind`, re-express the corrected value as
+     the Tailwind utility (or `@apply` rule) that produces it, sourced from the converted
+     demo page.
    - Missing font → copy the woff2 file(s) into `theme/assets/fonts/` and re-emit the
-     `@font-face` rule (same as Step 4.5's font carry).
+     `@font-face` rule exactly as Step 4.5's font carry does it, including its branch:
+     on `basic` into the enqueued stylesheet or fonts partial, on `tailwind` into
+     `assets/css/src/tailwindcss/base/fonts.css` plus its `@import` in `main.css`, with
+     no second enqueue. If the woff2 is not in the demo folder, Step 4.5's
+     missing-source branch applies here too — no `@font-face` pointing at a file that
+     does not exist; the finding goes to Review instead.
    - Missing logo/hero asset → seed it by its manifest `role` (`logo` / `hero`), same as
      `/wp-seed`'s role-tagged asset pass.
    - Colliding block (unscoped generic class) → rename/rescope it to its manifest-assigned
      unique `block` name.
-   - Missing `background:url()` → transcribe it verbatim from the demo's recorded CSS
-     (`section.backgrounds` in the manifest) into the theme CSS.
+   - Missing `background:url()` → on `basic`, transcribe it verbatim from the demo's
+     recorded CSS (`section.backgrounds` in the manifest) into the theme CSS. On
+     `tailwind`, take the background from the converted demo page and express it as a
+     Tailwind utility (`bg-[url(...)]` and its companions) in the markup, or as an
+     `@apply` rule when the ladder demands one — not as a raw declaration in a theme CSS
+     file.
 2. **Re-verify** — after applying any auto-fix, re-run the affected gate layer(s) to
    confirm the finding actually cleared. Do not assume the fix worked; re-run and check.
 3. **Ambiguous findings are reported, not guessed.** Value drift with no clear literal

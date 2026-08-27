@@ -41,6 +41,108 @@ Read `.claude/CLAUDE.md` to extract:
 
 ## Step 3: Generate by Type
 
+### CSS agent routing
+
+Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispatch
+`wp-tailwind`; when it is `basic`, dispatch `wp-css`.
+
+- `basic` → dispatch `wp-css` exactly as described below.
+- `tailwind` → dispatch `wp-tailwind` in **author** mode instead, passing the page
+  slug (which selects `components/<slug>.css`) and the block name. The agent reads
+  `skills/wp-tailwind-system/SKILL.md` for the decision ladder. It writes utility
+  classes into the markup and only adds `@apply` rules where the ladder demands
+  them. It must never write `assets/css/styles.css`.
+
+Dispatch exactly one of the two, never both.
+
+Every `tailwind` dispatch opens its quoted prompt with this line, verbatim:
+
+> Mode: **author**
+
+The quoted prompt it opens is the one under "The `tailwind` prompt body" below — **not**
+the quoted prompt at the dispatch site, which is the `basic` branch's and names
+`assets/css/styles.css`, the one file the `tailwind` path must never write.
+
+`agents/wp-tailwind.md` gates Section Authoring Mode on that line and on nothing else, so
+the line is not decoration: omit it and the dispatched agent falls into Demo Conversion
+Mode, reads the prompt as a demo-file conversion and writes a `.tmp` nobody asked for. A
+bare `author` anywhere else in the prompt — in prose, or inside an input path like
+`demo/author.html` — selects nothing, precisely so that an ordinary demo page named after
+the word cannot flip the mode by accident.
+
+This routing governs every "Dispatch **wp-css** agent" step below (blog, generic,
+legal, 404, search, embed, custom) — each one marks its `tailwind` counterpart with
+`(routed — see "CSS agent routing" above)` rather than repeating the block.
+
+**Editing rule for this file.** `tests/checks/wp-commands-tailwind.sh` walks every
+dispatch site by matching `Dispatch` and `**wp-css**` on one physical line, and accounts
+for every other bolded `**wp-css**` in the file. So: keep `Dispatch` and `**wp-css**`
+together on a single line at each dispatch site (never hard-wrap between them), and write
+`wp-css` unbolded when you mean it in prose. The one place bolded prose is allowed is
+inside this `### CSS agent routing` block — everything from this heading down to the next
+heading at `###` or above is exempt, sub-headings and fenced examples included.
+
+#### The `tailwind` prompt body
+
+Every dispatch site below is the `basic` branch, and **on `tailwind` none of them runs at
+all** — do not follow the instructions in the site's own quoted prompt there. Dispatch
+`wp-tailwind` in author mode with the prompt below instead, substituting the page slug,
+the block name and the type this site is for (blog, generic, legal, 404, search, embed,
+custom).
+
+**File ownership.** `wp-template` owns every `.php` file this command generates, on both
+paths — it is the only agent carrying the ACF, escaping and i18n contract
+(`prefix_get_field()`, the `?:` fallbacks, `esc_html()` / `esc_url()` / `esc_attr()`, the
+`@package` header, the ABSPATH check), none of which `agents/wp-tailwind.md` describes.
+On `tailwind`, `wp-template` keeps the Tailwind utility classes already on the markup it
+was handed instead of inventing BEM names, and `wp-tailwind` runs **after** it returns —
+never beside it — editing only class names in the file `wp-template` wrote. The invariant:
+no page ships without its ACF wiring and escaping, and no page ships on BEM class names in
+a Tailwind theme.
+
+> Mode: **author**
+>
+> Promote the `<type>` page's repeated utility groups for this Tailwind theme.
+>
+> Read `skills/wp-tailwind-system/SKILL.md` before writing anything — it owns the
+> decision ladder and the prohibition list.
+>
+> Context:
+> - Page slug: `--page <slug>` (decides `components/<slug>.css`)
+> - Block name: `--block <block>` (scopes every `@apply` class you create)
+> - Theme path: `<theme path>`
+> - Function prefix: `<prefix>`
+> - Section HTML: the template files the wp-template agent has just written for this
+>   page type, already carrying Tailwind utility classes — quoted below.
+>
+> Requirements:
+> 1. Those template files belong to wp-template. Edit them in place; do not create
+>    them and do not rewrite them. The only thing you change is class names. Leave
+>    every `prefix_get_field()` call, every `esc_html()` / `esc_url()` / `esc_attr()`
+>    wrapper, every fallback and every PHP control structure exactly as you found it.
+> 2. Tailwind utility classes in the markup are the default. Most pages need no CSS
+>    file entry at all, and the templates come back unchanged.
+> 3. A utility group repeated 3+ times, or on 2+ pages, becomes a semantic class via
+>    `@apply` — `utilities/site.css` if it spans pages, `components/<slug>.css` if it
+>    is local to this one. Grep the theme's other `components/*.css` and `*.php`
+>    before choosing.
+> 4. Name a class you write into `components/<slug>.css` `<block>__<element>`. Name
+>    one you write into `utilities/site.css` `site__<element>` instead — it qualified
+>    for that file precisely because it spans more than one block.
+> 5. If a target CSS file does not exist, create it with its first rule already in it
+>    and add its `@import` to `main.css` in the same step. Never leave an empty file.
+> 6. Colors and fonts come from the `@theme` block as utilities (`bg-primary`,
+>    `font-primary`). No `:root`, no hardcoded hex a token already covers.
+> 7. Responsive via Tailwind prefixes (`md:`, `lg:`). No hand-written `@media`.
+> 8. Never write `assets/css/styles.css`. Never emit a `<style>` block.
+>
+> Page markup:
+> ```php
+> <paste the generated template files here>
+> ```
+
+---
+
 ### Type: blog
 
 Dispatch **wp-template** agent:
@@ -86,7 +188,11 @@ Dispatch **wp-acf** agent:
 > - Fields: `blog_heading` (text, bilingual), `blog_subheading` (textarea, bilingual), `blog_posts_per_page` (number, default 6)
 > - Group key: `group_blog`
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add blog CSS to `assets/css/styles.css` within delimiters:
 > ```css
@@ -116,7 +222,11 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - Simple, clean layout with `.page-generic__*` BEM classes
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add generic page CSS to `assets/css/styles.css` within delimiters. Include: content width constraint, typography for body content (headings, paragraphs, lists, blockquotes), responsive spacing.
 
@@ -149,7 +259,11 @@ Dispatch **wp-acf** agent:
 > - Fields: `legal_title` (text, bilingual), `legal_last_updated` (date_picker), `legal_content` (wysiwyg, bilingual)
 > - Group key: `group_legal`
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add legal page CSS to `assets/css/styles.css` within delimiters. Include: narrow content width, readable typography, heading anchors, list styling, last-updated styling.
 
@@ -174,7 +288,11 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - BEM classes: `.error-404__*`, matching the design tokens in the theme CSS
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add 404 page CSS to `assets/css/styles.css` within delimiters, using the project's
 > design-system custom properties (no new colors). Include: centered layout, large 404
@@ -198,7 +316,11 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - BEM classes: `.search-results__*`, matching the design tokens in the theme CSS
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add search-results + no-results state CSS to the theme stylesheet within delimiters,
 > using the project's design-system custom properties (no new colors).
@@ -228,7 +350,11 @@ Dispatch **wp-acf** agent (optional, chrome only):
 
 > Generate `fields/<slug>.php`: heading/intro/notes fields bound to the `<Slug> Page` template. NOT the provider data. Group key `group_<slug>`.
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add `.embed-<slug>` container + placeholder styling within delimiters, using design-system custom properties (no new colors).
 
@@ -261,7 +387,11 @@ Dispatch **wp-acf** agent (if the page has custom fields):
 > - Fields based on the page content requirements
 > - Group key: `group_<name>`
 
-Dispatch **wp-css** agent:
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
+
+Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add custom page CSS to `assets/css/styles.css` within delimiters.
 

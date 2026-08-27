@@ -90,4 +90,64 @@ grep -q 'no WPML, no Polylang' "skills/wp-bilingual/SKILL.md" && {
   exit 1
 }
 
+# ── /wp-header: the two dispatched prompts must branch on i18n strategy ────
+# The merge left Step 4's wp-template prompt and Step 6's wp-acf prompt
+# suffix-shaped and unconditional: per-language menu locations and `_es`
+# duplicates, ordered no matter the strategy. A polylang project obeying them
+# registers locations Step 7 does not create and fields Polylang cannot
+# serve. Each needle is scoped to its step's QUOTED lines — the only text a
+# dispatched agent ever sees — so a passing prose mention elsewhere cannot
+# satisfy it, and the prose is flattened so a re-wrap cannot break it. Each
+# FAIL names the token to restore; a deliberate rephrase must update this
+# check, the same contract as the frozen bullet labels in
+# tests/checks/wp-init-tailwind.sh.
+step_quotes() { # <from-step> <to-step>
+  awk "/^## Step $1:/,/^## Step $2:/" commands/wp-header.md \
+    | grep '^[[:space:]]*>' | sed 's/^[[:space:]]*>//' \
+    | tr '\n' ' ' | sed 's/  */ /g'
+}
+for spec in "4 5" "6 7"; do
+  set -- $spec
+  raw=$(awk "/^## Step $1:/,/^## Step $2:/" commands/wp-header.md)
+  printf '%s\n' "$raw" | tail -1 | grep -q "^## Step $2:" \
+    || { echo "FAIL: wp-header's Step $1 region is not terminated by its '## Step $2:' heading — every assertion scoped to it would silently degrade to a file-wide grep"; exit 1; }
+done
+h4=$(step_quotes 4 5)
+h6=$(step_quotes 6 7)
+printf '%s' "$h4" | grep -qF 'pll_the_languages' \
+  || { echo "FAIL: wp-header's Step 4 prompt never hands the wp-template agent pll_the_languages() for the polylang switcher — under polylang the header would build a suffix-model switcher over pages that have no suffix URLs"; exit 1; }
+printf '%s' "$h4" | grep -qF 'the bare location' \
+  || { echo "FAIL: wp-header's Step 4 prompt never tells wp-template to use the bare nav location under polylang — the agent writes 'primary_' . prefix_get_current_lang(), a location Step 7 does not register on that strategy"; exit 1; }
+printf '%s' "$h6" | grep -qF 'no `_<lang>` duplicate' \
+  || { echo "FAIL: wp-header's Step 6 prompt never tells wp-acf that polylang emits no _<lang> duplicate fields — the agent writes _es variants Polylang cannot serve, and /wp-finalize Check 2 then reports a bilingual failure on correct work"; exit 1; }
+
+# ── /wp-finalize must branch its checks on i18n strategy ────────────────────
+# The merge left Check 2 (field _en/_es coverage), Check 4 item 5, Check 7
+# item 2 and Layer 2 item 3 suffix-shaped: each one demands _es variants or
+# per-language menu locations no matter the strategy, so a correct Polylang
+# project fails delivery on all four. Scope each needle to its own check's
+# region (on flattened prose, with a terminator proof), so a passing mention
+# in another check cannot satisfy it and a re-wrap cannot break it.
+fin_pair() { # <from-heading-prefix> <to-heading-prefix>
+  local raw
+  raw=$(awk "/^### $1/,/^### $2/" commands/wp-finalize.md)
+  printf '%s\n' "$raw" | tail -1 | grep -q "^### $2" \
+    || { echo "FAIL: wp-finalize's '$1' region is not terminated by its '$2' heading — its assertions would silently degrade to file-wide greps"; exit 1; }
+  printf '%s\n' "$raw" | tr '\n' ' ' | sed 's/  */ /g'
+}
+c2=$(fin_pair 'Check 2' 'Check 3')
+c4=$(fin_pair 'Check 4' 'Check 5')
+c7=$(fin_pair 'Check 7' 'Tailwind convention')
+l2=$(fin_pair 'Demo-parity gate — Layer 2' 'Demo-parity gate — Layer 3')
+printf '%s' "$c2" | grep -qF 'Under `polylang`, skip this item' \
+  || { echo "FAIL: wp-finalize Check 2 never skips the field-variant item under polylang — it verifies _es variants that a polylang project deliberately does not have, and fails every correct delivery"; exit 1; }
+printf '%s' "$c2" | grep -qF 'pll-verify.php' \
+  || { echo "FAIL: wp-finalize Check 2 names no polylang coverage check — skipping the suffix item leaves the polylang project with nothing verifying translation coverage at delivery"; exit 1; }
+printf '%s' "$c4" | grep -qF 'one bare location per name' \
+  || { echo "FAIL: wp-finalize Check 4 still requires per-language menu locations on both strategies — under polylang the theme registers one bare location per name and the check fails it"; exit 1; }
+printf '%s' "$c7" | grep -qF 'bare `primary`, `footer` under `polylang`' \
+  || { echo "FAIL: wp-finalize Check 7 item 2 still lists only suffix menu locations — under polylang it verifies locations that were never registered"; exit 1; }
+printf '%s' "$l2" | grep -qF 'under `polylang`: bare `primary`, `footer`' \
+  || { echo "FAIL: wp-finalize Layer 2 still lists only suffix menu locations — under polylang it fails delivery on locations that were never registered"; exit 1; }
+
 echo PASS

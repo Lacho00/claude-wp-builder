@@ -48,31 +48,56 @@ Search all `.php` files in the theme directory for unescaped output:
 
 ### Check 2: Bilingual Coverage
 
-For each configured language (e.g., `en`, `es`):
+Branch on the project's `i18n strategy` (read it from `.claude/CLAUDE.md`):
 
-1. **Field files check:** Glob `fields/*.php`, for each file search for field names ending in `_en`. Verify corresponding `_es` (or other language) variants exist.
+1. **Field files check — `suffix` only.** Under `suffix`, glob `fields/*.php`,
+   and for each file search for field names ending in `_en`. Verify corresponding
+   `_es` (or other language) variants exist. Under `polylang`, skip this item:
+   field files carry ONE set of fields with no `_<lang>` duplicates (one post
+   per language carries its own values), so there are no `_es` variants to
+   verify — running it would fail every correct Polylang project.
 
-2. **Template helper check:** Search all template `.php` files for `get_field(` calls that are NOT wrapped in `prefix_get_field()`. The raw `get_field()` bypasses bilingual logic.
+2. **Template helper check — both strategies.** Search all template `.php` files for `get_field(` calls that are NOT wrapped in `prefix_get_field()`. The raw `get_field()` bypasses bilingual logic.
    - Search pattern: `get_field\(` but NOT `prefix_get_field\(`
    - Exclude: files in `vendor/`, `node_modules/`, `inc/i18n.php` (the helper itself)
 
-**PASS** if all fields have all language variants and no raw `get_field()` in templates. **FAIL** with details.
+3. **Translation coverage — `polylang` only.** Under `polylang`, bilingual
+   coverage means every page has a counterpart per language, which is
+   `/wp-polylang`'s contract, not a field-suffix one. Run the same verifier the
+   retrofit runs, and treat a non-zero exit exactly like the demo-parity gate —
+   report it and stop rather than declaring the delivery finished:
+
+   ```bash
+   $WP eval-file ${CLAUDE_PLUGIN_ROOT}/skills/wp-polylang/scripts/pll-verify.php <primary_lang> <secondary_lang>
+   ```
+
+**PASS** if the strategy's own coverage holds and no raw `get_field()` in templates. **FAIL** with details.
 
 ---
 
 ### Check 3: Responsive Breakpoints
 
-Read `assets/css/styles.css` and check for media queries:
+Branch on the project's `Template:` (read it from `.claude/CLAUDE.md`):
 
-1. Search for `@media` rules
-2. Verify queries exist for these breakpoints (at least 3 of 5):
-   - `576px`
-   - `768px`
-   - `1024px`
-   - `1440px`
-3. Check each major section (HEADER, FOOTER, and every SECTION delimiter) has at least one responsive media query
+- If `Template:` is `basic`: read `assets/css/styles.css` and check for media queries.
+  1. Search for `@media` rules
+  2. Verify queries exist for at least 3 of the four:
+     - `576px`
+     - `768px`
+     - `1024px`
+     - `1440px`
+  3. Check each major section (HEADER, FOOTER, and every SECTION delimiter) has at least one responsive media query
 
-**PASS** if breakpoints are covered. **FAIL** with missing breakpoints or sections without responsive rules.
+- If `Template:` is `tailwind`: there is no `assets/css/styles.css` to read — the
+  Tailwind convention check below fails delivery if one exists — and hand-written
+  `@media` is forbidden by `skills/wp-tailwind-system/SKILL.md`. Verify responsive
+  coverage on the template's own terms instead: grep `template-parts/`,
+  `header.php` and `footer.php` for Tailwind responsive prefixes (`sm:`, `md:`,
+  `lg:`, `xl:`, `2xl:`). The nav collapse, the home hero and every section
+  template must carry at least one responsive prefix. Flag any hand-written
+  `@media` block found in theme CSS as a convention violation.
+
+**PASS** if breakpoints are covered on the template's own terms. **FAIL** with missing breakpoints or sections without responsive rules.
 
 ---
 
@@ -84,7 +109,9 @@ Verify required WordPress theme files and configurations:
 2. **index.php** exists (required WordPress fallback)
 3. **screenshot.png** exists (theme preview image)
 4. **SCF/ACF dependency:** Check `functions.php` or `inc/theme-setup.php` for SCF/ACF dependency notice or check
-5. **register_nav_menus** is called in `inc/theme-setup.php` with per-language locations
+5. **register_nav_menus** is called in `inc/theme-setup.php` — with per-language
+   locations (`primary_<lang>`, `footer_<lang>`) under `suffix`, and with one
+   bare location per name (`primary`, `footer`) under `polylang`
 
 **PASS** if all present. **FAIL** listing missing items.
 
@@ -133,7 +160,9 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
    ```bash
    $WP menu location list --format=table
    ```
-   Verify all registered locations (primary_en, primary_es, footer_en, footer_es) have menus assigned.
+   Verify all registered locations have menus assigned — the list depends on the
+   `i18n strategy`: `primary_<lang>`, `footer_<lang>` per language under
+   `suffix`; bare `primary`, `footer` under `polylang`.
 
 3. **ACF fields return values:**
    For each section's field file in `fields/`, extract the primary field name and verify:
@@ -159,6 +188,37 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
    Compare against `plugins.installed` in manifest.
 
 **PASS** if all runtime checks succeed. **FAIL** with details.
+
+---
+
+### Tailwind convention (tailwind template only)
+
+Skip when `Template:` is `basic`, or when it is anything other than `tailwind`
+— a `cinematic` project has its own `assets/css/cinematic.css`, not the
+Tailwind tree. When `Template:` is `tailwind`, run:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/tailwind-native-check.sh" <theme-dir>
+```
+
+The script lives in the plugin, not in the project. `/wp-finalize` runs with the
+working directory set to the user's WordPress project, so a bare relative `bin/…`
+path resolves to nothing there and exits 127 — always invoke it through
+`${CLAUDE_PLUGIN_ROOT}`.
+
+It fails the delivery on: a leftover `assets/css/styles.css`, an empty or
+comment-only `.css`, a `.css` with no live `@import` in `main.css` — a commented-out
+one does not count, because the file then ships unbuilt — any directory under
+`assets/css/src/tailwindcss/` other than `base`, `components`, `layouts` and
+`utilities`, **including one nested inside those four**, an inline `<style>` block in
+a template, or a compiled theme whose templates carry class attributes but no Tailwind
+utilities among them.
+
+That last rule scales to the theme instead of demanding a fixed three templates: it
+wants utilities in every class-carrying template up to a ceiling of three, so a
+correct two-template theme passes it. Fix every finding before delivering — each one
+means part of the build fell back to the plain-CSS path, and none of them is a known
+false positive on a correct theme.
 
 ---
 
@@ -233,7 +293,7 @@ Layer 2 runs when `.wp-create.json` exists and WordPress is reachable (reuse `$W
    ```bash
    $WP menu location list --format=table
    ```
-   **PASS** if every registered nav location (e.g. `primary_en`, `primary_es`, `footer_en`, `footer_es`) has a menu assigned. **FAIL** listing unassigned locations.
+   **PASS** if every registered nav location has a menu assigned — the list depends on the `i18n strategy` (under `suffix`: `primary_en`, `primary_es`, `footer_en`, `footer_es`; under `polylang`: bare `primary`, `footer`). **FAIL** listing unassigned locations.
 
 4. **In-scope pages exist** — `critical`
 
@@ -254,9 +314,23 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
 
 2. **Load demo + built page.** For each in-scope page, navigate to the demo URL and to the corresponding built (local WordPress) URL.
 
-3. **Measure computed styles.** Via `javascript_tool`, run `getComputedStyle()` on matching selectors on both pages (hero, nav, section backgrounds, headings, buttons) and compare the results.
+3. **Conversion parity — tailwind template only.** When `Template:` is `basic`, skip this
+   item and change nothing else in Layer 3. When `Template:` is `tailwind`, `/wp-yolo`
+   Step 2.6 has already converted each demo page **in place**, so the demo URL loaded in
+   item 2 serves the *converted* page: an error the conversion introduced is present on
+   both sides of that comparison and cancels out. So for each in-scope page also open the
+   pristine pre-conversion copy at `demo/.original/<slug>.html` (Step 2.6 keeps it there;
+   the old `demo/<slug>.original.html` no longer exists) and repeat the measurement and
+   classification below between it and the converted `demo/<slug>.html`. Report a hard
+   delta found here as a **conversion defect** — `/wp-tailwindify` changed the page — and
+   not as a build defect, which is a hard delta between the converted demo and the built
+   site. The two have different fixes, and only the original can tell them apart. If
+   `demo/.original/<slug>.html` is absent the page was never converted: note that and skip
+   this item for that page.
 
-4. **Classify every delta:**
+4. **Measure computed styles.** Via `javascript_tool`, run `getComputedStyle()` on matching selectors on both pages (hero, nav, section backgrounds, headings, buttons) and compare the results.
+
+5. **Classify every delta:**
    - **Hard delta (BLOCK)** — critical:
      - A `background-image` present in the demo is missing in the build.
      - `color` / `background-color` resolves to a **different hex** between demo and build.
@@ -267,9 +341,9 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
      - Antialiasing / font-smoothing rendering variance.
      - Any value within the 3%/8px threshold.
 
-5. **Confirm logo + hero rendering.** Verify the logo renders as an actual image (not a text fallback) and that hero section background images are visible (not blank/broken).
+6. **Confirm logo + hero rendering.** Verify the logo renders as an actual image (not a text fallback) and that hero section background images are visible (not blank/broken).
 
-**PASS** if no hard deltas found (soft deltas are reported but do not block). **FAIL** listing every hard delta (selector, property, demo value vs. built value). **SKIP** (not a failure) if claude-in-chrome or either URL is unavailable — state the reason (e.g. "claude-in-chrome not connected", "demo URL unreachable", "built site not running").
+**PASS** if no hard deltas found (soft deltas are reported but do not block). **FAIL** listing every hard delta (selector, property, demo value vs. built value), and on the tailwind path every divergence item 3 reported against the pristine original. **SKIP** (not a failure) if claude-in-chrome or either URL is unavailable — state the reason (e.g. "claude-in-chrome not connected", "demo URL unreachable", "built site not running").
 
 ---
 
@@ -301,12 +375,20 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
   Pages, menus, ACF fields, permalinks, PHP errors, and plugins all verified.
   (Skipped if .wp-create.json not found)
 
----
-Result: 4/7 checks passed — 3 issues found (with .wp-create.json)
-Result: 4/6 checks passed — 2 issues found (without .wp-create.json)
+[PASS] Tailwind convention
+  No leftover assets/css/styles.css, no empty or comment-only .css, every .css
+  really imported by main.css, no unsanctioned or nested directory, utilities
+  present in the markup.
+  (Skipped when Template: is basic)
 
-Note: Check 7 (WP-CLI Runtime Validation) only runs when `.wp-create.json` exists.
-If absent, the total is out of 6 instead of 7.
+---
+Result: 4/8 checks passed — 4 issues found (with .wp-create.json, tailwind template)
+Result: 4/6 checks passed — 2 issues found (without .wp-create.json, basic template)
+
+Note: two checks are conditional. Check 7 (WP-CLI Runtime Validation) only runs when
+`.wp-create.json` exists, and the Tailwind convention check only runs when `Template:`
+is `tailwind`. The denominator is 6, 7 or 8 accordingly — count the checks you actually
+ran, and never report a total that omits a check that did run.
 
 Issues to fix:
 1. Add Spanish field variants in fields/hero.php
@@ -317,5 +399,6 @@ Issues to fix:
 If all checks pass:
 ```
 ---
-Result: Ready to deliver! All 7 checks passed. (or 6/6 if no .wp-create.json)
+Result: Ready to deliver! All 8 checks passed. (7/7 on the basic template, 6/6 if
+there is also no .wp-create.json — state the denominator you actually ran)
 ```
