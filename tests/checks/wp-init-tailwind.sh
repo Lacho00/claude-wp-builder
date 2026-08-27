@@ -348,4 +348,32 @@ printf '%s' "$l3" | grep -qF 'demo/.original/' \
 printf '%s' "$l3" | grep -qF 'conversion defect' \
   || fail "Layer 3 does not distinguish a conversion defect from a build defect"
 
+# ---------------------------------------------------------------------------
+# Check 3 must branch on Template:. It read assets/css/styles.css and demanded
+# @media at fixed pixel breakpoints, a file the Tailwind convention check FAILS
+# delivery for existing and a mechanism the SKILL forbids — one run, two
+# checks, opposite demands, and a correct Tailwind theme always reported a
+# spurious failure. Scope to the Check 3 region and prove the range closed.
+# ---------------------------------------------------------------------------
+c3raw=$(awk '/^### Check 3/,/^### Check 4/' commands/wp-finalize.md)
+[ -n "$c3raw" ] || fail "wp-finalize has no Check 3 region"
+printf '%s\n' "$c3raw" | tail -1 | grep -q '^### Check 4' \
+  || fail "the Check 3 region is not terminated by a '### Check 4' heading — its assertions would silently become file-wide"
+c3=$(flat "$c3raw")
+printf '%s' "$c3" | grep -qF 'If `Template:` is `basic`' \
+  || fail "Check 3 never branches on the template — it reads assets/css/styles.css and demands @media, which the Tailwind convention check in the same command fails delivery for existing"
+printf '%s' "$c3" | grep -qF 'If `Template:` is `tailwind`' \
+  || fail "Check 3 has a basic branch but no tailwind branch — on tailwind the check still reads a file that must not exist"
+printf '%s' "$c3" | grep -qF 'responsive prefixes' \
+  || fail "Check 3's tailwind branch never points at the Tailwind responsive-prefix equivalent — with no @media allowed, the branch must name what it checks instead"
+printf '%s' "$c3" | grep -qF 'at least 3 of the four' \
+  || fail "Check 3's basic branch no longer says 'at least 3 of the four' breakpoints — the old text promised 3 of 5 while listing 4"
+
+# The Tailwind convention gate must skip EVERY non-tailwind template, not just
+# basic: a cinematic project has its own assets/css/cinematic.css and would
+# fall through 'skip basic, run tailwind' into a gate written for the other
+# tree.
+printf '%s' "$fin" | grep -qF 'anything other than `tailwind`' \
+  || fail "the Tailwind convention check only skips basic — a cinematic project falls through and runs the tailwind gate against assets/css/cinematic.css"
+
 echo PASS

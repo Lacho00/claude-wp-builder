@@ -48,31 +48,56 @@ Search all `.php` files in the theme directory for unescaped output:
 
 ### Check 2: Bilingual Coverage
 
-For each configured language (e.g., `en`, `es`):
+Branch on the project's `i18n strategy` (read it from `.claude/CLAUDE.md`):
 
-1. **Field files check:** Glob `fields/*.php`, for each file search for field names ending in `_en`. Verify corresponding `_es` (or other language) variants exist.
+1. **Field files check — `suffix` only.** Under `suffix`, glob `fields/*.php`,
+   and for each file search for field names ending in `_en`. Verify corresponding
+   `_es` (or other language) variants exist. Under `polylang`, skip this item:
+   field files carry ONE set of fields with no `_<lang>` duplicates (one post
+   per language carries its own values), so there are no `_es` variants to
+   verify — running it would fail every correct Polylang project.
 
-2. **Template helper check:** Search all template `.php` files for `get_field(` calls that are NOT wrapped in `prefix_get_field()`. The raw `get_field()` bypasses bilingual logic.
+2. **Template helper check — both strategies.** Search all template `.php` files for `get_field(` calls that are NOT wrapped in `prefix_get_field()`. The raw `get_field()` bypasses bilingual logic.
    - Search pattern: `get_field\(` but NOT `prefix_get_field\(`
    - Exclude: files in `vendor/`, `node_modules/`, `inc/i18n.php` (the helper itself)
 
-**PASS** if all fields have all language variants and no raw `get_field()` in templates. **FAIL** with details.
+3. **Translation coverage — `polylang` only.** Under `polylang`, bilingual
+   coverage means every page has a counterpart per language, which is
+   `/wp-polylang`'s contract, not a field-suffix one. Run the same verifier the
+   retrofit runs, and treat a non-zero exit exactly like the demo-parity gate —
+   report it and stop rather than declaring the delivery finished:
+
+   ```bash
+   $WP eval-file ${CLAUDE_PLUGIN_ROOT}/skills/wp-polylang/scripts/pll-verify.php <primary_lang> <secondary_lang>
+   ```
+
+**PASS** if the strategy's own coverage holds and no raw `get_field()` in templates. **FAIL** with details.
 
 ---
 
 ### Check 3: Responsive Breakpoints
 
-Read `assets/css/styles.css` and check for media queries:
+Branch on the project's `Template:` (read it from `.claude/CLAUDE.md`):
 
-1. Search for `@media` rules
-2. Verify queries exist for these breakpoints (at least 3 of 5):
-   - `576px`
-   - `768px`
-   - `1024px`
-   - `1440px`
-3. Check each major section (HEADER, FOOTER, and every SECTION delimiter) has at least one responsive media query
+- If `Template:` is `basic`: read `assets/css/styles.css` and check for media queries.
+  1. Search for `@media` rules
+  2. Verify queries exist for at least 3 of the four:
+     - `576px`
+     - `768px`
+     - `1024px`
+     - `1440px`
+  3. Check each major section (HEADER, FOOTER, and every SECTION delimiter) has at least one responsive media query
 
-**PASS** if breakpoints are covered. **FAIL** with missing breakpoints or sections without responsive rules.
+- If `Template:` is `tailwind`: there is no `assets/css/styles.css` to read — the
+  Tailwind convention check below fails delivery if one exists — and hand-written
+  `@media` is forbidden by `skills/wp-tailwind-system/SKILL.md`. Verify responsive
+  coverage on the template's own terms instead: grep `template-parts/`,
+  `header.php` and `footer.php` for Tailwind responsive prefixes (`sm:`, `md:`,
+  `lg:`, `xl:`, `2xl:`). The nav collapse, the home hero and every section
+  template must carry at least one responsive prefix. Flag any hand-written
+  `@media` block found in theme CSS as a convention violation.
+
+**PASS** if breakpoints are covered on the template's own terms. **FAIL** with missing breakpoints or sections without responsive rules.
 
 ---
 
@@ -84,7 +109,9 @@ Verify required WordPress theme files and configurations:
 2. **index.php** exists (required WordPress fallback)
 3. **screenshot.png** exists (theme preview image)
 4. **SCF/ACF dependency:** Check `functions.php` or `inc/theme-setup.php` for SCF/ACF dependency notice or check
-5. **register_nav_menus** is called in `inc/theme-setup.php` with per-language locations
+5. **register_nav_menus** is called in `inc/theme-setup.php` — with per-language
+   locations (`primary_<lang>`, `footer_<lang>`) under `suffix`, and with one
+   bare location per name (`primary`, `footer`) under `polylang`
 
 **PASS** if all present. **FAIL** listing missing items.
 
@@ -133,7 +160,9 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
    ```bash
    $WP menu location list --format=table
    ```
-   Verify all registered locations (primary_en, primary_es, footer_en, footer_es) have menus assigned.
+   Verify all registered locations have menus assigned — the list depends on the
+   `i18n strategy`: `primary_<lang>`, `footer_<lang>` per language under
+   `suffix`; bare `primary`, `footer` under `polylang`.
 
 3. **ACF fields return values:**
    For each section's field file in `fields/`, extract the primary field name and verify:
@@ -164,7 +193,9 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 
 ### Tailwind convention (tailwind template only)
 
-Skip when `Template:` is `basic`. When `Template:` is `tailwind`, run:
+Skip when `Template:` is `basic`, or when it is anything other than `tailwind`
+— a `cinematic` project has its own `assets/css/cinematic.css`, not the
+Tailwind tree. When `Template:` is `tailwind`, run:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-native-check.sh" <theme-dir>
@@ -262,7 +293,7 @@ Layer 2 runs when `.wp-create.json` exists and WordPress is reachable (reuse `$W
    ```bash
    $WP menu location list --format=table
    ```
-   **PASS** if every registered nav location (e.g. `primary_en`, `primary_es`, `footer_en`, `footer_es`) has a menu assigned. **FAIL** listing unassigned locations.
+   **PASS** if every registered nav location has a menu assigned — the list depends on the `i18n strategy` (under `suffix`: `primary_en`, `primary_es`, `footer_en`, `footer_es`; under `polylang`: bare `primary`, `footer`). **FAIL** listing unassigned locations.
 
 4. **In-scope pages exist** — `critical`
 
