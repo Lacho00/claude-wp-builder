@@ -45,9 +45,16 @@ Dispatch the **wp-template** agent with these instructions:
 > - `<body <?php body_class(); ?>>`
 > - Site header with:
 >   - Logo from settings: `prefix_get_field('site_logo', 'option')` with fallback to `get_bloginfo('name')`
->   - `wp_nav_menu()` call using per-language menu location (e.g., `'primary_' . prefix_current_lang()`)
+>   - `wp_nav_menu()` call using the location the project's `i18n strategy`
+>     registers: under `suffix`, the per-language location
+>     (`'primary_' . prefix_get_current_lang()`); under `polylang`, the bare
+>     location (`primary`) — Step 7 registers one location per name there
 >   - Use the custom nav walker class
->   - Language switcher showing all configured languages with active state
+>   - Language switcher per the project's `i18n strategy`: under `suffix`,
+>     render all configured languages (from `SUPPORTED_LANGS`) with active
+>     state, linking through `prefix_get_lang_url()`; under `polylang`,
+>     render it with `pll_the_languages()` — Step 7 says why (it marks the
+>     current language and hides languages with no counterpart)
 >   - Mobile hamburger toggle button with aria attributes
 >   - Skip-to-content link for accessibility
 >
@@ -77,6 +84,10 @@ Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispa
   needed — a nav expressible in utilities produces no CSS file at all. The agent
   reads `skills/wp-tailwind-system/SKILL.md`. It must never write
   `assets/css/styles.css`.
+- `cinematic` → not routed by this command. Cinematic projects are built by
+  the `/wp-cinematic-*` family (`/wp-init` Step 0.5 dispatches
+  `/wp-cinematic-init`), and their CSS is `assets/css/cinematic.css` — not
+  `styles.css` and not the Tailwind tree. Dispatch no CSS agent here.
 
 Dispatch exactly one of the two, never both.
 
@@ -221,12 +232,16 @@ Dispatch the **wp-acf** agent with these instructions:
 > - Additional CTA buttons
 > - Any other header element the client should be able to edit
 >
-> For each new field:
+> For each new field, following the project's `i18n strategy` (read from
+> `.claude/CLAUDE.md`):
 > 1. Add the primary language field after the existing Header tab fields (before the Footer tab)
-> 2. Add the bilingual `_es` variant in the Spanish Translations tab
+> 2. Under `suffix` only: add the bilingual `_es` variant in the Spanish
+>    Translations tab. Under `polylang`, emit no `_<lang>` duplicate fields —
+>    one field, one value per language-post; that is what Polylang is for.
 > 3. Follow the existing naming convention: `field_settings_header_<element>`
 >
-> All fields use `'option'` as post ID. Instructions on Spanish fields: "Leave empty to use English version."
+> All fields use `'option'` as post ID. Under `suffix`, instructions on
+> Spanish fields: "Leave empty to use English version."
 
 ## Step 7: Update Theme Setup
 

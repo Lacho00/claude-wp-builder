@@ -262,4 +262,18 @@ walk_sites commands/wp-cpt.md
 walk_sites commands/wp-header.md
 walk_sites commands/wp-footer.md
 
+# The routing blocks cover `basic` and `tailwind`. `cinematic` is upstream's
+# third template axis, present only in /wp-init, so a routing block that
+# never mentions it lets a cinematic project fall through to the `basic`
+# path — BEM CSS in a theme whose CSS is assets/css/cinematic.css. Assert
+# the routing block states the cinematic case as NOT routed. Scoped to the
+# block (heading to next `## Step` heading), so a passing mention elsewhere
+# cannot satisfy it, and flattened so a re-wrap cannot break it.
+hdr_route=$(awk '/^### CSS agent routing$/,/^## Step 5:/' commands/wp-header.md \
+  | tr '\n' ' ' | sed 's/  */ /g' || true)
+printf '%s' "$hdr_route" | grep -qiF 'cinematic' \
+  || { echo "FAIL: wp-header's CSS agent routing block never names cinematic — an agent handed a cinematic project falls through to the basic path and writes BEM CSS into a theme that has its own cinematic.css"; exit 1; }
+printf '%s' "$hdr_route" | grep -qiF 'not routed by this command' \
+  || { echo "FAIL: wp-header's routing block names cinematic but never says it is not routed by this command — naming it while leaving the fall-through open routes the project to wp-css anyway"; exit 1; }
+
 echo PASS

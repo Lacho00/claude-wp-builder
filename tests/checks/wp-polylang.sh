@@ -90,4 +90,35 @@ grep -q 'no WPML, no Polylang' "skills/wp-bilingual/SKILL.md" && {
   exit 1
 }
 
+# ── /wp-header: the two dispatched prompts must branch on i18n strategy ────
+# The merge left Step 4's wp-template prompt and Step 6's wp-acf prompt
+# suffix-shaped and unconditional: per-language menu locations and `_es`
+# duplicates, ordered no matter the strategy. A polylang project obeying them
+# registers locations Step 7 does not create and fields Polylang cannot
+# serve. Each needle is scoped to its step's QUOTED lines — the only text a
+# dispatched agent ever sees — so a passing prose mention elsewhere cannot
+# satisfy it, and the prose is flattened so a re-wrap cannot break it. Each
+# FAIL names the token to restore; a deliberate rephrase must update this
+# check, the same contract as the frozen bullet labels in
+# tests/checks/wp-init-tailwind.sh.
+step_quotes() { # <from-step> <to-step>
+  awk "/^## Step $1:/,/^## Step $2:/" commands/wp-header.md \
+    | grep '^[[:space:]]*>' | sed 's/^[[:space:]]*>//' \
+    | tr '\n' ' ' | sed 's/  */ /g'
+}
+for spec in "4 5" "6 7"; do
+  set -- $spec
+  raw=$(awk "/^## Step $1:/,/^## Step $2:/" commands/wp-header.md)
+  printf '%s\n' "$raw" | tail -1 | grep -q "^## Step $2:" \
+    || { echo "FAIL: wp-header's Step $1 region is not terminated by its '## Step $2:' heading — every assertion scoped to it would silently degrade to a file-wide grep"; exit 1; }
+done
+h4=$(step_quotes 4 5)
+h6=$(step_quotes 6 7)
+printf '%s' "$h4" | grep -qF 'pll_the_languages' \
+  || { echo "FAIL: wp-header's Step 4 prompt never hands the wp-template agent pll_the_languages() for the polylang switcher — under polylang the header would build a suffix-model switcher over pages that have no suffix URLs"; exit 1; }
+printf '%s' "$h4" | grep -qF 'the bare location' \
+  || { echo "FAIL: wp-header's Step 4 prompt never tells wp-template to use the bare nav location under polylang — the agent writes 'primary_' . prefix_get_current_lang(), a location Step 7 does not register on that strategy"; exit 1; }
+printf '%s' "$h6" | grep -qF 'no `_<lang>` duplicate' \
+  || { echo "FAIL: wp-header's Step 6 prompt never tells wp-acf that polylang emits no _<lang> duplicate fields — the agent writes _es variants Polylang cannot serve, and /wp-finalize Check 2 then reports a bilingual failure on correct work"; exit 1; }
+
 echo PASS
