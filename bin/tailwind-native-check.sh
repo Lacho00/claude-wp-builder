@@ -108,7 +108,12 @@ if [ -f "$theme/assets/css/dist/main.css" ]; then
   # Ceiling, inherent and accepted: a hand-written class that opens with a real utility
   # prefix — `bg-image-holder` — is indistinguishable from a token utility like
   # `bg-brand-dark`. The BEM shapes `block__element` and `block--modifier` are what
-  # `wp-css` actually emits, and those are now excluded.
+  # `wp-css` actually emits, and those are now excluded. Second ceiling, same shape:
+  # a bare token with a suffix — `flex-1`, `flex-col`, `grid-cols-3` — only counts when
+  # a spaced companion utility sits in the same attribute (`flex flex-col` hits); the
+  # door that reopens on letting the bare tokens take suffixes (`block-title` would
+  # count) is the worse error, and every converted template carries prefixed utilities
+  # (`px-4`, `text-lg`) anyway, so the under-count never rejects a correct theme.
   util_bare='flex|grid|block|hidden|contents|sticky|absolute|relative|fixed|static|truncate|italic|underline|uppercase|container'
   util_pfx='px|py|pt|pb|pl|pr|mx|my|mt|mb|ml|mr|gap|space|text|bg|border|rounded|shadow|font|leading|tracking|w|h|min-w|min-h|max-w|max-h|inset|top|left|right|bottom|z|opacity|items|justify|self|col|row|aspect|object|overflow|cursor|transition|duration|ease|scale|rotate|translate|order|basis|grow|shrink|divide|ring|outline|fill|stroke|list|whitespace|break|align|place|content|antialiased|backdrop|blur|from|via|to'
   util_re="class=\"([^\"]*[[:space:]])?([a-zA-Z0-9_-]+:)*(($util_bare)|($util_pfx)-[a-z0-9[][^[:space:]\"]*)([[:space:]]|\")"
