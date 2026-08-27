@@ -32,6 +32,21 @@ Read `Template:` from `.claude/CLAUDE.md`. When `Template:` is `tailwind`, dispa
 
 Dispatch exactly one of the two, never both.
 
+Every `tailwind` dispatch opens its quoted prompt with this line, verbatim:
+
+> Mode: **author**
+
+The quoted prompt it opens is the one under "The `tailwind` prompt body" below — **not**
+the quoted prompt at the dispatch site, which is the `basic` branch's and names
+`assets/css/styles.css`, the one file the `tailwind` path must never write.
+
+`agents/wp-tailwind.md` gates Section Authoring Mode on that line and on nothing else, so
+the line is not decoration: omit it and the dispatched agent falls into Demo Conversion
+Mode, reads the prompt as a demo-file conversion and writes a `.tmp` nobody asked for. A
+bare `author` anywhere else in the prompt — in prose, or inside an input path like
+`demo/author.html` — selects nothing, precisely so that an ordinary demo page named after
+the word cannot flip the mode by accident.
+
 This routing governs every "Dispatch **wp-css** agent" step below (the archive/single/card
 CSS in Step 4, and the teaser section in Step 5) — each one marks its `tailwind`
 counterpart with `(routed — see "CSS agent routing" above)` rather than repeating the
@@ -49,6 +64,69 @@ Routing matters here because `--from-demo` reads `demo/index.html`, and on the `
 path `/wp-yolo` Step 4 item 2 runs `/wp-cpt` *after* Step 2.6 has converted that file in
 place. The markup this command reads is already Tailwind-native; building its CSS through
 `wp-css` would leak plain CSS straight into `front-page.php` via the teaser.
+
+#### The `tailwind` prompt body
+
+Both dispatch sites below are the `basic` branch, and **on `tailwind` neither runs at
+all** — do not follow the instructions in the site's own quoted prompt there. Dispatch
+`wp-tailwind` in author mode with the prompt below instead, substituting the CPT name as
+the slug and the block name.
+
+**File ownership.** `wp-template` owns every `.php` file this command generates —
+`archive-<name>.php`, `single-<name>.php` (the one Step 4 names BEM classes
+`.<name>-single__*` for on `basic`), `template-parts/<name>/card.php` and the teaser
+`template-parts/section-<name>.php` — on both paths. It is the only agent carrying the
+ACF, escaping and i18n contract (`prefix_get_field()`, the `?:` fallbacks, `esc_html()` /
+`esc_url()` / `esc_attr()`, the `@package` header, the ABSPATH check), none of which
+`agents/wp-tailwind.md` describes. On `tailwind`, `wp-template` keeps the Tailwind utility
+classes already on the markup it was handed instead of inventing BEM names, and
+`wp-tailwind` runs **after** it returns — never beside it — editing only class names in
+the files `wp-template` wrote. In Step 5 that means the three agents are no longer
+simultaneous on `tailwind`: `wp-template` and `wp-acf` go together, `wp-tailwind` follows.
+The invariant: no template ships without its ACF wiring and escaping, and none ships on
+BEM class names in a Tailwind theme.
+
+> Mode: **author**
+>
+> Promote the `<name>` post type's repeated utility groups for this Tailwind theme.
+>
+> Read `skills/wp-tailwind-system/SKILL.md` before writing anything — it owns the
+> decision ladder and the prohibition list.
+>
+> Context:
+> - Page slug: `--page <name>` (decides `components/<name>.css`)
+> - Block name: `--block <block>` (scopes every `@apply` class you create)
+> - Theme path: `<theme path>`
+> - Function prefix: `<prefix>`
+> - Section HTML: the template files the wp-template agent has just written for this
+>   post type, already carrying Tailwind utility classes — quoted below.
+>
+> Requirements:
+> 1. Those template files belong to wp-template. Edit them in place; do not create
+>    them and do not rewrite them. The only thing you change is class names. Leave
+>    every `prefix_get_field()` call, every `esc_html()` / `esc_url()` / `esc_attr()`
+>    wrapper, every fallback and every PHP control structure exactly as you found it.
+> 2. Tailwind utility classes in the markup are the default. Most templates need no
+>    CSS file entry at all, and come back unchanged.
+> 3. A utility group repeated 3+ times, or on 2+ pages, becomes a semantic class via
+>    `@apply` — `utilities/site.css` if it spans pages, `components/<name>.css` if it
+>    is local to this one. The card markup is shared by the archive and the teaser on
+>    `front-page.php`, so it is the usual cross-page candidate here. Grep the theme's
+>    other `components/*.css` and `*.php` before choosing.
+> 4. Name a class you write into `components/<name>.css` `<block>__<element>`. Name
+>    one you write into `utilities/site.css` `site__<element>` instead — it qualified
+>    for that file precisely because it spans more than one block.
+> 5. If a target CSS file does not exist, create it with its first rule already in it
+>    and add its `@import` to `main.css` in the same step. Never leave an empty file.
+> 6. Colors and fonts come from the `@theme` block as utilities (`bg-primary`,
+>    `font-primary`). No `:root`, no hardcoded hex a token already covers.
+> 7. Responsive via Tailwind prefixes (`md:`, `lg:`). No hand-written `@media`.
+> 8. Never write `assets/css/styles.css`. Never emit a `<style>` block.
+>
+> Template markup:
+> ```php
+> <paste the generated template files here>
+> ```
 
 ## Step 3: Register the CPT and generate fields (parallel)
 
@@ -85,12 +163,27 @@ Dispatch **wp-template** agent:
 > Generate `template-parts/<name>/card.php`:
 > - Single card markup shared by archive + teaser: thumbnail, title (`get_the_title()`),
 >   role, excerpt/bio; permalink via `get_permalink()`
+> - Class naming — include the line matching the project's `Template:` and drop the
+>   other. These three files are yours on both paths; only the class system changes:
+>   - `basic` → the BEM names above (`.<name>-single__*` and siblings)
+>   - `tailwind` → keep the Tailwind utility classes already on the demo markup you
+>     were handed, element for element. Never replace them with BEM names and never
+>     invent new class names: `wp-tailwind` runs after you and renames only the groups
+>     its promotion ladder promotes. See "File ownership" in "CSS agent routing" above.
+
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
 
 Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 
 > Add `.<name>-archive`, `.<name>-card`, `.<name>-single` CSS within delimiters using design tokens.
 
 ## Step 5: Teaser query-section (unless --no-teaser)
+
+**This step is the `basic` branch.** On `tailwind` it does not run at all — dispatch
+`wp-tailwind` in author mode with "The `tailwind` prompt body" above instead, and do not
+follow the quoted instructions below.
 
 Dispatch **wp-template** + **wp-acf** + **wp-css** (mirror the /wp-section flow; the CSS agent is routed — see "CSS agent routing" above; on `tailwind`, dispatch `wp-tailwind` in author mode instead):
 

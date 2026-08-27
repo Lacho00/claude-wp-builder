@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **`wp-tailwind-system` skill** — the utility-first decision ladder, `@theme` tokens, and file layout for `template=tailwind`. Tailwind projects finally have a skill of their own instead of borrowing `wp-css-system`.
+- **`wp-tailwind` agent gains Section Authoring Mode**, replacing `wp-css` on the Tailwind path so sections are written as utilities in the markup rather than as a stylesheet.
+- **`/wp-tailwind-migrate`** — convert an already-built plain-CSS theme to Tailwind-native in place, with a before/after responsive screenshot comparison.
+- **`/wp-yolo` Step 2.6 converts the demo via `/wp-tailwindify`** before the section walk, so the section builders see Tailwind-native markup.
+- **`bin/tailwind-native-check.sh`** — validates any Tailwind theme against the convention; run by `/wp-finalize` before delivery.
+- **An explicit `Mode: **author**` dispatch line.** `/wp-section`, `/wp-page`, `/wp-cpt`, `/wp-header`, `/wp-footer` and `/wp-tailwind-migrate` now open every author-mode prompt with it, and `wp-tailwind` selects Section Authoring Mode on that line and nothing else.
+
+### Fixed
+- **The Tailwind template was cosmetic.** `/wp-init` scaffolded a working Tailwind build, then every downstream command ignored `Template: tailwind` and dispatched `wp-css`, producing BEM CSS written to `assets/css/styles.css` — a file the Tailwind starter never enqueues. Themes shipped with no utility classes in their markup.
+- **Comment-only starter stubs.** Five CSS files (`components/navigation.css`, `components/forms.css`, `layouts/{header,footer,sidebar}.css`) shipped containing only a comment, imported by `main.css` and never filled. Removed; a CSS file now exists only once it holds a rule.
+- **`/wp-polish` wrote its backup where `/wp-seed` would find it.** The pre-polish copy went to `demo/original.html` / `demo/original-<filename>`, siblings of the demo pages, so the next `/wp-seed` turned each one into a phantom WordPress Page seeded from pre-polish markup. It now goes to `demo/.prepolish/<filename>`, and is written only if no copy is already there — the documented "overwrites if exists" meant a second polish destroyed the only unpolished version.
+- **`wp-css-system` forbade Tailwind unconditionally**, so even Tailwind projects were told not to use it. Now scoped to `template=basic`, with `wp-tailwind-system` owning the other path.
+- **The `wp-tailwind` agent had every tool, including `Bash`, while its own text said it had none.** Its frontmatter used `allowed-tools:` where all fourteen other agents use `name:` + `tools:`, so the key was ignored and the agent registered unrestricted — and `tests/checks/wp-tailwind-agent.sh` hard-required the wrong key, cementing it.
+- **The agent picked its mode from a bare `author` token anywhere in the prompt.** The demo-conversion dispatch hands over an input file path, so an ordinary `demo/author.html` flipped the agent into Section Authoring Mode and that page was silently never converted. The gate now keys on the quoted `Mode: **author**` line, which a path cannot supply.
+- **`/wp-init` re-introduced the demo-detection heuristic this branch exists to remove**, and all seven repo fixtures satisfied its skip condition — so it converted nothing, ever. Replaced with Step 2.6's evidence rule.
+- **The delivery gate was invoked by a bare relative path.** Commands and agents run with the working directory set to the user's WordPress project, where `bin/tailwind-native-check.sh` resolves to nothing and exits 127 — the gate silently never ran. Every documented invocation is now rooted at `${CLAUDE_PLUGIN_ROOT}`.
+- **`/wp-finalize`'s report never named the Tailwind convention check**, so a Tailwind theme could be reported "ready to deliver" without a word about the one gate that decides whether its markup carries any utility classes at all.
+- **`/wp-header` and `/wp-footer` gained routing blocks but kept unrouted dispatch sites** whose bodies still told `wp-css` to write BEM rules into `assets/css/styles.css`, contradicting the block directly above them.
+- **`bin/tailwind-native-check.sh` had four defects of its own.** The no-new-directory rule inspected only depth 1, so `components/parts/` passed; a commented-out `@import` satisfied the import rule and shipped the file unbuilt; a theme with all its CSS in `main.css` was rejected for an "unexpected directory `*`" that was just an unexpanded glob; and the three-template floor permanently failed a correct two-template theme while reporting a reason that was not true. The floor now scales to the templates present, and a compiled theme with no class-carrying template is its own explicit failure.
+- **The delivery gate could die silently.** `hits=$(grep … | wc -l)` under `set -o pipefail` fails the assignment when `grep` matches nothing, and `set -e` then killed the script with exit 1 and no output — precisely on a compiled theme with zero utilities, the case that most needed a message.
+- **`/wp-polish` and `/wp-yolo` attributed a literal `demo/*.html` glob to `/wp-seed`**, which states none; and each named only its own backup directory in the `find` caveat, so a folder both had touched left one of the two exposed.
+- **`/wp-tailwind-migrate` restated the promotion ladder without its threshold**, telling an agent to promote a group it saw twice inside one section — which `wp-tailwind-system` keeps inline.
+
+### Changed
+- **The check suite grew from 19 to 30 checks.** Every contract this work added is gated by a grep-for-required-tokens script under `tests/checks/`, and each assertion carries three executed proofs: the inverted wording fails, the deleted wording fails, and a realistic correct edit — a re-wrap, a heading rename, a step renumbering, a synonym — stays green.
+
 ## [1.7.0] - 2026-07-15
 
 ### Changed

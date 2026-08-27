@@ -85,35 +85,42 @@ utility classes.
 Conversion is **in place**, with a backup. Each `demo/<slug>.html` is replaced by its
 Tailwind-native form and the untouched plain-CSS copy is kept out of the way as
 `demo/.original/<slug>.html`. The backup goes in a dot-prefixed subdirectory on purpose:
-`/wp-seed` (Step 5, item 1) turns **every** `demo/*.html` into a WP Page whose slug is
-the filename, so a sibling backup named `demo/<slug>.original.html` would seed a phantom
+`/wp-seed` (Step 5, item 1) turns **every** `.html` file it finds in `demo/` into a WP
+Page whose slug is the filename, so a sibling backup named `demo/<slug>.original.html` would seed a phantom
 page with slug `<slug>.original` out of unconverted markup — one per demo page.
 `demo/.original/` falls outside the `demo/*.html` pattern entirely, so no reader that
 enumerates the demo with a `demo/*.html` glob can see it: shell globbing, Python's `glob`,
-`ripgrep` and `fd` all skip dot-prefixed entries by default, and `/wp-seed` Step 5 item 1
-globs exactly that pattern. The exception is a recursive descent that does not honour the
+`ripgrep` and `fd` all skip dot-prefixed entries by default. `/wp-seed` states no glob of
+its own — `commands/wp-seed.md` says only that it processes the `.html` files in `demo/` —
+so the dodge rests on that enumeration honouring the dot rule, as every tool above does. The exception is a recursive descent that does not honour the
 dot rule — `find demo -name '*.html'` walks into `demo/.original/` and returns the backups
-— so anything switching to `find` must add `-not -path 'demo/.original/*'` itself. Nothing
-downstream takes a new filename, because the demo page's own filename never changes.
+— so anything switching to `find` must add `-not -path 'demo/.original/*'` itself, and
+`-not -path 'demo/.prepolish/*'` alongside it once `/wp-polish` has run over the same
+folder, because that step keeps its own backups there. Nothing downstream takes a new
+filename, because the demo page's own filename never changes.
 
 Walk **every** page in the manifest's `pages[]` — the home page and every inner page,
 not just `index`. For each page, in this order:
 
 1. **Detect, per page.** Read `demo/<slug>.html` and decide whether it is *already
-   Tailwind-native*. The absence of inline CSS does not answer that question: a plain-CSS
-   demo that keeps its rules in an external stylesheet carries no `<style>` block and no
-   static `style="` attribute either, and that is the commonest demo shape there is —
-   every fixture under `tests/fixtures/` has exactly that signature. Nothing upstream
-   inlines it first: `wp-normalize` resolves external stylesheet rules into the *manifest*,
-   not into the HTML, so the page arrives here still linking its stylesheet. Decide on
-   evidence, not on the absence of one delivery mechanism:
+   Tailwind-native*. The absence of inline CSS does not answer that question, and the shape
+   of the page arriving here is why. `wp-normalize` (Step 2) consolidates every external
+   CSS rule it can *match to a section* inline, into the page it emits, so each page is
+   self-contained — but a rule that matches no section (`:root` custom properties, resets,
+   `body`, `@font-face`, a global `@media` block) is not inlined, and `wp-normalize` is
+   never told to drop the `<link rel="stylesheet">` that still carries it. So the page in
+   front of you may hold an inlined `<style>` block, the original `<link>`, or both, and
+   each of those is CSS this page still depends on. Decide on evidence, not on the absence
+   of one delivery mechanism:
 
    - **Plain-CSS evidence — any one of these means convert.** A `<style>` block; a static
-     `style="` attribute; or a `<link rel="stylesheet">` whose `href` is a project-local
-     `.css` file (a relative or site-rooted path such as `assets/styles.css` or
-     `css/main.css`). A linked stylesheet delivers CSS to the page exactly as much as a
-     `<style>` block does. A Google Fonts `<link>` is not plain-CSS evidence, and neither
-     is a Tailwind CDN or Tailwind build-output `<link>`.
+     `style="` attribute; or a `<link rel="stylesheet">` pointing at the project's own
+     `.css` file — a relative path (`assets/styles.css`), a site-rooted path
+     (`/css/main.css`) or an absolute URL on the project's own domain all count the same,
+     because the delivery route is not what matters. A linked stylesheet delivers CSS to
+     the page exactly as much as a `<style>` block does. Only three hosts are exempt:
+     `fonts.googleapis.com`, `fonts.gstatic.com` and `cdn.tailwindcss.com`. A `<link>` to
+     any of those is not plain-CSS evidence; every other stylesheet `<link>` is.
    - **Tailwind evidence — what a converted page actually looks like.** Its `class`
      attributes are predominantly Tailwind utilities: layout (`flex`, `grid`, `hidden`),
      spacing and sizing (`px-4`, `mt-8`, `w-full`), typography (`text-lg`, `font-bold`),
@@ -149,9 +156,23 @@ not just `index`. For each page, in this order:
    demo page itself, so the converted markup lands on the same path the original
    occupied.
 4. **Verify, or restore.** Read `/wp-tailwindify`'s Step 4 verification result for this
-   page: section delimiters preserved, no `<style>` blocks remaining. If verification
-   fails and the backup exists, restore `demo/<slug>.html` from
-   `demo/.original/<slug>.html` and report the page as unconverted. Never leave a
+   page: section delimiters preserved, no `<style>` blocks remaining, and no project-local
+   stylesheet `<link>` remaining. The third item is what makes item 1's skip terminate: a
+   converted page that still links `assets/styles.css` carries plain-CSS evidence, so the
+   next run classifies it as not-yet-Tailwind-native and converts it again, forever.
+
+   On a failure there is normally **nothing to restore**, and the restore below is a
+   belt-and-braces check rather than the main line of defence. `/wp-tailwindify` has the
+   agent write `<output-path>.tmp` and moves it over the demo page only after that
+   verification passes (its Step 3, and Step 4 items 5-6); a page that failed never
+   reaches `demo/<slug>.html`, so what is sitting there is still the pristine original
+   and copying the backup over it changes nothing. Keep the check anyway, but condition
+   it on that invariant instead of assuming it holds: after a reported failure, compare
+   `demo/<slug>.html` byte-for-byte with the backup. **Identical** — the contract held;
+   report the page as unconverted and touch nothing. **Different** — something outside
+   the contract wrote that path (a hand-run conversion, an older plugin version, an
+   editor, or an `mv` that prompted instead of moving), so restore `demo/<slug>.html`
+   from `demo/.original/<slug>.html` and report the page as unconverted. Never leave a
    truncated or half-converted page at `demo/<slug>.html`: item 1 would read the wreckage
    on the next run, see utility classes and no project stylesheet, declare the page
    already Tailwind-native and skip it forever, and items 2-6 below would build from the
@@ -167,6 +188,17 @@ not just `index`. For each page, in this order:
    globs it.
 6. **Report.** Record which demo pages were converted, which were skipped as already
    Tailwind-native, and which were restored from backup after a failed verification.
+
+**Accepted ceiling — a class borrowed across sections loses its provenance.** Demos
+reuse a class wherever the geometry happens to match: a Contact page heading carrying
+`.services__title` is ordinary demo authoring. Conversion inlines that rule's
+declarations onto the element as utilities, so the render stays right and each section
+still transcribes from its own markup — what is lost is the *evidence of sharing*. After
+conversion the two headings read as two independent utility groups, so the decision
+ladder's "same group on two or more pages" test must be run over the converted markup by
+comparing utility strings, there being no class name left to record it. Missing it costs
+a duplicated inline group, never a wrong render, which is why this is accepted here
+rather than worked around.
 
 Under `--careful`, confirm the conversion result with the user before continuing.
 
@@ -314,10 +346,31 @@ Drive the existing commands/agents in this exact order, reading everything from 
 Before seeding, collect every `section.fonts[]` entry across the manifest (dedupe by
 `family`+`weight`+`style`):
 - Copy each entry's `src` woff2 file(s) from the demo folder into `theme/assets/fonts/`.
+  **When the file is not there.** Demos ship broken font paths as a matter of course —
+  the rehearsal demo declares `src: url("assets/fonts/marcellus.woff2")` and carries no
+  such file. Search the demo folder for the basename first (any subdirectory, matched
+  case-insensitively). If it is genuinely absent, do **not** re-emit a `@font-face`
+  whose `src` points at a file the theme does not have: that rule fails silently, and
+  under `font-display: swap` the page renders the fallback stack with nothing logged
+  anywhere to say why. Skip that family's `@font-face` rule entirely, keep the family
+  name at the head of its font token so the demo's declared fallback stack still
+  applies, and add `font <family>: <src> not found in the demo folder — supply the woff2
+  or the theme renders the fallback stack` to the Step 6 Review list.
 - Re-emit each `@font-face` rule with `src` rewritten to the theme-relative path
-  (`assets/fonts/<file>.woff2`) and enqueue the resulting stylesheet (or add to the
-  theme's existing fonts partial) so every block's `transcribe`d CSS resolves against a
-  self-hosted font, not the demo's original path.
+  (`assets/fonts/<file>.woff2`), and **place it by `Template:`**:
+  - `basic` → enqueue the resulting stylesheet, or add the rule to the theme's existing
+    fonts partial.
+  - `tailwind` → write the rule into `assets/css/src/tailwindcss/base/fonts.css` and add
+    its `@import` to `main.css` in the same step —
+    `skills/wp-tailwind-system/SKILL.md` gives `base` the "resets and font-face" role,
+    and its no-empty-file rule is why the rule and the import go in together.
+    **Enqueue nothing.** A Tailwind theme has no fonts partial and enqueues exactly one
+    stylesheet, the compiled `assets/css/dist/main.css`; a second enqueued stylesheet is
+    the plain-CSS regression this template exists to remove, and
+    `/wp-tailwind-migrate` Step 5 states the same rule — leave exactly one enqueue.
+
+  Either way, every block's `transcribe`d CSS then resolves against a self-hosted font,
+  not the demo's original path.
 - Only add a Google Fonts `<link rel="preconnect">` (fonts.googleapis.com /
   fonts.gstatic.com) when the demo's own `<head>` actually references Google Fonts — never
   as a substitute for a self-hosted font family found in `section.fonts[]`. Self-hosted
@@ -362,13 +415,26 @@ Before this run can report success, walk every **critical** finding from that ga
    > `demo/.original/<slug>.html` and never from the manifest's plain-CSS `cssRules`.
    > Never write a raw CSS declaration into a theme CSS file on the tailwind path: that
    > re-injects exactly the plain CSS this template exists to remove.
+   >
+   > **`@font-face` is the one carve-out, and the only one.** Tailwind has no utility
+   > and no `@apply` form for it, so it is rung 4 of the ladder — raw CSS for what
+   > Tailwind cannot express — not a breach of the line above. The missing-font repair
+   > below therefore does re-emit a raw `@font-face` block; it goes into
+   > `assets/css/src/tailwindcss/base/fonts.css` with its `@import` added to
+   > `main.css`, exactly as in Step 4.5, and never into a section's component file or a
+   > second enqueued stylesheet. No other repair on this path may write raw CSS.
 
    - Token-drifted value with a clear literal source in the demo → replace it with the
      demo's literal value on `basic`; on `tailwind`, re-express the corrected value as
      the Tailwind utility (or `@apply` rule) that produces it, sourced from the converted
      demo page.
    - Missing font → copy the woff2 file(s) into `theme/assets/fonts/` and re-emit the
-     `@font-face` rule (same as Step 4.5's font carry).
+     `@font-face` rule exactly as Step 4.5's font carry does it, including its branch:
+     on `basic` into the enqueued stylesheet or fonts partial, on `tailwind` into
+     `assets/css/src/tailwindcss/base/fonts.css` plus its `@import` in `main.css`, with
+     no second enqueue. If the woff2 is not in the demo folder, Step 4.5's
+     missing-source branch applies here too — no `@font-face` pointing at a file that
+     does not exist; the finding goes to Review instead.
    - Missing logo/hero asset → seed it by its manifest `role` (`logo` / `hero`), same as
      `/wp-seed`'s role-tagged asset pass.
    - Colliding block (unscoped generic class) → rename/rescope it to its manifest-assigned

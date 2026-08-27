@@ -73,23 +73,80 @@ printf '%s\n' "$s55" | tail -1 | grep -q '^## Step 6:' \
 # also eat the `>` in `demo/.original/<slug>.html` and in `<style>`.
 flat() { printf '%s' "$1" | sed 's/^[[:space:]]*>[[:space:]]\?//' | tr '\n' ' ' | sed 's/  */ /g'; }
 
-# `span <flat-text> <start-marker> <end-marker>` prints the run of text that
-# begins at <start-marker> and stops before the next <end-marker> (or runs to the
-# end when the terminator is absent), and exits 1 when <start-marker> is missing.
-# Same idiom as tests/checks/wp-section-tailwind.sh's `basic` bullet: scoping an
-# assertion to one bullet's own span is what makes it DIRECTED. A clause moved
-# from the plain-CSS bullet into the Tailwind-evidence bullet — which is exactly
-# the inversion of this rule — leaves the span and fails, where a region-wide
-# grep for the same clause would not notice.
-span() {
-  printf '%s' "$1" | awk -v a="$2" -v b="$3" '
+# `bullet <raw-region> <label>` prints the ONE markdown list item of <raw-region>
+# whose bullet line contains <label> — that line, its wrapped continuation lines
+# and any nested sub-bullets, and nothing else — and exits 1 when no bullet
+# carries the label.
+#
+# Scoping an assertion to one bullet's own text is what makes it DIRECTED: a
+# clause moved from the plain-CSS bullet into the Tailwind-evidence bullet, which
+# is exactly the inversion of this rule, leaves the scope and fails, where a
+# region-wide grep for the same clause would not notice. That property is the
+# reason this helper exists and it is unchanged.
+#
+# What changed is where a bullet is judged to END. The previous helper ran from
+# one bullet's label to the NEXT bullet's label and, when that terminator was
+# absent, silently ran on to the end of the region — the same defect the four awk
+# ranges above carry an explicit closure proof against, in a helper that had
+# none. Two ordinary correct edits tripped it, both exiting 1 with a diagnosis
+# that was the opposite of what the file said:
+#   - renaming item 2's label ("2. **Back up, per page.**" → "2. **Preserve the
+#     original, per page.**") took away the Ambiguous bullet's terminator, so
+#     that bullet swallowed item 4's "skip it forever" and the check reported
+#     "Step 2.6 skips on ambiguous input";
+#   - reordering the last two bullets (Ambiguous before Skip-only), which is
+#     semantically identical, took away the Skip-only bullet's terminator and
+#     produced the same false message.
+# A list item does not need a sibling to know where it ends. Markdown says where:
+# at the next item at its own level, at the blank line that closes the list, or at
+# the first line dedented out of it. None of those is a neighbouring bullet's
+# wording, so neither edit above can move it.
+bullet() { # <raw-region> <label>
+  printf '%s\n' "$1" | awk -v lab="$2" '
   {
-    i = index($0, a)
-    if (i == 0) exit 1
-    s = substr($0, i)
-    j = index(substr(s, length(a) + 1), b)
-    print (j > 0) ? substr(s, 1, length(a) + j - 1) : s
-  }'
+    line = $0
+    m = match(line, /[^[:space:]]/)
+    ind = (m ? m - 1 : -1)                      # -1 = blank or whitespace-only
+  }
+  ind < 0 { grab = 0; next }                    # blank line closes the item
+  line ~ /^[[:space:]]*- / {
+    if (grab && ind > bind) { print line; next }   # nested sub-bullet: content
+    if (index(line, lab) > 0) {                    # this is our item
+      grab = 1; found = 1; bind = ind; print line; next
+    }
+    grab = 0; next                                 # a sibling bullet ends it
+  }
+  grab && ind > bind { print line; next }       # wrapped continuation line
+  { grab = 0 }                                  # anything dedented ends it
+  END { if (!found) exit 1 }
+  '
+}
+
+# Closure proof for each extracted bullet, in the shape of the awk-range proofs
+# above. `bullet` cannot run past the list by construction, but that is a claim to
+# hold in place, not to trust: it is the claim whose absence made the previous
+# helper report "Step 2.6 skips on ambiguous input" over a renamed heading.
+#
+# The proof is structural, on the raw lines, and deliberately says nothing about
+# wording: an overrun bullet contains a second list marker at its own indent, or a
+# line from the numbered step list underneath. Keying it on a neighbour's LABEL
+# instead would fire on an ordinary cross-reference ("unlike **Skip only**, ..."),
+# which is the false-fail class this round exists to remove.
+bullet_closed() { # <own-label> <raw-bullet-text>
+  local self=$1 raw=$2 counts sib num
+  counts=$(printf '%s\n' "$raw" | awk '
+    { m = match($0, /[^[:space:]]/); ind = (m ? m - 1 : -1) }
+    NR == 1 { bind = ind; next }
+    ind == bind && /^[[:space:]]*- / { sib++ }
+    /^[[:space:]]*[0-9]+\. / { num++ }
+    END { print (sib + 0) " " (num + 0) }
+  ')
+  sib=${counts% *}; num=${counts#* }
+  [ "$sib" -eq 0 ] \
+    || fail "Step 2.6's \"$self\" bullet is not closed — it swallowed $sib sibling bullet(s) at its own indent. Every assertion scoped to this bullet is then satisfiable from a neighbouring one, which is how a clause moved between bullets stops being caught."
+  [ "$num" -eq 0 ] \
+    || fail "Step 2.6's \"$self\" bullet is not closed — it ran on past the end of the bullet list into the numbered step list ($num numbered item(s) inside it). The detect assertions would then be satisfiable from items 2-6, which is how renaming an unrelated step's label used to make this check report the opposite of what the file said."
+  return 0
 }
 
 f26=$(flat "$s26")
@@ -140,6 +197,77 @@ sentences() {
 # of object, not a claim, and the round-1 wording this file exists to ban
 # ("... detects and skips instead of converting twice") contains one.
 NEGATION="(^|[^a-zA-Z])(not|never|no|nor|cannot|neither)([^a-zA-Z]|\$)|n't"
+
+# `undirected <flat-text> <literal-needle> <lowercase-ERE>` prints every sentence
+# of <flat-text> that contains <literal-needle> and in which <lowercase-ERE>
+# matches at a position NOT governed by a negation in front of it. Silence means
+# the text is clean.
+#
+# Two negatives in this file — "the plain-CSS bullet directs a SKIP" and "Step 2.6
+# skips on ambiguous input" — were raw greps with no negation awareness, in a file
+# that documents this machinery a few lines above and already uses it in
+# no_rerun_safe(). Both fire on the obvious strengthening edit:
+#     Never skip the page because the only CSS it carries arrives through a link.
+#     Never leave the file alone just because you are unsure.
+# and both then report the exact opposite of what the sentence says. A gate that
+# fails on work that strengthens the contract it defends gets muted, and muting
+# this file silences ~50 assertions.
+#
+# The negation must PRECEDE the matched verb — that is what makes it govern the
+# claim rather than merely share a sentence with it. Anywhere-in-sentence
+# suppression is not equivalent and is not safe: it would excuse a wording that
+# ends "... detects and skips instead of converting twice", which is also why
+# `instead of`/`rather than` are kept out of $NEGATION.
+#
+# Sentence-bounded is not tight enough either, and this was proven, not guessed.
+# The ambiguous bullet's own inversion reads "... a page you cannot classify with
+# confidence: skip it." — a straight instruction to skip, which a sentence-wide
+# window excuses because "cannot" appears earlier in the same sentence governing
+# "classify". So the window is the CLAUSE: everything after the last `,` `;` `:`
+# or em-dash before the match. "Never skip the page ..." keeps its negation;
+# "... cannot classify with confidence: skip it" loses the one that was never
+# about skipping.
+#
+# The ERE is matched against a lower-cased copy, so pass it in lower case; `\b` is
+# deliberately absent because awk does not have it (in gawk `\b` is a backspace),
+# so word edges are written as [^a-z] classes.
+#
+# The optional 4th argument adds alternatives to $NEGATION for THAT CALL ONLY.
+# $NEGATION itself is shared by every negative in this file and by
+# no_rerun_safe(), and it is not the place to put a token one call happens to
+# need: "nothing" is a genuine negation in front of "reads the unconverted demo",
+# but putting it in the shared pattern would also excuse "Nothing else is needed;
+# a re-run is safe." — the exact claim no_rerun_safe() exists to catch, since that
+# helper takes everything before the word "safe" as its window. Per-call, the
+# extension is auditable at the call site; shared, it is invisible.
+undirected() { # <flat-text> <literal-needle> <lowercase-ERE> [<extra-negation-ERE>]
+  local text=$1 needle=$2 pat=$3 extra=${4:-} neg=$NEGATION sent
+  if [ -n "$extra" ]; then neg="$neg|$extra"; fi
+  while IFS= read -r sent; do
+    [ -n "$sent" ] || continue
+    printf '%s' "$sent" | awk -v pat="$pat" -v neg="$neg" '
+    {
+      low = tolower($0); s = low; off = 0
+      while (match(s, pat)) {
+        # RSTART/RLENGTH belong to THIS match and the clause loop below calls
+        # match() again, which overwrites both — including on a failed match,
+        # where gawk sets RSTART=0 and RLENGTH=-1. Reading them afterwards walked
+        # the cursor BACKWARDS, so the second pass looked at a truncated prefix
+        # ("nev"), found no negation in it and reported a prohibition as a
+        # directive. Take a copy before anything else can match.
+        ms = RSTART; ml = RLENGTH
+        if (ml < 1) break
+        pre = substr(low, 1, off + ms - 1)
+        cl = pre
+        while (match(cl, /[,;:]|—/)) { cl = substr(cl, RSTART + RLENGTH) }
+        if (cl !~ neg) { print $0; exit }
+        off = off + ms + ml - 1
+        s = substr(low, off + 1)
+      }
+    }'
+  done <<< "$(sentences "$text" "$needle")"
+  return 0
+}
 
 # "A re-run is safe" — banned in EVERY region that can carry it.
 #
@@ -253,6 +381,11 @@ if printf '%s' "$f26" | grep -qF 'restore `demo/.original/<slug>.html` from `dem
 fi
 printf '%s' "$f26" | grep -qiF 'report the page as unconverted' \
   || fail "Step 2.6 does not report a page whose conversion failed verification as unconverted"
+# ...and the verification it reads has to include the third check (see $t's Step 4
+# below). Without it a page that lost its stylesheet and gained invented utilities
+# passes, is left at demo/<slug>.html, and is never restored from demo/.original/.
+printf '%s' "$f26" | grep -qF 'no project-local stylesheet `<link>` remaining' \
+  || fail "Step 2.6's verify item does not include /wp-tailwindify's third verification check — that no project-local stylesheet <link> remains on the converted page"
 
 # The re-point item must say downstream reads the CONVERTED markup, and must
 # name the readers it covers — items 3 and 4 (header/footer) were missed once
@@ -267,8 +400,19 @@ for item in 'item 2' 'item 3' 'item 4' 'item 5' 'item 6'; do
 done
 printf '%s' "$f26" | grep -Eq 'never[[:space:]]*a build source' \
   || fail "Step 2.6 does not state that the .original.html backup is never a build source"
-if printf '%s' "$f26" | grep -Eqi 'read[s]?( from)?[^.]{0,40}(original|unconverted|plain-CSS) demo'; then
-  fail "Step 2.6 claims a later reader still reads the original/unconverted demo"
+# Negation-aware (see `undirected` above), for exactly the reason the two
+# evidence negatives are. This was the last raw negative left in the file, and
+# the obvious strengthening edit tripped it: "No downstream builder reads the
+# unconverted demo." is this assertion's own contract written into the file it
+# guards, and the grep exited 1 saying the file claimed the opposite of what that
+# sentence says. Matched against a lower-cased copy so the old `-i` behaviour is
+# unchanged, with `demo` as the sentence needle because every shape of the claim
+# ends in that word.
+f26l=$(printf '%s' "$f26" | tr 'A-Z' 'a-z')
+reads_orig=$(undirected "$f26l" 'demo' 'read[s]?( from)?[^.]{0,40}(original|unconverted|plain-css) demo' \
+                          '(^|[^a-z])(nothing|none)([^a-z]|$)')
+if [ -n "$reads_orig" ]; then
+  fail "Step 2.6 claims a later reader still reads the original/unconverted demo: $reads_orig"
 fi
 
 # The already-tailwind demo must be detected, not converted twice. Matched on
@@ -299,26 +443,71 @@ printf '%s' "$f26" | grep -qF 'conversion skipped' \
 # absence of plain-CSS evidence; ambiguity must convert. Each is scoped to its own
 # bullet, so moving a clause between bullets fails rather than passing.
 # ---------------------------------------------------------------------------
-plain_ev=$(span "$f26" '- **Plain-CSS evidence' '- **Tailwind evidence') \
+#
+# The four bullet labels below are frozen exact strings, deliberately. They are
+# the rule's own structure — the four cases it decides between — and each FAIL
+# message names the bullet it wants back, so a rename that is genuinely intended
+# tells the author exactly what to update. Flattening cannot help here: a label is
+# what identifies the bullet, so there is nothing to match it by if it is gone.
+plain_raw=$(bullet "$s26" '**Plain-CSS evidence') \
   || fail "Step 2.6's detect step has no \"Plain-CSS evidence\" bullet — the rule must enumerate what counts as evidence of plain CSS, or it is back to testing for the absence of a <style> block"
-tw_ev=$(span "$f26" '- **Tailwind evidence' '- **Skip only') \
+tw_raw=$(bullet "$s26" '**Tailwind evidence') \
   || fail "Step 2.6's detect step has no \"Tailwind evidence\" bullet — a skip needs positive evidence of Tailwind-nativeness to rest on"
-skip_ev=$(span "$f26" '- **Skip only' '- **Ambiguous') \
+skip_raw=$(bullet "$s26" '**Skip only') \
   || fail "Step 2.6's detect step has no \"Skip only ...\" bullet stating the condition under which a page is left unconverted"
-amb_ev=$(span "$f26" '- **Ambiguous' '2. **Back up') \
+amb_raw=$(bullet "$s26" '**Ambiguous') \
   || fail "Step 2.6's detect step has no \"Ambiguous\" bullet — the tie has to be broken explicitly, and towards converting"
+plain_ev=$(flat "$plain_raw")
+tw_ev=$(flat "$tw_raw")
+skip_ev=$(flat "$skip_raw")
+amb_ev=$(flat "$amb_raw")
+bullet_closed '**Plain-CSS evidence' "$plain_raw"
+bullet_closed '**Tailwind evidence'  "$tw_raw"
+bullet_closed '**Skip only'          "$skip_raw"
+bullet_closed '**Ambiguous'          "$amb_raw"
+
+# The other half of the closure proof, and the half that actually caught a broken
+# `bullet`. Counting list markers alone is not enough: a helper that stops
+# printing sibling MARKERS but keeps printing their continuation lines overruns
+# without ever showing a second marker. Four disjoint bullets share no line; an
+# overrun shows up immediately as a line appearing in two of them.
+dup=$(printf '%s\n%s\n%s\n%s\n' "$plain_raw" "$tw_raw" "$skip_raw" "$amb_raw" \
+      | grep -v '^[[:space:]]*$' | sort | uniq -d)
+[ -z "$dup" ] \
+  || fail "Step 2.6's four detect bullets are not disjoint — the same line appears in more than one of them, so a bullet ran past its own end and every assertion scoped to it is satisfiable from a neighbour: $(printf '%s' "$dup" | head -1)"
+
+# A bullet's bold LABEL is not its instruction, and an assertion that a bullet
+# resolves a certain way must not be satisfiable by the label alone. Proven, not
+# assumed: inverting the ambiguous bullet's instruction to "... a page you cannot
+# classify with confidence: skip it." left `\bconverts\b` matching its own label,
+# "**Ambiguous input converts.**", so the decision assertion below still passed on
+# a bullet that said the opposite. The label stays gated (bullet() finds the item
+# by it); the decision is read from the body.
+body() { printf '%s' "$1" | sed 's/^ *- *\*\*[^*]*\*\* *//'; }
+amb_body=$(body "$amb_ev")
+[ "$amb_body" != "$amb_ev" ] \
+  || fail "Step 2.6's ambiguous-input bullet has no bold label to strip — the decision assertions below would be read from the label instead of from the instruction"
 
 # 1. A linked stylesheet is plain-CSS evidence. This is the whole defect: without
 #    it, every fixture in tests/fixtures/ (no <style>, no style=, rules in
 #    assets/styles.css) classifies as already Tailwind-native.
-printf '%s' "$plain_ev" | grep -qF '<link rel="stylesheet">' \
+#    The literal stops at the closing quote, not at the tag's `>`: writing the tag
+#    the way a real page carries it — `<link rel="stylesheet" href="assets/styles.css">`
+#    — is strictly an improvement and is what the rule is about, and the `>` form
+#    exited 1 on it here, at the MUST-remove assertion and at $t's validate list.
+printf '%s' "$plain_ev" | grep -qF '<link rel="stylesheet"' \
   || fail 'Step 2.6 does not count a `<link rel="stylesheet">` as plain-CSS evidence. A demo that keeps its rules in an external stylesheet has no <style> block and no style=" attribute, so under a rule that only tests for those it is silently declared already Tailwind-native and never converted — which is the original defect this branch exists to fix, reproduced at the gate meant to prevent it.'
 # ...and the bullet has to resolve to CONVERT. Naming the evidence and then
 # skipping on it would satisfy the assertion above and change nothing.
 printf '%s' "$plain_ev" | grep -qiF 'convert' \
   || fail "Step 2.6's plain-CSS evidence bullet never says what plain-CSS evidence means for the page: it means convert"
-if printf '%s' "$plain_ev" | grep -Eqi 'means skip|means it is (already )?tailwind|\bskip (it|the page|that page|them)\b'; then
-  fail "Step 2.6's plain-CSS evidence bullet directs a SKIP — plain-CSS evidence is the reason to convert, not the reason to skip"
+# Negation-aware (see `undirected` above): "Never skip the page because the only
+# CSS it carries arrives through a link." is a legitimate strengthening of this
+# bullet and used to exit 1 here saying the bullet directed a skip.
+plain_skip=$(undirected "$plain_ev" 'skip' 'means skip|(^|[^a-z])skip (it|the page|that page|them)([^a-z]|$)')
+plain_skip="$plain_skip$(undirected "$plain_ev" 'means it is' 'means it is (already )?tailwind')"
+if [ -n "$plain_skip" ]; then
+  fail "Step 2.6's plain-CSS evidence bullet directs a SKIP — plain-CSS evidence is the reason to convert, not the reason to skip: $plain_skip"
 fi
 
 # 2. Tailwind evidence must be defined POSITIVELY, by utilities. Defining it as
@@ -344,10 +533,15 @@ printf '%s' "$skip_ev" | grep -qF 'conversion skipped' \
 # explanatory prose ("Converting a page that was already Tailwind-native costs
 # ..."), which survives inverting the instruction. Require the verb in the
 # DECISION position instead.
-printf '%s' "$amb_ev" | grep -Eqi '\bconverts\b|\bconvert (it|them|the page|that page)\b' \
+printf '%s' "$amb_body" | grep -Eqi '\bconverts\b|\bconvert (it|them|the page|that page)\b' \
   || fail "Step 2.6's ambiguous-input bullet does not resolve to convert"
-if printf '%s' "$amb_ev" | grep -Eqi '\bskip (it|the page|that page|them)\b|leave (it|the file|the page) alone'; then
-  fail "Step 2.6 skips on ambiguous input. The two errors are not symmetrical: a redundant conversion costs one pass over markup already in the target form, a wrong skip voids the whole tailwind path and reports success while doing it."
+# Negation-aware for the same reason: "Never leave the file alone just because you
+# are unsure." says what this assertion wants and used to exit 1 saying the
+# opposite.
+amb_skip=$(undirected "$amb_ev" 'skip' '(^|[^a-z])skip (it|the page|that page|them)([^a-z]|$)')
+amb_skip="$amb_skip$(undirected "$amb_ev" 'alone' 'leave (it|the file|the page) alone')"
+if [ -n "$amb_skip" ]; then
+  fail "Step 2.6 skips on ambiguous input. The two errors are not symmetrical: a redundant conversion costs one pass over markup already in the target form, a wrong skip voids the whole tailwind path and reports success while doing it: $amb_skip"
 fi
 # `conver` and not `convert`: "Bias the tie toward conversion" is the same claim
 # and used to exit 1 here. Scoped to the ambiguous bullet, and the verb list is
@@ -367,12 +561,15 @@ if printf '%s' "$f26" | grep -qF 'no `<style>` block and no static `style="` att
   fail "Step 2.6's detect step carries the original heuristic again: absence of inline CSS is not proof of Tailwind-nativeness, and every demo fixture in this repo is the counter-example"
 fi
 
-# 6. The rule against a real page, which is closer to a test than any grep over
-#    prose. tests/fixtures/demo-acme/index.html is the exact shape the old
-#    heuristic mis-classified: no <style>, no style=", every rule in
-#    assets/styles.css, BEM class names. Under the rule above it has plain-CSS
-#    evidence and no Tailwind evidence, so it must come out "convert" — under the
-#    old one it came out "skip".
+# 6. Keep a plain-CSS-shaped demo in the repo. This is NOT a test of the rule and
+#    must not be read as one: Step 2.6 opens `demo/<slug>.html`, the file
+#    `wp-normalize` emits, and never opens tests/fixtures/** at all. All five
+#    assertions below can hold while the rule above is arbitrarily wrong.
+#    What they do buy is that the repo keeps at least one demo in the shape the
+#    old heuristic mis-classified — no <style>, no style=", every rule in
+#    assets/styles.css, BEM class names — so the case stays available to anyone
+#    reading the rule or exercising the converter by hand. If the fixture drifts
+#    to some other shape, that is worth knowing; it is not evidence about the rule.
 fx=tests/fixtures/demo-acme/index.html
 test -f "$fx" || fail "the plain-CSS worked example $fx is gone. Re-point this assertion at a demo fixture that still keeps its rules in an external stylesheet — without one, nothing here checks the rule against a real page."
 if grep -q '<style' "$fx"; then
@@ -396,21 +593,66 @@ grep -q 'site-header__' "$fx" \
 # supposed to close it just ran the range on to the NEXT `###` heading, so the
 # closure proof printed PASS while the region silently grew. A block that ends at
 # its own blank line cannot grow at all.
+# `**MUST preserve:**` and `**MUST remove:**` stay frozen exact strings, for the
+# same reason as the four detect-bullet labels: they are the contract's own
+# anchors, nothing else identifies the two lists, and each FAIL message names the
+# heading it wants. Re-wrapping cannot move them (they are short and stand alone
+# on their line); only a deliberate rename can, and that is a change worth being
+# told about.
+#
+# The continuation pattern used to be `  [^ ]` — exactly two spaces. A four-space
+# continuation indent is valid Markdown and is what a re-wrap of a nested item
+# produces; under it the block silently stopped at the first such line and the
+# assertion below still printed PASS over the truncated remainder. Any indent now
+# counts as a continuation, and the block is required to have ended where it
+# claims to: on the blank line that closes the list, not on prose.
 bullets() { # <file> <heading-line>
-  awk -v h="$2" '$0 == h {inb = 1; next} inb && /^(- |  [^ ])/ {print; next} inb {exit}' "$1"
+  awk -v h="$2" '
+    $0 == h { inb = 1; next }
+    inb && /^[[:space:]]*$/ { exit 0 }
+    inb && /^(- |[[:space:]]+[^[:space:]])/ { print; next }
+    inb { exit 3 }
+  ' "$1"
 }
-mustkeep=$(bullets "$a" '**MUST preserve:**')
-mustrm=$(bullets "$a" '**MUST remove:**')
+rc=0; mustkeep=$(bullets "$a" '**MUST preserve:**') || rc=$?
+[ "$rc" -ne 3 ] || fail "$a's MUST preserve list does not end at a blank line — the block ran into prose, so the assertions scoped to it are satisfiable from outside the list"
+[ "$rc" -eq 0 ] || fail "$a's MUST preserve list could not be read (bullets exited $rc)"
+rc=0; mustrm=$(bullets "$a" '**MUST remove:**') || rc=$?
+[ "$rc" -ne 3 ] || fail "$a's MUST remove list does not end at a blank line — the block ran into prose, so the assertions scoped to it are satisfiable from outside the list"
+[ "$rc" -eq 0 ] || fail "$a's MUST remove list could not be read (bullets exited $rc)"
 [ -n "$mustrm" ] || fail "$a has no '**MUST remove:**' bullet list for the conversion to be held to"
 [ -n "$mustkeep" ] || fail "$a has no '**MUST preserve:**' bullet list"
 if printf '%s\n' "$mustrm" | grep -q '^#'; then
   fail "$a's MUST remove block swallowed a heading — the assertion below would be satisfiable from outside the list"
 fi
-printf '%s' "$(flat "$mustrm")" | grep -qF '<link rel="stylesheet">' \
+printf '%s' "$(flat "$mustrm")" | grep -qF '<link rel="stylesheet"' \
   || fail "$a's MUST remove list does not remove the demo's own project stylesheet <link>. /wp-yolo Step 2.6 skips a page only when it has Tailwind evidence and no plain-CSS evidence, and a linked project stylesheet IS plain-CSS evidence — so a conversion that leaves the link behind makes every converted page re-convert on every later run, and leaves a page that is not actually Tailwind-native."
-if printf '%s' "$(flat "$mustkeep")" | grep -qF '<link rel="stylesheet">'; then
+if printf '%s' "$(flat "$mustkeep")" | grep -qF '<link rel="stylesheet"'; then
   fail "$a preserves the project stylesheet <link> through conversion — the converted page then still carries plain-CSS evidence and is not Tailwind-native. Google Fonts and Tailwind CDN links are the ones that stay."
 fi
+
+# 8. ...and the agent has to READ what it is told to delete. The MUST-remove
+#    bullet above was added without touching the agent's Input, which listed only
+#    inline `<style>` blocks and class patterns, or the dispatch context, which
+#    hands over three things: input path, output path, project CLAUDE.md. Nothing
+#    opened the linked file. The agent is not sourceless — `wp-normalize` inlines
+#    the rules it can match to a section — but the rules that match NO section
+#    (`:root` custom properties, resets, `body`, `@font-face`, global `@media`)
+#    are not inlined and are reachable only through the link, so dropping the link
+#    without reading it silently deletes the demo's design tokens and font
+#    loading. That is a regression on the previous behaviour, where the link
+#    stayed and the page still rendered.
+sIn=$(awk '/^## Input/,/^### Step 2: Map Colors/' "$a")
+[ -n "$sIn" ] || fail "$a has no '## Input' region delimited by '### Step 2: Map Colors'"
+printf '%s\n' "$sIn" | tail -1 | grep -q '^### Step 2: Map Colors' \
+  || fail "$a's Input/Step 1 region is not terminated by its '### Step 2: Map Colors' heading — the source-reading assertions would silently become file-wide and be satisfiable from the MUST-remove list they exist to license"
+fIn=$(flat "$sIn")
+printf '%s' "$fIn" | grep -qF '<link rel="stylesheet"' \
+  || fail "$a's Input/Step 1 never mentions the project stylesheet <link>. Step 4 tells the agent to delete it; if Step 1 never opens it, the rules that live only there — :root custom properties, resets, @font-face, global @media — are deleted with it and nothing replaces them."
+printf '%s' "$fIn" | grep -qF 'conversion source exactly like a `<style>` block' \
+  || fail "$a's Input/Step 1 does not tell the agent that a linked stylesheet's rules are conversion source exactly like a \`<style>\` block's. Naming the file is not enough — it has to be read AS SOURCE, or the conversion covers only the rules wp-normalize happened to inline."
+printf '%s' "$fIn" | grep -qF 'licensed only once you have accounted for its rules' \
+  || fail "$a's Input/Step 1 does not tie the MUST-remove licence to having accounted for the linked rules. Removal is only safe after the rules are absorbed; as an unconditional instruction it is a delete."
 
 # ...and that skip path must not be sold as making the RUN safe. See
 # no_rerun_safe above: this is the claim round 4 deleted from Step 3 and left
@@ -597,9 +839,34 @@ done <<< "$(sentences "$fall" 'demo/.original/')"
 # ---------------------------------------------------------------------------
 # Step 5.5 — the parity-gate auto-fix must not re-inject plain CSS
 # ---------------------------------------------------------------------------
+# The template branch has to be asserted in its DIRECTION, the way Step 2.6's
+# backup and restore contracts are. The three assertions that used to stand here
+# were presence-only, and presence is not direction: swapping the two words in
+# the blockquote's branch lines — `basic` told to emit Tailwind utilities,
+# `tailwind` told to write a literal CSS declaration into the theme CSS — left
+# all three satisfied and printed PASS, with the file then instructing the
+# tailwind path to re-inject exactly the plain CSS Step 5.5 exists to keep out.
+printf '%s' "$f55" | grep -qF 'On `basic`, a repair is a literal CSS declaration' \
+  || fail 'Step 5.5 does not bind the literal-CSS repair to `basic`: its template blockquote must say "On `basic`, a repair is a literal CSS declaration"'
+printf '%s' "$f55" | grep -qF 'On `tailwind`, a repair is expressed as **Tailwind utility classes' \
+  || fail 'Step 5.5 does not bind the tailwind repair to Tailwind utility classes: its template blockquote must say "On `tailwind`, a repair is expressed as **Tailwind utility classes"'
+# ...and each inversion banned by name, because the correct pair of lines can be
+# left in place while the wrong pair is added underneath it. A prohibition is
+# unaffected: negating either claim ("a repair is never a literal CSS
+# declaration") breaks the literal these two look for.
+if printf '%s' "$f55" | grep -qF 'On `tailwind`, a repair is a literal CSS declaration'; then
+  fail "Step 5.5 tells the tailwind path that a repair is a literal CSS declaration written into the theme CSS — that re-injects the plain CSS this template exists to remove, which is the whole reason Step 5.5 branches"
+fi
+if printf '%s' "$f55" | grep -qF 'On `basic`, a repair is expressed as **Tailwind utility classes'; then
+  fail "Step 5.5 tells the basic path to repair with Tailwind utility classes — the basic theme has no Tailwind build, so the repair is inert and the parity finding never clears"
+fi
 printf '%s' "$f55" | grep -qF 'skills/wp-tailwind-system/SKILL.md' \
   || fail "Step 5.5's auto-fix has no tailwind branch citing the wp-tailwind-system decision ladder"
-printf '%s' "$f55" | grep -qF 'Step 2.6-converted' \
+# `-E` with an optional space after the hyphen rather than `-F`: re-wrapping the
+# blockquote so the break falls at this hyphen is an ordinary correct edit, and
+# `flat` rejoins the halves with a space, so the fixed string exited 1 on it.
+# Nothing else about the assertion changes.
+printf '%s' "$f55" | grep -Eqi 'step 2\.6- ?converted' \
   || fail "Step 5.5's tailwind repair does not read from the Step 2.6-converted demo"
 printf '%s' "$f55" | grep -qiF 'never write a raw css declaration into a theme css file on the tailwind path' \
   || fail "Step 5.5 does not forbid writing a raw CSS declaration into theme CSS on the tailwind path"
@@ -625,12 +892,22 @@ grep -qF 'demo/.original/<slug>.html' "$t" \
 # Tailwind-native"). Two documents disagreeing about the rule is how the rule
 # gets applied wrongly, so both have to agree with Step 2.6.
 # ---------------------------------------------------------------------------
-s2t=$(awk '/^## Step 2: Read and Validate/,/^## Step 3:/' "$t")
+# Round 6: these three regions anchor on the step NUMBER, not the step TITLE.
+# They used to open on the full heading ('## Step 2: Read and Validate'), so
+# renaming a heading in $t reddened the gate over an ordinary correct edit —
+# proven with
+#   sed -E 's/^(## Step [0-9]+):.*/\1: Renamed heading/' commands/wp-tailwindify.md
+# → "FAIL: commands/wp-tailwindify.md has no Step 2 read/validate region delimited
+# by '## Step 3:'". The same edit on $f, wp-polish.md and wp-tailwind-migrate.md is
+# harmless, because every region there already anchors on the number. The `tail -1`
+# closure proofs are unchanged: they are what stops a range running to EOF and
+# turning a scoped assertion back into a file-wide grep.
+s2t=$(awk '/^## Step 2:/,/^## Step 3:/' "$t")
 [ -n "$s2t" ] || fail "$t has no Step 2 read/validate region delimited by '## Step 3:'"
 printf '%s\n' "$s2t" | tail -1 | grep -q '^## Step 3:' \
   || fail "$t's Step 2 region is not terminated by its '## Step 3:' heading — the validate assertions would silently become file-wide"
 f2t=$(flat "$s2t")
-printf '%s' "$f2t" | grep -qF '<link rel="stylesheet">' \
+printf '%s' "$f2t" | grep -qF '<link rel="stylesheet"' \
   || fail "$t's Step 2 validate list does not count a linked stylesheet as CSS to convert — it must agree with /wp-yolo Step 2.6, where a project-local <link rel=\"stylesheet\"> is plain-CSS evidence"
 printf '%s' "$f2t" | grep -qi 'positive evidence' \
   || fail "$t's Step 2 validate list does not require positive evidence before calling a demo already Tailwind-native"
@@ -643,19 +920,35 @@ fi
 # temp-then-move, gated on the Step 4 verification.
 ft=$(flat "$(cat "$t")")
 
-# Every claim in $t that something is/was declared "already Tailwind-native" has
-# to key on the positive rule, not on a missing <style> block. Forgiving on
-# purpose (any of utilities / stylesheet / evidence satisfies it), because this
-# scans sentences the author has not written yet; the reverted wording — "finds
-# no `<style>` block, declares the page already Tailwind-native" — carries none
-# of the three.
+# Every claim in $t that CLASSIFIES a page as Tailwind-native has to key on the
+# positive rule, not on a missing <style> block. Forgiving on purpose (any of
+# utilities / stylesheet / evidence satisfies it), because this scans sentences
+# the author has not written yet.
+#
+# The needle used to be the exact bigram `already Tailwind-native`, and that made
+# the whole loop hollow: reverting $t's hazard clause to the defective
+# absence-based wording with the two words swapped — "finds no `<style>` block,
+# declares the page Tailwind-native already and skips it on every later run" —
+# iterated zero times and printed PASS. So did `already be Tailwind-native`, the
+# phrasing of the bullet this task removed, and so did any lowercase variant.
+# The needle is now `tailwind-native` alone, matched against a lower-cased copy of
+# the file so capitalisation cannot evade it.
+#
+# Widening the needle that far sweeps in sentences that merely name the output
+# format ("Convert a standard HTML/CSS demo file into Tailwind-native HTML"),
+# which assert nothing about any particular page and must stay green. The loop
+# therefore looks only at sentences that make a JUDGEMENT — already / declare /
+# decide / treat / consider / deem / assume / judge / call — which is what every
+# form of the defect has in common and what a format statement never has.
+ftl=$(printf '%s' "$ft" | tr 'A-Z' 'a-z')
 while IFS= read -r sent; do
   [ -n "$sent" ] || continue
-  if printf '%s' "$sent" | grep -Eqi 'utilit|stylesheet|evidence'; then
+  printf '%s' "$sent" | grep -Eq 'alread|declar|decid|treat|consider|deem|assume|judg|call(s|ed)? (it|the page|the demo)' || continue
+  if printf '%s' "$sent" | grep -Eq 'utilit|stylesheet|evidence'; then
     continue
   fi
   fail "$t decides Tailwind-nativeness without naming the evidence it rests on. Absence of a <style> block is not evidence: a plain-CSS demo with an external stylesheet has none either, which is what made Step 2.6 skip the conversion on every page. Say what the page must positively carry: $sent"
-done <<< "$(sentences "$ft" 'already Tailwind-native')"
+done <<< "$(sentences "$ftl" 'tailwind-native')"
 printf '%s' "$ft" | grep -qF 'writes the converted HTML to a temporary path (`<output-path>.tmp`)' \
   || fail "$t does not require the agent to write to a temporary path (\`<output-path>.tmp\`) instead of the output path"
 printf '%s' "$ft" | grep -qF "moves it over the output path **only after** Step 4's verification passes" \
@@ -666,8 +959,25 @@ printf '%s' "$ft" | grep -qF 'If verification fails, discard the temporary file 
 if printf '%s' "$ft" | grep -Eq "moves it over the output path (\*\*)?(before|regardless of|and then|first)"; then
   fail "$t moves the temporary file into place before Step 4's verification — that is the destructive in-place write the temp path exists to prevent"
 fi
-printf '%s' "$ft" | grep -qF 'Only if 2 and 3 both hold, move the temporary file over the output path' \
-  || fail "$t's Step 4 does not make the move conditional on both verification checks"
+printf '%s' "$ft" | grep -qF 'Only if 2, 3 and 4 all hold, move the temporary file over the output path' \
+  || fail "$t's Step 4 does not make the move conditional on all three verification checks (delimiters, no <style>, no project stylesheet <link>)"
+
+# ---------------------------------------------------------------------------
+# The conversion is licensed to DELETE the demo's project stylesheet <link>, and
+# nothing verified that it went. Step 4 checked delimiters and the absence of
+# <style> blocks only — so a page that lost its stylesheet and gained invented
+# utilities passed verification, was moved over demo/<slug>.html by /wp-yolo Step
+# 2.6, and was never restored from demo/.original/. The same omission is what
+# makes the skip rule non-terminating in the other direction: a converted page
+# that KEEPS the link carries plain-CSS evidence and re-converts on every run.
+# ---------------------------------------------------------------------------
+s4t=$(awk '/^## Step 4:/,/^## Step 5:/' "$t")
+[ -n "$s4t" ] || fail "$t has no Step 4 verify-output region delimited by '## Step 5:'"
+printf '%s\n' "$s4t" | tail -1 | grep -q '^## Step 5:' \
+  || fail "$t's Step 4 region is not terminated by a '## Step 5:' heading — the verification-list assertions would silently become file-wide"
+f4t=$(flat "$s4t")
+printf '%s' "$f4t" | grep -qF 'Verify no project-local stylesheet `<link>` remains' \
+  || fail "$t's Step 4 does not verify that the project stylesheet <link> is gone from the converted page. The agent is required to delete it, so nothing else can catch a conversion that deleted it without absorbing its rules — and a conversion that left it behind produces a page /wp-yolo Step 2.6 correctly judges not Tailwind-native, which it then re-converts forever."
 
 # Step 4 item 4's FAILURE branch, gated in its own direction. Flipping "discard
 # it, leave the output path untouched" to "move it anyway and report a partial
@@ -695,10 +1005,10 @@ fi
 # after the agent has returned, so the agent has nothing to condition on. The
 # agent writes `<output-path>.tmp` and stops; the command verifies and moves.
 # ---------------------------------------------------------------------------
-s3t=$(awk '/^## Step 3: Dispatch Conversion Agent/,/^## Step 4: Verify Output/' "$t")
-[ -n "$s3t" ] || fail "$t has no Step 3 dispatch region delimited by '## Step 4: Verify Output'"
-printf '%s\n' "$s3t" | tail -1 | grep -q '^## Step 4: Verify Output' \
-  || fail "$t's Step 3 dispatch region is not terminated by its '## Step 4: Verify Output' heading — the dispatch-context assertions would silently become file-wide"
+s3t=$(awk '/^## Step 3:/,/^## Step 4:/' "$t")
+[ -n "$s3t" ] || fail "$t has no Step 3 dispatch region delimited by '## Step 4:'"
+printf '%s\n' "$s3t" | tail -1 | grep -q '^## Step 4:' \
+  || fail "$t's Step 3 dispatch region is not terminated by its '## Step 4:' heading — the dispatch-context assertions would silently become file-wide"
 f3t=$(flat "$s3t")
 
 printf '%s' "$f3t" | grep -qF '**What the agent writes: `<output-path>.tmp`, never `<output-path>` itself.**' \
@@ -711,8 +1021,26 @@ printf '%s' "$f3t" | grep -qF '**This command**, not the agent, moves it over th
   || fail "$t names the agent, not the command, as the actor that moves the temporary file — Step 4 runs after the agent returns, so the agent cannot condition on it"
 
 # The stale sentence that contradicted all of the above.
-if printf '%s' "$ft" | grep -qiF 'overwriting its own input'; then
-  fail "$t still tells the agent it is overwriting its own input — false under temp-then-move, and it reinstates the direct-write reading"
+#
+# Negation-aware (see `undirected`), which it was not: this was the one negative
+# in the file that did not route through the helper, and it survived only by the
+# inflection accident that the paragraph above happens to read "never
+# overwrites". Two ordinary correct edits exited 1 with a message that was the
+# opposite of what the file said — adding "The temp path is the mechanism that
+# stops the agent from overwriting its own input.", and a pure reword of the
+# existing sentence to "Under it there is no risk of the agent overwriting its
+# own input".
+#
+# What is banned is the AFFIRMATIVE claim, so the pattern asks for the actor to be
+# the one doing it: a finite "overwrites its own input", or "overwriting" with the
+# actor directly in front of it. A preventive framing puts a preposition between
+# the two ("stops the agent FROM overwriting"), so it never matches; a negated one
+# ("no risk of the agent overwriting ...") matches and is then governed by the
+# negation in its own clause. Both stay green without widening $NEGATION, which
+# every other negative in this file depends on.
+own_input=$(undirected "$ftl" 'its own input' '(^|[^a-z])overwrites its own input|(^|[^a-z])(agent|command|conversion|it|this|that)( is| was| will be| would be)? overwriting its own input')
+if [ -n "$own_input" ]; then
+  fail "$t still tells the agent it is overwriting its own input — false under temp-then-move, and it reinstates the direct-write reading: $own_input"
 fi
 # Direction: no instruction in the dispatch context may name the output path as
 # the thing the agent writes.
@@ -724,5 +1052,261 @@ fi
 if printf '%s' "$f3t" | grep -oE 'writes?[^.`]{0,20}`<output-path>[^`]*`' | grep -qv '<output-path>\.tmp'; then
   fail "$t's Step 3 dispatch context has a write instruction that names \`<output-path>\` rather than \`<output-path>.tmp\`"
 fi
+
+# ===========================================================================
+# Round 6 — what a REHEARSAL of Step 2.6 found.
+#
+# The eight assertions below are not code review. An agent executed Step 2.6
+# against a three-page demo with a real 82-line stylesheet (`:root` tokens,
+# `@media`, `@font-face`, `background url()`, an `::after` gradient, hover/focus,
+# a transition), compiled the result with Tailwind 4.1.5 and diffed COMPUTED
+# STYLES in a browser at six widths. Each assertion pins a defect that run
+# measured.
+#
+# The skill file is read HERE, not only in tests/checks/wp-tailwind-system.sh,
+# and the split is deliberate: that check owns the decision ladder, the file
+# layout and the prohibition list — the authoring contract. What is gated below
+# is the CONVERSION contract, which spans two files by construction. The agent's
+# Demo Conversion Mode (agents/wp-tailwind.md Steps 1-5) does not read the skill
+# at all — only its Section Authoring Mode does — so the conversion-time facts
+# have to reach it through $t's dispatch context, and the dispatch context and
+# the skill section it points at are one claim in two places.
+# ===========================================================================
+k=skills/wp-tailwind-system/SKILL.md
+test -f "$k" || fail "$k missing"
+fk=$(flat "$(cat "$k")")
+fkl=$(printf '%s' "$fk" | tr 'A-Z' 'a-z')
+
+# ---------------------------------------------------------------------------
+# G1 — the converted demo renders UNSTYLED, and Step 5 used to send the user to
+# a browser to look at it. Conversion removes every <style> block (Step 4 item 3)
+# and every project stylesheet <link> (item 4) and adds nothing: the rehearsal's
+# converted index.html <head> was meta, meta, title. The command must say so.
+# ---------------------------------------------------------------------------
+s5t=$(awk '/^## Step 5:/,0' "$t")
+[ -n "$s5t" ] || fail "$t has no Step 5 region"
+f5t=$(flat "$s5t")
+f5tl=$(printf '%s' "$f5t" | tr 'A-Z' 'a-z')
+# Scoped to the REPORT BLOCK, not to the region: the region also carries the
+# rationale paragraph explaining why no runtime stylesheet is emitted, which uses
+# the word "unstyled" twice — so a region-wide grep stayed green with the whole
+# statement deleted from the text the user actually sees. Proven, not assumed.
+rep5=$(printf '%s\n' "$s5t" | awk '/^```/{n++; next} n==1')
+[ -n "$rep5" ] || fail "$t's Step 5 has no fenced report block"
+printf '%s' "$rep5" | grep -qi 'unstyled' \
+  || fail "$t's Step 5 report does not tell the user the converted demo renders UNSTYLED. Conversion strips the demo's <style> blocks and its stylesheet <link> and adds no replacement, so the page has no CSS at all until the theme's Tailwind build compiles it — and a report that omits that reads as a failed conversion."
+# ...and it must not send them to a browser to look at it. Negation-aware: the
+# file's own way of stating the rule is "Do not tell the user to open it in a
+# browser", which a bare grep would have failed on — the exact false-fail class
+# this file has been bitten by five times.
+browser=$(undirected "$f5tl" 'browser' '(review|open|inspect|preview|view)[a-z]* ?(the |it |this |that )?[a-z ]{0,30}in (a|the|your) browser')
+if [ -n "$browser" ]; then
+  fail "$t's Step 5 still tells the user to view the converted demo in a browser. It renders unstyled; the review is a diff of the markup against the original: $browser"
+fi
+
+# ---------------------------------------------------------------------------
+# G6 — `mv` is aliased to `mv -i` in an interactive shell. In the rehearsal the
+# first move PROMPTED and moved nothing, leaving three unconverted pages and
+# three orphan .tmp files while the loop reported success for every one of them.
+# ---------------------------------------------------------------------------
+printf '%s' "$f4t" | grep -qF '\mv -f' \
+  || fail "$t's Step 4 does not specify \`\\mv -f\` for the move. A bare \`mv\` hits the interactive \`mv -i\` alias, prompts, moves nothing and still exits 0 — the demo folder then reports three converted pages that were never touched."
+printf '%s' "$f4t" | grep -Eqi 'post-condition' \
+  || fail "$t's Step 4 gives the move no post-condition. A no-op move must not be able to read as a success."
+printf '%s' "$f4t" | grep -Eqi '\.tmp[^.]{0,60}(no longer exists|is gone|does not exist)' \
+  || fail "$t's Step 4 post-condition does not require the temporary file to be GONE after the move — that is the one observation that separates a real move from a prompt nobody answered."
+# `still[^.]{0,24}` rather than `still (on disk|...)`: "should the .tmp still be
+# present on disk" is an ordinary rewrite of "if the .tmp is still on disk", and
+# the tighter form exited 1 on it. The consequence half is what the assertion is
+# actually about, and it is unchanged.
+printf '%s' "$f4t" | grep -Eqi 'still[^.]{0,24}(on disk|there|present|exist)[^.]{0,120}(did not happen|failed|not converted)' \
+  || fail "$t's Step 4 does not say what a surviving .tmp means: the move did not happen and the page is a failure, not a conversion."
+
+# ---------------------------------------------------------------------------
+# G7 — the restore branch was dead code presented as the main defence.
+# /wp-tailwindify never moves an unverified file, so on a failure demo/<slug>.html
+# IS the pristine original and restoring the backup over it is a no-op. Keeping
+# the branch is fine; presenting a no-op as the safety net is not, because it
+# hides that the real guarantee lives in the temp-then-move mechanism.
+# ---------------------------------------------------------------------------
+printf '%s' "$f26" | grep -Eqi 'nothing to restore' \
+  || fail "Step 2.6 still presents the restore as the recovery path for a failed conversion. /wp-tailwindify moves the temporary file only after its own verification passes, so a failed page never reaches demo/<slug>.html: normally there is nothing to restore, and the step has to say so or the mechanism that actually protects the page goes undocumented."
+printf '%s' "$f26" | grep -Eqi 'belt[- ]and[- ]braces' \
+  || fail "Step 2.6 does not mark the restore as the belt-and-braces check it is — see the 'nothing to restore' assertion above."
+printf '%s' "$f26" | grep -Eqi 'compare `demo/<slug>\.html`' \
+  || fail "Step 2.6's restore is unconditional. It must be conditioned on the invariant it backs up: compare demo/<slug>.html with the backup after a reported failure, restore only when they differ (something outside the contract wrote that path)."
+printf '%s' "$f26" | grep -Eqi 'identical' \
+  || fail "Step 2.6 does not say what an identical comparison means — the contract held, report the page unconverted and touch nothing."
+
+# ---------------------------------------------------------------------------
+# G2 — Step 4.5's font carry had no template branch, and its instruction
+# ("enqueue the resulting stylesheet, or add to the theme's existing fonts
+# partial") describes a theme that does not exist on the tailwind path: a
+# Tailwind theme has no fonts partial and enqueues exactly one stylesheet, the
+# compiled main.css. A second enqueue is the plain-CSS regression this whole
+# branch exists to remove.
+# ---------------------------------------------------------------------------
+s45=$(awk '/^## Step 4\.5/,/^## Step 5:/' "$f")
+[ -n "$s45" ] || fail "wp-yolo has no Step 4.5 font-carry region"
+printf '%s\n' "$s45" | tail -1 | grep -q '^## Step 5:' \
+  || fail "the Step 4.5 region is not terminated by a '## Step 5:' heading — the font-carry assertions would silently become file-wide"
+f45=$(flat "$s45")
+
+b45_tw=$(bullet "$s45" '`tailwind` →') \
+  || fail "Step 4.5 has no \`tailwind\` branch. Without one the font carry enqueues a second stylesheet into a theme whose only enqueue is the compiled assets/css/dist/main.css."
+b45_ba=$(bullet "$s45" '`basic` →') \
+  || fail "Step 4.5 has no \`basic\` branch — the original enqueue behaviour has to survive the split."
+fb_tw=$(flat "$b45_tw")
+fb_ba=$(flat "$b45_ba")
+printf '%s' "$fb_tw" | grep -qF 'base/fonts.css' \
+  || fail "Step 4.5's \`tailwind\` branch does not route the @font-face rule to assets/css/src/tailwindcss/base/fonts.css — the skill's file layout gives \`base\` the resets-and-font-face role, and it is the only sanctioned home for the rule on this path: [$fb_tw]"
+printf '%s' "$fb_tw" | grep -Eqi 'enqueue nothing|exactly one enqueue|no second enqueue|only enqueue' \
+  || fail "Step 4.5's \`tailwind\` branch does not forbid a second enqueue. /wp-tailwind-migrate Step 5 says leave exactly one enqueue; a fonts stylesheet beside assets/css/dist/main.css is the regression this template exists to remove: [$fb_tw]"
+printf '%s' "$fb_ba" | grep -Eqi 'enqueue' \
+  || fail "Step 4.5's \`basic\` branch no longer enqueues the font stylesheet — the basic theme has no Tailwind build, so nothing else would load the @font-face rule: [$fb_ba]"
+if printf '%s' "$fb_ba" | grep -qF 'base/fonts.css'; then
+  fail "Step 4.5's \`basic\` branch writes into the Tailwind source tree. The two branches are swapped: [$fb_ba]"
+fi
+
+# The rehearsal's demo declared src: url("assets/fonts/marcellus.woff2") and
+# shipped no such file. Real demos do this constantly and the step had no branch
+# for it — and a re-emitted @font-face pointing at a missing file fails silently
+# under font-display: swap, so the theme renders the fallback stack with nothing
+# logged to say why.
+printf '%s' "$f45" | grep -Eqi 'not found in the demo folder|genuinely absent|not there|is missing' \
+  || fail "Step 4.5 has no branch for a @font-face whose woff2 is not in the demo folder. The rehearsal demo declares assets/fonts/marcellus.woff2 and does not ship it; without a branch the step copies nothing and carries on."
+# Widened after a proven false-fail: "never re-emit" and "leave that family's rule
+# out altogether" are ordinary rewrites of "do **not** re-emit" / "skip that
+# family", and the first form of this needle exited 1 on both. The bold markers
+# survive `flat`, hence the optional asterisks.
+printf '%s' "$f45" | grep -Eqi '(not|never)\*{0,2},? ?re-emit|(skip|omit) (that|the) family|leave (that|the) family[^.]{0,40}out' \
+  || fail "Step 4.5's missing-source branch does not stop the @font-face rule being re-emitted anyway. A rule pointing at a file the theme does not have fails silently — with font-display: swap the page renders the fallback stack and nothing anywhere says why."
+printf '%s' "$f45" | grep -Eqi 'review list' \
+  || fail "Step 4.5's missing-source branch does not surface the missing font to the operator. A silent fallback is exactly what the Review list exists for."
+
+# Step 5.5's prohibition ("Never write a raw CSS declaration into a theme CSS
+# file on the tailwind path", gated above) and its own missing-font repair
+# ("re-emit the @font-face rule") contradicted each other four lines apart.
+# @font-face is a raw declaration block with no utility and no @apply form — it
+# is rung 4 of the ladder — so it has to be carved out by name, and the carve-out
+# has to stay closed at one.
+printf '%s' "$f55" | grep -qF '@font-face' \
+  || fail "Step 5.5 orders a raw @font-face re-emission four lines under a blanket ban on raw CSS declarations, and never reconciles them. Carve @font-face out by name."
+# Both needles accept the synonyms a careful author reaches for. "@font-face is
+# the single exception" is the same claim as "the one carve-out", and the
+# carve-out-only form exited 1 on it — the false-fail class this file exists to
+# stay clear of. The direction is still gated: a widened licence has to say
+# something, and the raw-CSS permission scan below catches what these two do not.
+printf '%s' "$f55" | grep -Eqi 'carve[- ]?out|(one|single|sole|only) exception' \
+  || fail "Step 5.5 does not mark @font-face as a carve-out from the raw-CSS prohibition — see the assertion above."
+printf '%s' "$f55" | grep -qF 'base/fonts.css' \
+  || fail "Step 5.5's @font-face carve-out does not say where the rule goes on the tailwind path: assets/css/src/tailwindcss/base/fonts.css, the same place Step 4.5 puts it."
+printf '%s' "$f55" | grep -Eqi 'the only one|only carve[- ]?out|no other (repair|rule|exception)|nothing else may|and only (that|this) one' \
+  || fail "Step 5.5's carve-out is open-ended. One exception with a reason is a carve-out; an exception with no boundary is the prohibition repealed."
+# ...and nothing else in Step 5.5 may license raw CSS. A sentence that permits it
+# without naming @font-face reopens the door the carve-out just closed.
+# Keyed on the bare word "raw", not on the bigram "raw CSS": the licence this
+# scan exists to catch was written as "a raw DECLARATION is acceptable on this
+# path too" and slipped straight through the bigram form. Lower-cased so a
+# sentence-initial capital cannot evade it.
+# ...and negation-aware, through the same helper every other negative here uses.
+# The file's own boundary sentence is "No other repair on this path may write raw
+# CSS", which a bare permission grep read as a permission and reddened the gate on
+# — the file saying exactly what this scan wants it to say.
+f55l=$(printf '%s' "$f55" | tr 'A-Z' 'a-z')
+raw_ok=$(undirected "$f55l" 'raw ' '(is|are|stays|remains) (fine|ok|okay|acceptable|allowed|permitted|permissible)|may (be written|write)|you may write|feel free to write')
+if [ -n "$raw_ok" ]; then
+  fail "Step 5.5 permits raw CSS on the tailwind path in a sentence that is not the @font-face carve-out: $raw_ok"
+fi
+
+# ---------------------------------------------------------------------------
+# G3 — Preflight. Measured on the rehearsal, every regression below came from a
+# CORRECTLY translated rule: <button> Arial/13.33px → system-ui/16px/25.6px,
+# <img> inline/max-width:none → block/100% (service card 197.9 → 190.7px), <p>
+# UA margin 14.4px → 0 (footer column 71.04 → 56.8px), the logo <a> underline
+# gone, page height 1130.21 → 1108.78px. An agent converting declaration by
+# declaration is right at every step and wrong at the end, and no document in
+# this plugin mentioned Preflight at all.
+#
+# Both halves are gated: the dispatch context (the only thing the agent's Demo
+# Conversion Mode actually reads) and the skill section it points at.
+# ---------------------------------------------------------------------------
+printf '%s' "$fkl" | grep -qF 'preflight' \
+  || fail "$k never mentions Preflight. Compiled Tailwind replaces the browser's default stylesheet, so a theme whose every declaration was translated correctly still does not render like the demo."
+for pf in 'max-width:100%' 'display:block' 'underline' 'button'; do
+  printf '%s' "$fkl" | grep -qiF "$pf" \
+    || fail "$k's Preflight material does not name '$pf'. The measured moves are the whole content: <button> font, <img> display and max-width, <p>/heading margins, and the bare <a> underline."
+done
+printf '%s' "$fkl" | grep -Eqi 're-add|add (it|them) back|restore (it|the value)' \
+  || fail "$k says Preflight changes the baseline but never says what to do about it: re-add the UA value the demo relied on as a utility ON the element."
+printf '%s' "$f3t" | grep -qi 'preflight' \
+  || fail "$t's Step 3 dispatch context never warns the conversion agent about Preflight. agents/wp-tailwind.md reads the wp-tailwind-system skill only in Section Authoring Mode, so Demo Conversion Mode learns this from the dispatch context or not at all."
+# Naming Preflight is not enough, and this was proven: replacing the whole bullet
+# with "- **Notes.**" left the word alive in the cross-reference that follows it
+# ("see the SKILL, § Preflight") and the presence grep stayed green with the
+# warning gone. The dispatch context has to carry what Preflight MOVES, because
+# Demo Conversion Mode reads no skill unless it is told to.
+for pf in 'max-width:100%' 'underline' 'display:block'; do
+  printf '%s' "$f3t" | grep -qiF "$pf" \
+    || fail "$t's Step 3 dispatch context names Preflight but not what it moves ('$pf'). The measured list is <button> font, <img> display and max-width, <p>/heading margins and the bare <a> underline."
+done
+printf '%s' "$f3t" | grep -qF 'skills/wp-tailwind-system/SKILL.md' \
+  || fail "$t's Step 3 dispatch context does not point the conversion agent at the wp-tailwind-system skill, which is where the measured Preflight list and the v4 rules live."
+# Direction. Negation-aware, because the correct text says Preflight is NOT the
+# browser's default stylesheet and that a faithful conversion does NOT render the
+# same — both of which a bare grep would read as the inversion.
+pfclaim=$(undirected "$ftl" 'preflight' '(identical|unchanged|no (change|effect|difference)|leaves? the (ua |browser )?(baseline|defaults?) (alone|intact|as they are)|preserves? the (ua|browser))')
+if [ -n "$pfclaim" ]; then
+  fail "$t claims Preflight leaves the UA baseline alone. It does not, and the difference is measurable: $pfclaim"
+fi
+
+# ---------------------------------------------------------------------------
+# G4 — bare element selectors had no home in any document, and the rehearsal got
+# one wrong: it reasoned that `a { color: var(--color-brand) }` was dead because
+# every <a> carried a class, and the computed diff proved otherwise — the logo
+# <a> came out rgb(28,28,28) instead of rgb(11,107,90). The rule and its test
+# both have to be written down.
+# ---------------------------------------------------------------------------
+printf '%s' "$fkl" | grep -Eqi 'bare (element )?selector' \
+  || fail "$k says nothing about bare element selectors (a {}, h1,h2,h3 {}, body {}, *,*::before,*::after {}). They carry real declarations and have no class to convert, so an agent with no rule either drops them or invents one."
+printf '%s' "$fkl" | grep -Eqi 'distribut' \
+  || fail "$k does not give the default answer for a bare selector: distribute its declarations, as utilities, onto every element the selector actually reaches."
+printf '%s' "$fkl" | grep -Eqi 'dead only (when|if)' \
+  || fail "$k does not state the deadness test as a CONDITION. 'Every <a> has a class' is the reasoning that dropped the brand link colour in the rehearsal; the rule is that a bare selector is dead only when every element it matches already carries a class setting the same property."
+printf '%s' "$fkl" | grep -Eqi 'check the elements, not the stylesheet|read (each|every) `?class`? attribute|enumerate the matches' \
+  || fail "$k does not say HOW to test a bare selector for deadness — the check is over the elements in the markup, not over the stylesheet."
+printf '%s' "$f3t" | grep -Eqi 'bare (element )?selector' \
+  || fail "$t's Step 3 dispatch context does not tell the conversion agent what to do with a bare element selector, and its Demo Conversion Mode reads no skill."
+printf '%s' "$f3t" | grep -Eqi 'dead only (when|if)' \
+  || fail "$t's Step 3 dispatch context gives no deadness test for a bare element selector — see the $k assertion above for what the missing test cost."
+
+# ---------------------------------------------------------------------------
+# G5 — Tailwind v4 specifics no document named. package.json pins ^4.1.5 and the
+# palette is OKLCH: v4's gray-300 is #d1d5dc where the rehearsal demo declared
+# #d1d5db, while gray-200 is exact — so "no match → use Tailwind's built-in
+# colour scale" is right sometimes and off-by-one others with no way to tell.
+# ---------------------------------------------------------------------------
+printf '%s' "$fkl" | grep -Eqi '(^|[^a-z0-9])v4([^a-z0-9]|$)|tailwind 4|\^?4\.1' \
+  || fail "$k never names the Tailwind version. v3 and v4 disagree on utility names and on palette values, and the starter installs ^4.1."
+printf '%s' "$fkl" | grep -qF 'bg-linear-to-r' \
+  || fail "$k does not name the v4 gradient utility \`bg-linear-to-r\`. A v3-trained agent writes \`bg-gradient-to-r\`, which compiles to nothing in v4."
+printf '%s' "$fkl" | grep -qF 'oklch' \
+  || fail "$k does not say the built-in palette is OKLCH — that is why v4's gray-300 (#d1d5dc) is not the #d1d5db a demo declared."
+printf '%s' "$fkl" | grep -qF 'oklab' \
+  || fail "$k does not say gradients interpolate in OKLab. A converted linear-gradient compiles to oklab() stops with a different midpoint than the demo's sRGB ramp; an agent that does not know this chases the difference with extra stops."
+printf '%s' "$fkl" | grep -Eqi 'exact match or arbitrary|byte for byte' \
+  || fail "$k gives no tolerance rule for a colour that is close to a scale value but not equal to it. The rule has to be decidable: exact match or arbitrary value."
+printf '%s' "$f3t" | grep -qF 'bg-linear-to-r' \
+  || fail "$t's Step 3 dispatch context does not name the v4 gradient utility for the conversion agent."
+printf '%s' "$f3t" | grep -Eqi 'exact match or arbitrary|byte for byte' \
+  || fail "$t's Step 3 dispatch context gives the conversion agent no colour tolerance rule, so \"no match → use the built-in scale\" silently shifts the demo's declared value."
+# A v3 name may be MENTIONED, never recommended: every sentence naming it has to
+# mark it as v3 or reject it. A negative-only scan — zero iterations means the
+# name is absent, which is also fine.
+while IFS= read -r sent; do
+  [ -n "$sent" ] || continue
+  if printf '%s' "$sent" | grep -Eqi 'v3|not |never|instead of|rather than'; then continue; fi
+  fail "$k names \`bg-gradient-to-r\` without marking it as the v3 form: $sent"
+done <<< "$(sentences "$fkl" 'bg-gradient-to-r')"
 
 echo PASS

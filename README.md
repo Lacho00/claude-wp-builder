@@ -144,7 +144,7 @@ Re-read existing demo and iterate on changes.
 /wp-polish path/to/existing-mockup.html
 ```
 
-Normalizes any HTML file into a plugin-compatible demo: detects sections, adds section delimiters, normalizes semantic HTML5, adds BEM class naming. Preserves the original at `demo/original.html`.
+Normalizes any HTML file into a plugin-compatible demo: detects sections, adds section delimiters, normalizes semantic HTML5, adds BEM class naming. Preserves an unpolished copy of the source document at `demo/.prepolish/<source-filename>`, and never overwrites a copy already there.
 
 ```
 /wp-polish
@@ -281,6 +281,8 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 | `/wp-page <type>` | Page template generator (blog, legal, 404, generic, custom, search, embed) |
 | `/wp-cpt <name>` | Custom post type builder — generates fields, archive, single, seed helper |
 | `/wp-yolo <demo-folder>` | Convert complete demo folder to WordPress theme in one pass |
+| `/wp-tailwindify [path]` | Convert a demo's CSS classes to Tailwind utilities (run automatically by `/wp-init` and `/wp-yolo` Step 2.6) |
+| `/wp-tailwind-migrate` | Convert an already-built plain-CSS theme to Tailwind-native, in place |
 | `/wp-settings` | Extend the settings page with new fields |
 | `/wp-responsive-check` | Responsive validation at 5 viewports |
 | `/wp-finalize` | Pre-delivery validation checklist |
@@ -298,7 +300,8 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 |-------|---------|
 | `wp-theme-standards` | WordPress legacy theme best practices (enqueueing, escaping, hooks, security) |
 | `wp-bilingual` | i18n methodology using ACF `_suffix` pattern with transparent helpers |
-| `wp-css-system` | CSS design system: custom properties, BEM naming, scales |
+| `wp-css-system` | CSS design system: custom properties, BEM naming, scales (`template=basic` only) |
+| `wp-tailwind-system` | Tailwind authoring conventions — the utility-first decision ladder and file layout (`template=tailwind` only) |
 | `wp-demo` | Demo HTML creation methodology |
 | `wp-responsive` | Mobile-first responsive patterns, fluid typography, touch targets |
 | `wp-cli-patterns` | WP-CLI best practices for all agents (saves tokens vs PHP generation) |
@@ -310,6 +313,7 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 |-------|------|
 | `wp-template` | PHP/WordPress template specialist — generates template parts, pages, header, footer |
 | `wp-css` | CSS design system specialist — BEM naming, custom properties, responsive |
+| `wp-tailwind` | Tailwind specialist — demo conversion and section authoring on the `template=tailwind` path, replacing `wp-css` |
 | `wp-acf` | ACF/SCF field architect — programmatic field definitions with bilingual support |
 
 ### Starter Theme

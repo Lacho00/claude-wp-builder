@@ -8,5 +8,5 @@
   "homepage": "https://yojahny.dev",
   "repository": "https://github.com/yojahny55/claude-wp-builder",
   "license": "MIT",
-  "keywords": ["wordpress", "theme", "acf", "scf", "bilingual", "i18n", "contact-form-7", "cf7", "wp-cli"]
+  "keywords": ["wordpress", "theme", "acf", "scf", "bilingual", "i18n", "contact-form-7", "cf7", "wp-cli", "tailwind"]
 }

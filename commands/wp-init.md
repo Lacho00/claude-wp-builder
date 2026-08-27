@@ -154,9 +154,32 @@ The user can override any field. Once confirmed, use these values for the rest o
 
   Then **run `/wp-tailwindify`** on the demo — do not merely suggest it. On the
   tailwind template the build transcribes from the demo, so a plain-CSS demo yields a
-  plain-CSS theme. Skip only if the demo has no `<style>` block and no static
-  `style="` attribute (already Tailwind-native); say which case applied. `/wp-yolo`
-  Step 2.6 repeats this check, so a skip here is safe.
+  plain-CSS theme. Whether to skip is decided on positive evidence that the demo is
+  already Tailwind-native, never on the absence of a `<style>` block: a demo that keeps
+  its rules in an external stylesheet carries no inline CSS at all and still has to be
+  converted. This is `/wp-yolo` Step 2.6's rule, stated here in the same terms on
+  purpose — do not restate it a third way:
+
+  - **Plain-CSS evidence — any one of these means convert.** A `<style>` block; a static
+    `style="` attribute; or a `<link rel="stylesheet"` pointing at the project's own
+    `.css` file — a relative path (`assets/styles.css`), a site-rooted path
+    (`/css/main.css`) or an absolute URL on the project's own domain all count the same,
+    because the delivery route is not what matters. Only three hosts are exempt:
+    `fonts.googleapis.com`, `fonts.gstatic.com` and `cdn.tailwindcss.com`. A `<link>` to
+    any of those is not plain-CSS evidence; every other stylesheet `<link>` is.
+  - **Tailwind evidence — what an already-converted demo looks like.** Its `class`
+    attributes are predominantly Tailwind utilities: layout (`flex`, `grid`, `hidden`),
+    spacing and sizing (`px-4`, `mt-8`, `w-full`), typography (`text-lg`, `font-bold`),
+    colour (`bg-slate-900`, `text-white`) and variant prefixes (`md:`, `hover:`).
+    Semantic or BEM class names (`site-header__logo`, `hero`, `card__title`) are the
+    plain-CSS shape, not Tailwind evidence.
+  - **Skip only on Tailwind evidence and no plain-CSS evidence.** Then, and only then,
+    leave the demo alone and report `demo already tailwind-native — conversion skipped`.
+    Everything else converts, a demo you cannot classify with confidence included: a
+    redundant conversion costs one pass over markup already in the target form, while a
+    wrong skip ships a plain-CSS theme and reports success. Say which case applied.
+
+  `/wp-yolo` Step 2.6 repeats this check, so a skip here is safe.
 
 **Step D5 — Continue with normal scaffolding:**
 
@@ -292,7 +315,7 @@ After the `## Project Details` section, add:
 
 ```markdown
 ## Demo
-- **Source:** Existing demo (original preserved at demo/original.html)
+- **Source:** Existing demo (unpolished copy preserved at demo/.prepolish/index.html)
 - **Sections:** <comma-separated list of detected sections>
 - **Colors:** <extracted color values>
 - **Fonts:** <extracted font families>
@@ -420,7 +443,7 @@ Prefix:     <prefix>
 Languages:  <primary> + <secondary>
 Sections:   <detected sections>
 CLAUDE.md:  <path-to-claude-md>
-Demo:       demo/index.html (original at demo/original.html)
+Demo:       demo/index.html (pre-polish copy at demo/.prepolish/index.html)
 
 Next step: Run /wp-header to build the site header.
 ```

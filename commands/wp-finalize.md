@@ -159,14 +159,27 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 Skip when `Template:` is `basic`. When `Template:` is `tailwind`, run:
 
 ```bash
-bin/tailwind-native-check.sh <theme-dir>
+"${CLAUDE_PLUGIN_ROOT}/bin/tailwind-native-check.sh" <theme-dir>
 ```
 
+The script lives in the plugin, not in the project. `/wp-finalize` runs with the
+working directory set to the user's WordPress project, so a bare relative `bin/…`
+path resolves to nothing there and exits 127 — always invoke it through
+`${CLAUDE_PLUGIN_ROOT}`.
+
 It fails the delivery on: a leftover `assets/css/styles.css`, an empty or
-comment-only `.css`, a `.css` with no `@import` in `main.css`, a stray directory
-under `assets/css/src/tailwindcss/`, an inline `<style>` block in a template, or a
-compiled theme whose markup carries almost no utility classes. Fix every finding
-before delivering — each one means part of the build fell back to the plain-CSS path.
+comment-only `.css`, a `.css` with no live `@import` in `main.css` — a commented-out
+one does not count, because the file then ships unbuilt — any directory under
+`assets/css/src/tailwindcss/` other than `base`, `components`, `layouts` and
+`utilities`, **including one nested inside those four**, an inline `<style>` block in
+a template, or a compiled theme whose templates carry class attributes but no Tailwind
+utilities among them.
+
+That last rule scales to the theme instead of demanding a fixed three templates: it
+wants utilities in every class-carrying template up to a ceiling of three, so a
+correct two-template theme passes it. Fix every finding before delivering — each one
+means part of the build fell back to the plain-CSS path, and none of them is a known
+false positive on a correct theme.
 
 ---
 
@@ -323,12 +336,20 @@ Layer 3 is the backstop that measures **computed styles**, not just screenshots,
   Pages, menus, ACF fields, permalinks, PHP errors, and plugins all verified.
   (Skipped if .wp-create.json not found)
 
----
-Result: 4/7 checks passed — 3 issues found (with .wp-create.json)
-Result: 4/6 checks passed — 2 issues found (without .wp-create.json)
+[PASS] Tailwind convention
+  No leftover assets/css/styles.css, no empty or comment-only .css, every .css
+  really imported by main.css, no unsanctioned or nested directory, utilities
+  present in the markup.
+  (Skipped when Template: is basic)
 
-Note: Check 7 (WP-CLI Runtime Validation) only runs when `.wp-create.json` exists.
-If absent, the total is out of 6 instead of 7.
+---
+Result: 4/8 checks passed — 4 issues found (with .wp-create.json, tailwind template)
+Result: 4/6 checks passed — 2 issues found (without .wp-create.json, basic template)
+
+Note: two checks are conditional. Check 7 (WP-CLI Runtime Validation) only runs when
+`.wp-create.json` exists, and the Tailwind convention check only runs when `Template:`
+is `tailwind`. The denominator is 6, 7 or 8 accordingly — count the checks you actually
+ran, and never report a total that omits a check that did run.
 
 Issues to fix:
 1. Add Spanish field variants in fields/hero.php
@@ -339,5 +360,6 @@ Issues to fix:
 If all checks pass:
 ```
 ---
-Result: Ready to deliver! All 7 checks passed. (or 6/6 if no .wp-create.json)
+Result: Ready to deliver! All 8 checks passed. (7/7 on the basic template, 6/6 if
+there is also no .wp-create.json — state the denominator you actually ran)
 ```
