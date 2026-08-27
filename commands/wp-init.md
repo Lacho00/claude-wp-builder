@@ -13,16 +13,21 @@ Scaffold a new WordPress project from the starter theme, configure i18n, and gen
 Ask the user to choose a starter template:
 
 > **Select a starter template:**
-> 1. **Basic Starter** — Custom CSS design system (CSS variables, BEM), no build tools needed
-> 2. **Tailwind Starter** — Tailwind CSS 4 + WordPress Scripts build pipeline, BrowserSync
-> 3. **Cinematic Starter** — Scroll-driven cinematic reel (persistent video stage, scene scrub on desktop, autoplay-loop on mobile). Requires the [cinematic-scroll-kit](https://github.com/yojahny55/cinematic-scroll-kit) skill.
+> 1. **Tailwind Starter** — Tailwind CSS 4 + WordPress Scripts build pipeline, BrowserSync
+> 2. **Cinematic Starter** — Scroll-driven cinematic reel (persistent video stage, scene scrub on desktop, autoplay-loop on mobile). Requires the [cinematic-scroll-kit](https://github.com/yojahny55/cinematic-scroll-kit) skill.
 
 Store the selection as `$TEMPLATE`:
-- Option 1 → `basic`
-- Option 2 → `tailwind`
-- Option 3 → `cinematic`
+- Option 1 → `tailwind`
+- Option 2 → `cinematic`
 
-Default: `basic` (if user presses Enter without selecting).
+Default: `tailwind` (if user presses Enter without selecting).
+
+There is no "Basic Starter" any more. `starter-theme/__starter__/` was removed
+in 3600552 as superseded by the Tailwind template, but this command kept
+offering it as option 1 AND as the Enter-key default — so the most likely path
+through `/wp-init` copied a directory that does not exist. Treat `basic` as an
+alias for `tailwind` if a caller still passes `--template=basic`, rather than
+failing on it.
 
 ### If `$TEMPLATE = cinematic`
 
@@ -50,6 +55,28 @@ Store the selection as `$CF_PLUGIN`:
 - Option 2 → `acf`
 
 Default: `scf` (if user presses Enter without selecting).
+
+## Step 0.7: Select i18n Strategy
+
+Ask the user how the site should handle its languages:
+
+> **Select translation strategy:**
+> 1. **Field suffixes** — one page per site, ACF/SCF fields duplicated as `_es`. No extra plugin.
+> 2. **Polylang** — one page per language, joined by translation groups. Installs the Polylang plugin.
+
+Store the selection as `$I18N`:
+- Option 1 → `suffix`
+- Option 2 → `polylang`
+
+Default: `suffix` (if the user presses Enter without selecting).
+
+The default is deliberate. `suffix` is what every existing project uses, so
+updating the plugin must not silently change how a new project is built, and
+it pulls in no plugin the user did not ask for. Polylang is opt-in.
+
+Skip this question entirely when `$ARGUMENTS` contains `--i18n=suffix` or
+`--i18n=polylang`, so `/wp-yolo` and other non-interactive callers can pass it
+straight through.
 
 ## Pre-Step: Check for `.wp-create.json` Manifest
 
@@ -135,7 +162,7 @@ The user can override any field. Once confirmed, use these values for the rest o
 
 **Step D4 — Inject colors/fonts into theme (template-aware):**
 
-- If `$TEMPLATE` is `basic`: Replace CSS custom properties in `assets/css/styles.css` `:root` block with extracted colors. (Existing behavior.)
+- If `$TEMPLATE` is `tailwind`: map the extracted colors onto the `@theme` variables in `assets/css/src/style.css`.
 
 - If `$TEMPLATE` is `tailwind`: Replace values in the `@theme` block in `assets/css/src/tailwindcss/main.css`:
 
@@ -186,17 +213,21 @@ Store the full path to `wp-content/themes/` for later use.
 
 Copy the selected starter theme to the new theme directory:
 
-- If `$TEMPLATE` is `basic`:
-  ```
-  cp -r ${CLAUDE_PLUGIN_ROOT}/starter-theme/__starter__/ <themes-dir>/<slug>/
-  ```
-
-- If `$TEMPLATE` is `tailwind`:
+- If `$TEMPLATE` is `tailwind` (or the legacy alias `basic`):
   ```
   cp -r ${CLAUDE_PLUGIN_ROOT}/starter-theme/__tailwind__/ <themes-dir>/<slug>/
   ```
 
+- If `$TEMPLATE` is `cinematic`:
+  ```
+  cp -r ${CLAUDE_PLUGIN_ROOT}/starter-theme/__cinematic__/ <themes-dir>/<slug>/
+  ```
+
 Where `<slug>` is the theme slug from Step 1.
+
+Only the two directories above exist. Copying anything else — `__starter__` in
+particular — silently produces an empty theme directory, because `cp -r` on a
+missing source fails while the rest of the flow carries on.
 
 ## Step 4: Replace All Placeholders
 
@@ -211,6 +242,35 @@ Use `find` + `sed` or equivalent to do this across all files (`.php`, `.css`, `.
 
 ## Step 5: Configure i18n
 
+### If `$I18N = polylang`
+
+Overwrite the suffix-based helper with the Polylang one for this template,
+keeping the filename `functions.php` already requires:
+
+```
+cp ${CLAUDE_PLUGIN_ROOT}/starter-theme/_i18n-variants/__<template>__.php <theme-dir>/inc/i18n.php
+```
+
+Where `__<template>__` is `__tailwind__` or `__cinematic__`, matching
+`$TEMPLATE` — the only two starters that exist. Then re-run the placeholder
+replacement from Step 4 over this one file, since it was copied in after that
+step ran.
+
+If a new starter is ever added, it needs its own variant in
+`starter-theme/_i18n-variants/` before it can offer Polylang;
+`tests/checks/wp-polylang.sh` fails until it has one, which is the point.
+
+Both files expose the same helper names and signatures, which is what makes
+the swap safe — templates call `<prefix>get_field()` and friends and never
+`get_field()` directly, so no template, section, header or footer changes.
+`tests/checks/wp-polylang.sh` enforces that pairing per template.
+
+### If `$I18N = suffix` (default)
+
+Nothing to do — the starter already ships the suffix helper.
+
+### Both strategies
+
 Edit `inc/i18n.php` in the new theme directory:
 
 - Set the `SUPPORTED_LANGS` constant to an array containing all specified languages (primary + secondary). Example: `['en', 'es']`
@@ -218,7 +278,34 @@ Edit `inc/i18n.php` in the new theme directory:
 
 ## Step 6: Configure Theme Setup
 
-Edit `inc/theme-setup.php` in the new theme directory:
+Edit `inc/theme-setup.php` in the new theme directory.
+
+### If `$I18N = polylang`
+
+Register each menu location ONCE, with no language suffix:
+
+- `'primary' => 'Primary Menu'`
+- `'footer' => 'Footer Menu'`
+
+Polylang gives every registered location a per-language slot of its own and
+swaps the right menu in at render time. Registering `primary_en` and
+`primary_es` as well would produce two competing systems for the same nav.
+
+Also register the theme's static strings so a client can edit them under
+**Languages > Strings** instead of in code:
+
+```php
+add_action( 'init', function () {
+    if ( ! function_exists( 'pll_register_string' ) ) {
+        return;
+    }
+    foreach ( <prefix>get_translations() as $key => $values ) {
+        pll_register_string( $key, $values['<primary_lang>'], '<Theme Name>' );
+    }
+} );
+```
+
+### If `$I18N = suffix` (default)
 
 - In `register_nav_menus()`, register menu locations for EACH language. Pattern:
   - `'primary_en' => 'Primary Menu (English)'`
@@ -236,8 +323,9 @@ Create `.claude/CLAUDE.md` at the **project root** (the directory containing `wp
 ## Project Details
 - **Theme slug:** <slug>
 - **Function prefix:** <slug_with_underscores>_ (e.g., kairo_consulting_)
-- **Template:** <basic|tailwind>
+- **Template:** <tailwind|cinematic>
 - **Custom Fields:** <SCF|ACF Pro>
+- **i18n strategy:** <suffix|polylang>
 - **Primary language:** <primary_lang>
 - **Secondary language(s):** <secondary_langs>
 - **Industry:** <industry>
@@ -326,6 +414,28 @@ If there is no `docs/` folder, skip this step silently.
   ```
   If ACF is missing, print: "ACF Pro is not installed. Please install it manually from your ACF account."
 
+### Translation Plugin
+
+- If `$I18N` is `polylang`:
+  ```bash
+  $WP plugin is-active polylang || $WP plugin activate polylang || $WP plugin install polylang --activate
+  ```
+  Then create the languages, using the same script `/wp-polylang` uses rather
+  than a second implementation of the same thing:
+  ```bash
+  $WP eval-file ${CLAUDE_PLUGIN_ROOT}/skills/wp-polylang/scripts/pll-setup.php <primary_lang> <secondary_lang>
+  ```
+  Repeat the `pll-setup.php` call for each additional secondary language.
+  The script is idempotent — a language that already exists is left alone.
+
+  Then assign the primary language to existing content, or every page created
+  later lands with no language at all and Polylang treats it as untranslatable:
+  ```bash
+  $WP eval "if (function_exists('pll_set_post_language')) { foreach (get_posts(['post_type'=>'any','numberposts'=>-1,'post_status'=>'any','fields'=>'ids']) as \$id) { if (!pll_get_post_language(\$id)) { pll_set_post_language(\$id, '<primary_lang>'); } } }"
+  ```
+
+- If `$I18N` is `suffix`: nothing to install.
+
 ### Verification (both):
 ```bash
 $WP eval "echo function_exists('acf_add_options_page') ? 'CF OK' : 'CF MISSING';"
@@ -388,7 +498,7 @@ Print a summary:
 === Project Initialized ===
 Project:    <Project Name>
 Theme:      <themes-dir>/<slug>/
-Template:   <Basic Starter|Tailwind Starter>
+Template:   <Tailwind Starter|Cinematic Starter>
 CF Plugin:  <SCF|ACF Pro>
 Slug:       <slug>
 Prefix:     <prefix>
@@ -409,7 +519,7 @@ Build:      Run `npm run preview` in the theme directory to start development.
 === Project Initialized (from existing demo) ===
 Project:    <Project Name>
 Theme:      <themes-dir>/<slug>/
-Template:   <Basic Starter|Tailwind Starter>
+Template:   <Tailwind Starter|Cinematic Starter>
 CF Plugin:  <SCF|ACF Pro>
 Slug:       <slug>
 Prefix:     <prefix>
