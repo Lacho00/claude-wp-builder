@@ -6,7 +6,22 @@ user-invocable: false
 
 # Bilingual / Multilingual i18n System
 
-This skill defines the translation methodology for WordPress themes that need to support multiple languages. It uses the **ACF/SCF _suffix pattern** -- no WPML, no Polylang, no separate pages per language. One set of pages, one set of fields, with suffixed duplicates for secondary languages.
+This skill defines ONE of the plugin's two translation methodologies: the **ACF/SCF _suffix pattern**. One set of pages, one set of fields, with suffixed duplicates for secondary languages.
+
+> **Which one applies to a project is a decision, not a default.** `/wp-init`
+> asks, and records the answer as **i18n strategy** in the project's
+> `.claude/CLAUDE.md`. Read that line before assuming this skill applies.
+>
+> | Answer | Model | Skill |
+> |---|---|---|
+> | `suffix` | one page, fields duplicated as `_es` | this one |
+> | `polylang` | one page **per language**, joined by translation groups | `wp-polylang` |
+>
+> The two never mix in one project. If the project says `polylang`, stop
+> reading here and use the `wp-polylang` skill instead — the field naming,
+> the menu registration and the helper behaviour all differ. An earlier
+> version of this line claimed the plugin supported no Polylang at all, which
+> stopped being true when `/wp-polylang` shipped.
 
 ---
 
@@ -465,7 +480,7 @@ The pattern is: `<location>-<lang>` (e.g., `primary-en`, `primary-es`, `mobile-e
 
 ## ACF Field Creation Rules
 
-When defining fields in `inc/scf-fields.php` for a bilingual site:
+When defining fields in `fields/*.php` for a bilingual site (see wp-theme-standards for the field loader / Local JSON model — `fields/*.php` is a one-time bootstrap seed, `acf-json/*.json` is the dashboard-editable source of truth):
 
 ### Field Organization
 
@@ -616,12 +631,15 @@ In `header.php`, set the document language dynamically.
 
 ## File Structure
 
-The i18n system lives in a single file included early in `functions.php`.
+The i18n system lives in a single file included early in `functions.php`, before the field loader's `acf/init` hook runs.
 
 ```php
-// functions.php — i18n must load before SCF fields
+// functions.php — i18n must load before the fields/*.php bootstrap
 require get_template_directory() . '/inc/i18n.php';
-require get_template_directory() . '/inc/scf-fields.php';
+
+// Field groups loaded via the acf/init bootstrap loader (fields/*.php seeds
+// acf-json/, which becomes the dashboard-editable source of truth) —
+// see wp-theme-standards SKILL.md for the full loader.
 ```
 
 The `inc/i18n.php` file contains:

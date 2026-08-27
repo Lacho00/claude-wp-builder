@@ -1,3 +1,5 @@
+
+
 <div align="center">
 
 # Claude WP Builder
@@ -11,7 +13,7 @@
 
 A Claude Code plugin that turns approved demo HTML into a complete WordPress theme — section by section, with ACF/SCF fields, bilingual support, SEO, and security — all from the command line.
 
-[Quick Start](#installation) | [Commands](#commands-reference) | [Architecture](#architecture) | [Contributing](CONTRIBUTING.md) | [Backlog](BACKLOG.md)
+[Quick Start](#installation) | [Commands](#commands-reference) | [Architecture](#architecture) | [Cinematic Mode](docs/cinematic-mode.md) | [Contributing](CONTRIBUTING.md) | [Backlog](BACKLOG.md)
 
 </div>
 
@@ -291,6 +293,9 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 | `/wp-audit` | Comprehensive audit — security, SEO, accessibility, performance, best practices |
 | `/wp-debug` | Diagnose WordPress issues with WP-CLI |
 | `/wp-clone` | Clone remote/staging site to local dev |
+| `/wp-robin` | Fix Robin Image Optimizer — installs, configures, unsticks bulk optimization, generates missing .webp files |
+| `/wp-aos-animator` | Install AOS scroll animations — audits, enqueues, initializes, and seeds animations across all PHP templates |
+| `/wp-polylang` | Translate an existing site into a second language using Polylang |
 
 ## Architecture
 
@@ -300,12 +305,14 @@ Clones a remote/staging WordPress site to local dev. Supports SSH automated mode
 |-------|---------|
 | `wp-theme-standards` | WordPress legacy theme best practices (enqueueing, escaping, hooks, security) |
 | `wp-bilingual` | i18n methodology using ACF `_suffix` pattern with transparent helpers |
+| `wp-polylang` | Polylang multilingual methodology — one post per language, driven through the `pll_*` API. `/wp-init` asks which model a project uses; the answer is recorded as `i18n strategy` in its `.claude/CLAUDE.md` and every downstream command branches on it |
 | `wp-css-system` | CSS design system: custom properties, BEM naming, scales (`template=basic` only) |
 | `wp-tailwind-system` | Tailwind authoring conventions — the utility-first decision ladder and file layout (`template=tailwind` only) |
 | `wp-demo` | Demo HTML creation methodology |
 | `wp-responsive` | Mobile-first responsive patterns, fluid typography, touch targets |
 | `wp-cli-patterns` | WP-CLI best practices for all agents (saves tokens vs PHP generation) |
-| `wp-environments` | Environment detection, config generation, PHP version management |
+| `wp-aos-animator` | AOS scroll animation installer — audits, enqueues, initializes, and seeds animations across templates |
+| `wp-robin` | Robin Image Optimizer fixer — installs, configures, unsticks bulk optimization, generates .webp files |
 
 ### Agents (specialized subagents dispatched by commands)
 

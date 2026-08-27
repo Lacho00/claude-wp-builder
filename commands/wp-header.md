@@ -230,6 +230,27 @@ Dispatch the **wp-acf** agent with these instructions:
 
 ## Step 7: Update Theme Setup
 
+**Under `i18n strategy: polylang`** (read it from the project's
+`.claude/CLAUDE.md`), skip the per-language locations entirely: register
+`primary` and `footer` ONCE, call `wp_nav_menu()` with the bare location name,
+and render the switcher with Polylang's own walker, which already knows each
+page's counterpart URL:
+
+```php
+<?php if ( function_exists( 'pll_the_languages' ) ) : ?>
+    <ul class="site-header__lang">
+        <?php pll_the_languages( array( 'show_flags' => 0, 'show_names' => 1 ) ); ?>
+    </ul>
+<?php endif; ?>
+```
+
+Do NOT build the switcher from `<prefix>get_lang_url()` under this strategy
+unless the markup has to match a specific demo — the helper exists and works,
+but `pll_the_languages()` also marks the current language and hides languages
+with no counterpart.
+
+Everything below describes the `suffix` strategy.
+
 Read `inc/theme-setup.php` and ensure `register_nav_menus()` includes per-language menu locations:
 
 ```php

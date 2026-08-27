@@ -21,3 +21,6 @@ package-lock.json
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Serena MCP workspace cache (per-machine index, not shared state)
+.serena/

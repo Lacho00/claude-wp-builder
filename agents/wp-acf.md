@@ -69,6 +69,25 @@ Follow these naming rules WITHOUT exception:
 
 **All field keys MUST be unique across the entire theme.** Use the section name as a namespace to guarantee uniqueness.
 
+## Strategy check (do this before generating any field)
+
+Read `i18n strategy` from the project's `.claude/CLAUDE.md`.
+
+**If it says `polylang`**, generate NO `_<lang>` duplicate fields and no
+language tabs for post/page field groups. Each language has its own post, so
+one field holds one language's value — duplicating fields would create a
+second, competing translation store on top of Polylang's.
+
+The ONE exception is the **theme settings / options group**. ACF options are
+global: a single set of values for the whole site, not one per language, so
+Polylang's one-post-per-language model does not reach them and free Polylang
+does not translate the options page. Keep the `_<lang>` duplicates there, and
+only there — `<prefix>get_field()` still resolves them, which is exactly why
+that helper keeps its suffix lookup in the Polylang variant of `inc/i18n.php`.
+
+**If it says `suffix`** (or the line is absent — older projects predate it),
+everything below applies as written.
+
 ## Complete Field Group Example with Bilingual Support
 
 ```php
@@ -368,7 +387,7 @@ Multiple conditions in one rule (AND logic — ALL must match):
 
 ## Rules
 
-1. **Files contain BARE `acf_add_local_field_group()` calls** — no hooks, no wrapping functions. The auto-loader handles timing.
+1. **Files contain BARE `acf_add_local_field_group()` calls** — no hooks, no wrapping functions. The auto-loader handles timing. The `fields/*.php` you write are a **one-time bootstrap**: the theme's `acf/init` loader registers them once, persists each group to `acf-json/`, and from then on loads only the Local JSON. This is what makes field groups **editable in the SCF/ACF dashboard** and lets the client add fields manually — pure PHP-local groups (`ID=0`) never appear in the Field Groups list and cannot be edited. Never add a `save_json`/`load_json` filter pointing elsewhere; ACF already defaults to the theme's `acf-json/`.
 2. **One file per section** in the `fields/` directory — `fields/hero.php`, `fields/services.php`, etc.
 3. **Settings fields use `'option'` as post ID** when retrieved via `get_field('field_name', 'option')`
 4. **Location rules:** `page_template` for page-specific fields, `options_page` for settings
@@ -380,6 +399,13 @@ Multiple conditions in one rule (AND logic — ALL must match):
 10. **Always include `if (!defined('ABSPATH')) { exit; }`** at the top of every file
 11. **Image fields:** specify `return_format` ('array' for template flexibility, 'url' for simple display)
 12. **Provide `instructions`** for fields where the purpose is not obvious from the label
+13. **Editing a group that already exists** (e.g. adding fields to `fields/settings.php`): after you change the PHP, the loader will keep loading the old Local JSON unless you invalidate it. Delete that group's `acf-json/<group_key>.json` (and, if the site imported it, `$WP eval "acf_delete_field_group('<group_key>');"` to drop the DB post) so the edited PHP re-bootstraps a fresh JSON on the next load. Do this ONLY when redefining the group in code — it discards any manual dashboard edits to that group, which is the intended behavior for a code-driven change.
+
+## Local JSON model (how these files reach the dashboard)
+
+- `acf_add_local_field_group()` alone = **PHP-local** group: it works on edit screens but has no post (`ID=0`), never shows in **Custom Fields → Field Groups**, and can't be edited. That is a bug, not the goal.
+- The theme's `acf/init` loader bootstraps each `fields/*.php` group **once**, writes it to `acf-json/<key>.json`, then loads only the JSON. ACF/SCF auto-loads `acf-json/`, so the group becomes visible, editable, and two-way synced — dashboard edits (including client-added fields) are written back to the JSON file and stay in version control.
+- Consequence: `fields/*.php` is a **seed**, `acf-json/*.json` is the **source of truth**. Never hand-edit JSON keys; author in PHP and invalidate (rule 13) to regenerate.
 
 ## WP-CLI Integration (when `.wp-create.json` exists)
 
