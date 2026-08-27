@@ -162,9 +162,11 @@ The user can override any field. Once confirmed, use these values for the rest o
 
 **Step D4 — Inject colors/fonts into theme (template-aware):**
 
-- If `$TEMPLATE` is `tailwind`: map the extracted colors onto the `@theme` variables in `assets/css/src/style.css`.
+- If `$TEMPLATE` is `tailwind`: replace values in the `@theme` block in
+  `assets/css/src/tailwindcss/main.css`:
 
-- If `$TEMPLATE` is `tailwind`: Replace values in the `@theme` block in `assets/css/src/tailwindcss/main.css`:
+  The `@theme` block lives in the compiled entry point `tailwindcss/main.css`;
+  mapping the colours into any other file silently ships the default palette.
 
   | Extracted | Target variable |
   |-----------|----------------|

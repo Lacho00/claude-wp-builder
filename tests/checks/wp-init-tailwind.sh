@@ -56,6 +56,27 @@ d4_raw=$(dehyphen "$d4_raw")
 d4=$(flat "$d4_raw")
 
 # ---------------------------------------------------------------------------
+# The @theme injection target. The upstream merge carried TWO D4 bullets whose
+# condition is identical (`If $TEMPLATE is tailwind`) and whose targets
+# differ: the stale one maps colours onto `assets/css/src/style.css`, a file
+# the Tailwind starter does not ship (its compiled entry point is
+# tailwindcss/main.css). An agent obeying it writes to nothing and the site
+# ships the default palette. The duplicate is the defect, so the count is the
+# assertion: exactly one such bullet, and the survivor names the entry point
+# and never the stale path. The backticked path needle accepts the ceiling
+# that a hard mid-path re-wrap would break it — careful authors wrap at word
+# boundaries, and flat() rejoins those.
+# ---------------------------------------------------------------------------
+n_theme_bullets=$(printf '%s\n' "$d4_raw" | grep -cE '^[[:space:]]*- If `\$TEMPLATE` is `tailwind`:' || true)
+[ "$n_theme_bullets" -eq 1 ] \
+  || fail "Step D4 has $n_theme_bullets bullets conditioned on \`\$TEMPLATE is tailwind\` for the @theme injection — exactly one may exist. The merge carried a duplicate whose target, assets/css/src/style.css, the Tailwind starter does not ship, so an agent handed two targets obeys both or neither and the palette never lands"
+printf '%s' "$d4" | grep -qF 'tailwindcss/main.css' \
+  || fail "Step D4's @theme injection never names assets/css/src/tailwindcss/main.css — mapping colours into any other file ships the default palette"
+if printf '%s' "$d4" | grep -qF 'style.css'; then
+  fail "Step D4 still names style.css as an @theme target — the Tailwind starter's compiled entry point is tailwindcss/main.css, and a colour mapping written to a file that does not exist is a silent no-op"
+fi
+
+# ---------------------------------------------------------------------------
 # Run, don't suggest.
 # ---------------------------------------------------------------------------
 # The old wording must be gone. A positive alone is not enough: both sentences can
