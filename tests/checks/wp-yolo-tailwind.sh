@@ -1309,4 +1309,36 @@ while IFS= read -r sent; do
   fail "$k names \`bg-gradient-to-r\` without marking it as the v3 form: $sent"
 done <<< "$(sentences "$fkl" 'bg-gradient-to-r')"
 
+# ---------------------------------------------------------------------------
+# The merged axes. Step 1 must REFUSE the cinematic template (upstream's third
+# axis, init-only everywhere else), and Step 5 item 1 must hand the seed's
+# language shape to the i18n strategy instead of stating the suffix model
+# unconditionally. Both files were auto-merged and nobody read them whole.
+# ---------------------------------------------------------------------------
+s1=$(awk '/^## Step 1/,/^## Step 2:/' "$f")
+s5=$(awk '/^## Step 5:/,/^## Step 5\.5/' "$f")
+[ -n "$s1" ] || fail "wp-yolo has no Step 1 region delimited by Step 2"
+[ -n "$s5" ] || fail "wp-yolo has no Step 5 region delimited by Step 5.5"
+printf '%s\n' "$s1" | tail -1 | grep -q '^## Step 2:' \
+  || fail "the Step 1 region is not terminated by a '## Step 2:' heading — the cinematic-refusal assertions would silently become file-wide"
+printf '%s\n' "$s5" | tail -1 | grep -q '^## Step 5\.5' \
+  || fail "the Step 5 region is not terminated by a '## Step 5.5' heading — the seed assertions would silently become file-wide"
+f1=$(flat "$s1"); f5=$(flat "$s5")
+
+# Cinematic must be named AND refused — a mention is not a stop. Falling
+# through drives the section walk on a reel project and wp-css writes
+# assets/css/styles.css into a theme that has its own cinematic.css.
+printf '%s' "$f1" | grep -qF '`Template:` is `cinematic`' \
+  || fail "Step 1 never names the cinematic template — a reel project runs the section walk and wp-css writes assets/css/styles.css into a theme that has its own cinematic.css"
+printf '%s' "$f1" | grep -qF 'exit without dispatching anything' \
+  || fail "Step 1 names cinematic but never refuses it — a mention is not a stop, and falling through drives the section walk on a reel project"
+
+# The seed's language shape is the strategy's, not the suffix model's. Stating
+# 'primary language only' unconditionally told a polylang run to skip the
+# counterpart pages /wp-seed exists to build on that strategy.
+printf '%s' "$f5" | grep -qF 'under `suffix` it fills the primary language' \
+  || fail "Step 5 item 1 does not scope primary-language seeding to the suffix strategy — the sentence is the suffix model's and a polylang run reading it skips the counterpart pages its strategy requires"
+printf '%s' "$f5" | grep -qF 'under `polylang` it builds a counterpart page per language' \
+  || fail "Step 5 item 1 never says what /wp-seed does under polylang — seeding without the counterpart pages leaves every secondary language empty and /wp-polylang to rebuild them from nothing"
+
 echo PASS

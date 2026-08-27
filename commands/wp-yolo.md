@@ -38,6 +38,15 @@ If the `i18n strategy` line is absent, treat it as `suffix`: projects scaffolded
 before the choice existed all use that model, and assuming `polylang` for them
 would have the agents generate a field layout their theme cannot read.
 
+If `Template:` is `cinematic`, stop. This command builds the basic|tailwind
+section flow, and a cinematic project is a different scaffolding shape — one
+continuous reel, scene-based authoring. Point the user at the cinematic flow
+instead (`/wp-cinematic-init`, then `/wp-cinematic-scene <n>` per scene, per
+`/wp-init` Step 0.5) and exit without dispatching anything. Falling through
+would drive the section walk on a reel project and hand its CSS to wp-css,
+which writes `assets/css/styles.css` into a theme that has its own
+`assets/css/cinematic.css`.
+
 Under `polylang`, three things change downstream, and every one of them is the
 existing command's own branch — `/wp-yolo` passes the strategy along and does
 not reimplement any of it:
@@ -408,9 +417,12 @@ Before seeding, collect every `section.fonts[]` entry across the manifest (dedup
 
 Run, in order:
 1. **`/wp-seed --exclude-slugs <slugs>`** — create WP Pages with matching slugs (so
-   `page-<slug>.php` auto-applies), populate ACF fields from extracted text in the
-   **primary language only** (flag secondary-language strings as untranslated), sideload
-   images into the media library and wire them to fields, and build menus from the nav.
+   `page-<slug>.php` auto-applies), populate ACF fields from extracted text per the
+   project's `i18n strategy` — `/wp-seed` reads it from `.claude/CLAUDE.md` itself:
+   under `suffix` it fills the primary language and flags secondary-language strings
+   as untranslated; under `polylang` it builds a counterpart page per language from
+   the demo's secondary-language copy — sideload images into the media library and
+   wire them to fields, and build menus from the nav.
    Pass the manifest's top-level `assets[]` (role-tagged: `logo` / `nav-graphic` / `hero` /
    `content`) through so `/wp-seed` seeds each image by its role instead of guessing.
    Set `--exclude-slugs` to the comma-joined slugs of every `pages[role=cpt-archive]` entry
