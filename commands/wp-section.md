@@ -6,7 +6,7 @@ argument-hint: "<section-name> [screenshot-path] [--cf7] [--page <slug>] [--targ
 
 # WP Section — One-Shot Section Builder
 
-Generate ACF field definitions, a template part, and CSS for a single section — all in one command. Dispatches three agents in parallel.
+Generate ACF field definitions, a template part, and CSS for a single section — all in one command. On `basic` it dispatches three agents in parallel; on `tailwind`, `wp-tailwind` runs after `wp-template` returns (see File ownership below).
 
 ## Step 1: Parse Arguments
 

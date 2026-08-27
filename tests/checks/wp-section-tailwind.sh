@@ -292,4 +292,19 @@ while IFS=: read -r lineno rest; do
   [ -n "$found" ] || { echo "FAIL: the report template holding line $lineno has no [tailwind only] counterpart naming the Tailwind output surface (components/<page-slug>.css or utilities/site.css) — commands/wp-header.md and commands/wp-footer.md pair every [basic only] styles.css line with one"; exit 1; }
 done <<< "$css_bullets"
 
+# The one-line summary used to claim "Dispatches three agents in parallel", which
+# is true only on `basic` — on `tailwind` wp-tailwind runs AFTER wp-template
+# returns, the ownership rule asserted further up. The summary is the first thing
+# a skimming agent reads, so it may not contradict the body. Any summary sentence
+# claiming parallel dispatch must scope that claim to `basic`. Zero-run means the
+# summary makes no parallel claim at all, which is fine: the body assertions carry
+# the positive half.
+summ=$(awk '/^# WP Section/,/^## Step 1:/' "$f" | tr '\n' ' ' | sed 's/  */ /g')
+[ -n "$summ" ] || { echo "FAIL: wp-section has no header/summary region delimited by '## Step 1:' — the summary-governance scan would silently run over nothing"; exit 1; }
+while IFS= read -r sent; do
+  [ -n "$sent" ] || continue
+  if printf '%s' "$sent" | grep -qi 'basic'; then continue; fi
+  { echo "FAIL: wp-section's summary claims parallel agent dispatch without scoping it to basic — on tailwind wp-tailwind runs AFTER wp-template returns, and an unconditional parallel claim is the first thing a skimming agent obeys"; exit 1; }
+done <<< "$(printf '%s' "$summ" | grep -oE '[^.]*parallel[^.]*' || true)"
+
 echo PASS
