@@ -38,7 +38,9 @@ add_action( 'acf/init', function() {
     // Bootstrap each group from PHP only if it isn't already Local JSON. A group
     // that has a acf-json/<key>.json is the source of truth (dashboard edits sync
     // there); re-running its PHP would re-register it read-only and shadow edits.
+    $bootstrapped = false;
     foreach ( glob( $fields_dir . '/*.php' ) as $file ) {
+        if ( ! is_readable( $file ) ) { continue; }
         $src = file_get_contents( $file );
         if ( preg_match_all( "/'key'\\s*=>\\s*'(group_[A-Za-z0-9_]+)'/", $src, $m ) ) {
             $pending = false;
@@ -48,6 +50,21 @@ add_action( 'acf/init', function() {
             if ( ! $pending ) { continue; } // every group in this file already has JSON
         }
         require_once $file;
+        $bootstrapped = true;
+    }
+
+    // Steady state — every group already has JSON: nothing to persist, so skip
+    // the scan entirely. An unwritable acf-json/ degrades to read-only PHP
+    // groups instead of emitting warnings on every request.
+    if ( ! $bootstrapped || ! is_writable( $json_dir ) ) {
+        return;
+    }
+
+    // One writer at a time: two concurrent first loads would both write the same
+    // files, and a half-written JSON reads back as a corrupt field group.
+    $lock = fopen( $json_dir . '/.bootstrap.lock', 'c' );
+    if ( ! $lock || ! flock( $lock, LOCK_EX | LOCK_NB ) ) {
+        return; // another request is bootstrapping; it finishes the write.
     }
 
     // Persist any freshly-registered PHP-local group to Local JSON (editable).
@@ -57,6 +74,9 @@ add_action( 'acf/init', function() {
         $g['fields'] = acf_get_fields( $g );
         acf_write_json_field_group( acf_prepare_field_group_for_export( $g ) );
     }
+
+    flock( $lock, LOCK_UN );
+    fclose( $lock );
 });
 
 /**

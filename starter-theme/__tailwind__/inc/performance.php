@@ -67,7 +67,9 @@ add_action( 'template_redirect', function () {
 	$base_dir = $uploads['basedir'];
 
 	ob_start( function ( $html ) use ( $base_url, $base_dir ) {
-		if ( '' === $html ) {
+		// strpos on the uploads URL is ~free and skips the regex on any page
+		// with no uploaded images (404s, search, text-only pages).
+		if ( '' === $html || false === strpos( $html, $base_url ) ) {
 			return $html;
 		}
 		$pattern = '#' . preg_quote( $base_url, '#' ) . '/[^"\'\)\s]+?\.(?:jpe?g|png)#i';
