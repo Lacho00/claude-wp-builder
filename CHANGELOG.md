@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.9.0] - 2026-08-29
 
 ### Added
 - **Per-task model routing** — every agent now declares a `model:` cost tier in its
