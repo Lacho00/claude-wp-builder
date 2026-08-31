@@ -132,7 +132,8 @@ get_all_thumbnails() {
 
 # Start with built-in WordPress sizes
 DEFAULT_SIZES="thumbnail,medium,medium_large,large,1536x1536,2048x2048"
-CUSTOM_SIZES="$(get_all_thumbnails)"
+# `grep` exits 1 when a theme registers no custom sizes — that must not abort the run.
+CUSTOM_SIZES="$(get_all_thumbnails || true)"
 if [[ -n "$CUSTOM_SIZES" ]]; then
 	ALL_SIZES="${DEFAULT_SIZES},${CUSTOM_SIZES}"
 else
@@ -187,6 +188,11 @@ convert_to_webp() {
 	esac
 }
 
+# ── Read _wp_attachment_metadata (PHP-serialized, NOT JSON) ─────────────────
+# WordPress stores attachment metadata with serialize(), so json_decode() always
+# returns null here. Falls back to JSON for the rare filtered install.
+PHP_META='$s=file_get_contents("php://stdin");$m=@unserialize($s);if(!is_array($m)){$m=json_decode($s,true);}if(!is_array($m)){$m=[];}'
+
 # ── Step 3: Fix stuck 'processing' webp items ───────────────────────────────
 echo ""
 info "━━━ Fixing stuck 'processing' items ━━━"
@@ -208,34 +214,38 @@ if [[ "${STUCK_COUNT:-0}" -gt 0 ]]; then
 	done < <(db_q "SELECT id, extra_data FROM ${QUEUE_TABLE} WHERE item_type='webp' AND result_status='processing';")
 fi
 
-# ── Step 4: Register attachments for optimization if queue is empty ─────────
+# ── Step 4: Register attachments missing from the optimization queue ────────
 echo ""
 info "━━━ Checking attachment optimization queue ━━━"
-ATTACH_COUNT=$(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "0")
-if [[ "${ATTACH_COUNT:-0}" -eq 0 ]]; then
-	info "  Queue empty — registering all attachments for optimization"
-	NOW=$(date +%s)
-	while IFS=$'\t' read -r post_id mime thumbcount filesize main_size; do
-		[[ -z "$post_id" ]] && continue
-		EXTRA="{\"thumbnails_count\":${thumbcount:-0},\"original_main_size\":${main_size:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
-		db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${filesize:-0}, ${filesize:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});" || true
-	done < <(db_q "
-		SELECT p.ID, p.post_mime_type,
-		       COALESCE(JSON_LENGTH(CAST(pm.meta_value AS JSON), '\$.sizes'), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0)
-		FROM ${POSTS_TABLE} p
-		LEFT JOIN ${TABLE_PREFIX}postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
-		WHERE p.post_type = 'attachment'
-		  AND p.post_status = 'inherit'
-		  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
-		  AND p.ID NOT IN (SELECT object_id FROM ${QUEUE_TABLE} WHERE item_type='attachment')
-		ORDER BY p.ID;
-	")
-	info "  Registered $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?") attachments"
-else
-	info "  Already have ${ATTACH_COUNT:-?} attachment entries, skipping registration"
-fi
+
+# NOTE: no JSON_LENGTH/JSON_EXTRACT here — MariaDB has no CAST(... AS JSON), and the
+# metadata is serialized anyway, so the counts are read with PHP below.
+# `object_id IS NOT NULL` matters: a single NULL makes `NOT IN (...)` match no rows.
+REGISTERED=0
+NOW=$(date +%s)
+while IFS=$'\t' read -r post_id mime; do
+	[[ -z "$post_id" ]] && continue
+	META=$(db_q "SELECT meta_value FROM ${TABLE_PREFIX}postmeta WHERE post_id=${post_id} AND meta_key='_wp_attachment_metadata' LIMIT 1;")
+	THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} echo count(\$m['sizes'] ?? []);" 2>/dev/null || echo 0)
+	MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo \$m['file'] ?? '';" 2>/dev/null || echo "")
+	FILE_SIZE=0
+	[[ -n "$MAIN_FILE" ]] && FILE_SIZE=$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)
+	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
+	db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE:-0}, ${FILE_SIZE:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});" || true
+	((REGISTERED++)) || true
+done < <(db_q "
+	SELECT p.ID, p.post_mime_type
+	FROM ${POSTS_TABLE} p
+	WHERE p.post_type = 'attachment'
+	  AND p.post_status = 'inherit'
+	  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
+	  AND p.ID NOT IN (
+	    SELECT object_id FROM ${QUEUE_TABLE}
+	    WHERE item_type='attachment' AND object_id IS NOT NULL
+	  )
+	ORDER BY p.ID;
+")
+info "  Registered ${REGISTERED} new attachment(s) — queue total: $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?")"
 
 # ── Step 5: Sync missing webp entries ───────────────────────────────────────
 echo ""
@@ -256,7 +266,7 @@ MISSING=$(db_q "
 	  )
 	  AND posts.ID NOT IN (
 	    SELECT object_id FROM ${QUEUE_TABLE} rio
-	    WHERE rio.item_type = 'webp'
+	    WHERE rio.item_type = 'webp' AND rio.object_id IS NOT NULL
 	    GROUP BY object_id
 	  )
 	ORDER BY posts.ID;
@@ -276,9 +286,9 @@ else
 		[[ -z "$META" ]] && { warn "  #${post_id}: no metadata, skipping"; continue; }
 		MIME=$(db_q "SELECT post_mime_type FROM ${POSTS_TABLE} WHERE ID=${post_id};" || echo "image/png")
 
-		MAIN_FILE=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo $m["file"]??"";' 2>/dev/null)
+		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo \$m['file'] ?? '';" 2>/dev/null)
 		DIR=$(dirname "$MAIN_FILE")
-		THUMB_COUNT=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo count($m["sizes"]??[]);' 2>/dev/null)
+		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} echo count(\$m['sizes'] ?? []);" 2>/dev/null)
 
 		# Collect all sizes: original + thumbnails
 		declare -a ENTRIES=()
@@ -290,7 +300,7 @@ else
 			SURL="${SITE_URL}/wp-content/uploads/${DIR}/${sfile}"
 			SB=$(stat -c%s "$SP" 2>/dev/null || echo 0)
 			ENTRIES+=("$sname|$SP|$SURL|$SB")
-		done < <(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);foreach($m["sizes"]??[]as$k=>$v)echo$k."|".$v["file"]."\n";' 2>/dev/null)
+		done < <(echo "$META" | php -r "${PHP_META} foreach (\$m['sizes'] ?? [] as \$k => \$v) echo \$k.'|'.\$v['file'].PHP_EOL;" 2>/dev/null)
 
 		INSERTED=0
 		TS=$(date +%s)
