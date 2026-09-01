@@ -57,8 +57,12 @@ UPLOAD_DIR="$WP_ROOT/wp-content/uploads"
 info "DB: ${DB_NAME}@${DB_HOST} | prefix=${TABLE_PREFIX}"
 
 # DB query helpers
-db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
-db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
+# stderr is deliberately NOT silenced: several callers tolerate a failed query with
+# `|| true` or `|| echo 0`, so mariadb's own message is the only evidence left that
+# anything went wrong. MYSQL_PWD keeps the password off the command line, so there
+# is no "insecure" warning to suppress here.
+db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1"; }
+db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1"; }
 
 # ── Check / install WP-CLI ──────────────────────────────────────────────────
 WP_CLI=""
@@ -192,6 +196,14 @@ convert_to_webp() {
 # WordPress stores attachment metadata with serialize(), so json_decode() always
 # returns null here. Falls back to JSON for the rare filtered install.
 PHP_META='$s=file_get_contents("php://stdin");$m=@unserialize($s);if(!is_array($m)){$m=json_decode($s,true);}if(!is_array($m)){$m=[];}'
+
+# ── The queue table must exist before any of the steps below ────────────────
+# Robin creates it on activation. Without this guard a missing table makes every
+# query below fail one by one, and the counters read as a clean, empty queue.
+if [[ "$(db_q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='${QUEUE_TABLE}';")" != "1" ]]; then
+	err "Queue table ${QUEUE_TABLE} does not exist — is Robin Image Optimizer activated?"
+	exit 1
+fi
 
 # ── Step 3: Fix stuck 'processing' webp items ───────────────────────────────
 echo ""
