@@ -242,7 +242,9 @@ NOW=$(date +%s)
 DECODE_META='while (($l = fgets(STDIN)) !== false) {
 	$l = rtrim($l, "\n"); if ($l === "") continue;
 	$p = explode("\t", $l);
-	$m = @unserialize(base64_decode($p[2] ?? ""));
+	$raw = base64_decode($p[2] ?? "");
+	$m = @unserialize($raw);
+	if (!is_array($m)) { $m = json_decode($raw, true); }
 	if (!is_array($m)) { $m = []; }
 	echo $p[0], "\t", $p[1], "\t", count($m["sizes"] ?? []), "\t", ($m["file"] ?? ""), "\n";
 }'
