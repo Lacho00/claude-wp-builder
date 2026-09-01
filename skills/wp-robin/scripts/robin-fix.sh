@@ -231,8 +231,11 @@ while IFS=$'\t' read -r post_id mime; do
 	FILE_SIZE=0
 	[[ -n "$MAIN_FILE" ]] && FILE_SIZE=$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)
 	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
-	db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE:-0}, ${FILE_SIZE:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});" || true
-	((REGISTERED++)) || true
+	if db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE:-0}, ${FILE_SIZE:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});"; then
+		((REGISTERED++)) || true
+	else
+		warn "  queue insert failed for attachment ${post_id} — skipped"
+	fi
 done < <(db_q "
 	SELECT p.ID, p.post_mime_type
 	FROM ${POSTS_TABLE} p
