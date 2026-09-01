@@ -305,7 +305,7 @@ Edit `inc/i18n.php` in the new theme directory:
 - Set the `SUPPORTED_LANGS` constant to an array containing all specified languages (primary + secondary). Example: `['en', 'es']`
 - Set the `DEFAULT_LANG` constant to the primary language. Example: `'en'`
 
-#### Then rewrite the field suffix — MANDATORY when the primary language is not `en`
+#### Then rewrite the field suffix — MANDATORY when the secondary language is not `es`
 
 The starter ships its translation twins hardcoded as `_es`, because it was
 written for an English-primary site. `<prefix>get_field()` does NOT read that
@@ -329,7 +329,7 @@ Then relabel the tab and the `(ES)` field labels for the real language, and
 verify before moving on:
 
 ```bash
-grep -c "_es" <theme>/fields/*.php     # must be 0 on a non-Spanish-primary site
+grep -c "_es" <theme>/fields/*.php     # must be 0 unless the secondary language IS es
 grep -c "_$SECONDARY" <theme>/fields/*.php  # must equal the twin count
 ```
 
