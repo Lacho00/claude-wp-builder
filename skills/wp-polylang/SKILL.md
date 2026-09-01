@@ -165,9 +165,21 @@ media item or a **taxonomy term** created without `pll_set_post_language()` /
 absent from the site. There is no warning. Assign a language in the same step
 that creates the object, and sweep afterwards:
 
+Sweep both halves. `post_type => "any"` silently skips attachments — they are
+`exclude_from_search` — so the types are listed and filtered instead, and terms
+need their own pass because no post query ever reaches them:
+
 ```bash
-$WP eval 'foreach (get_posts(["post_type"=>"any","numberposts"=>-1,"post_status"=>"any"]) as $p) { if (!pll_get_post_language($p->ID)) echo "NO LANG: $p->ID $p->post_title\n"; }'
+# Posts, pages, menu items and media.
+$WP eval 'foreach (get_post_types() as $pt) { if (!pll_is_translated_post_type($pt)) continue; foreach (get_posts(["post_type"=>$pt,"numberposts"=>-1,"post_status"=>"any"]) as $p) { if (!pll_get_post_language($p->ID)) echo "NO LANG: {$pt} {$p->ID} {$p->post_title}\n"; } }'
+
+# Taxonomy terms.
+$WP eval 'foreach (get_taxonomies() as $tax) { if (!pll_is_translated_taxonomy($tax)) continue; foreach (get_terms(["taxonomy"=>$tax,"hide_empty"=>false]) as $t) { if (!pll_get_term_language($t->term_id)) echo "NO LANG: {$tax} {$t->term_id} {$t->name}\n"; } }'
 ```
+
+Both must print nothing. The `pll_is_translated_*` guards keep the sweep quiet
+about types and taxonomies Polylang was never asked to translate, which have no
+language by design.
 
 ## Do not translate a taxonomy of proper nouns
 
