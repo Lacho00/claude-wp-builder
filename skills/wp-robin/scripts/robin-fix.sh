@@ -235,11 +235,19 @@ info "━━━ Checking attachment optimization queue ━━━"
 # `object_id IS NOT NULL` matters: a single NULL makes `NOT IN (...)` match no rows.
 REGISTERED=0
 NOW=$(date +%s)
-while IFS=$'\t' read -r post_id mime; do
+# One query, one PHP process for the whole step. The loop used to open a mariadb
+# connection and fork two PHP interpreters per attachment, which put a few thousand
+# images out of reach. The metadata rides along base64-encoded so it cannot carry a
+# tab or a newline into the tab-separated read below.
+DECODE_META='while (($l = fgets(STDIN)) !== false) {
+	$l = rtrim($l, "\n"); if ($l === "") continue;
+	$p = explode("\t", $l);
+	$m = @unserialize(base64_decode($p[2] ?? ""));
+	if (!is_array($m)) { $m = []; }
+	echo $p[0], "\t", $p[1], "\t", count($m["sizes"] ?? []), "\t", ($m["file"] ?? ""), "\n";
+}'
+while IFS=$'\t' read -r post_id mime THUMB_COUNT MAIN_FILE; do
 	[[ -z "$post_id" ]] && continue
-	META=$(db_q "SELECT meta_value FROM ${TABLE_PREFIX}postmeta WHERE post_id=${post_id} AND meta_key='_wp_attachment_metadata' LIMIT 1;")
-	THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} echo count(\$m['sizes'] ?? []);" 2>/dev/null || echo 0)
-	MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo \$m['file'] ?? '';" 2>/dev/null || echo "")
 	FILE_SIZE=0
 	[[ -n "$MAIN_FILE" ]] && FILE_SIZE=$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)
 	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
@@ -249,8 +257,10 @@ while IFS=$'\t' read -r post_id mime; do
 		warn "  queue insert failed for attachment ${post_id} — skipped"
 	fi
 done < <(db_q "
-	SELECT p.ID, p.post_mime_type
+	SELECT p.ID, p.post_mime_type, COALESCE(MAX(TO_BASE64(pm.meta_value)), '')
 	FROM ${POSTS_TABLE} p
+	LEFT JOIN ${TABLE_PREFIX}postmeta pm
+	       ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
 	WHERE p.post_type = 'attachment'
 	  AND p.post_status = 'inherit'
 	  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
@@ -258,8 +268,9 @@ done < <(db_q "
 	    SELECT object_id FROM ${QUEUE_TABLE}
 	    WHERE item_type='attachment' AND object_id IS NOT NULL
 	  )
+	GROUP BY p.ID, p.post_mime_type
 	ORDER BY p.ID;
-")
+" | php -r "$DECODE_META")
 info "  Registered ${REGISTERED} new attachment(s) — queue total: $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?")"
 
 # ── Step 5: Sync missing webp entries ───────────────────────────────────────
