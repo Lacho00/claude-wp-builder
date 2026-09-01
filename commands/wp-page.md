@@ -255,10 +255,23 @@ Dispatch **wp-template** agent:
 Dispatch **wp-template** agent (second file):
 
 > Generate `inc/legal-search.php`, required from `functions.php`:
-> - `pre_get_posts`, main query, `is_search()` only: exclude every page on the
->   "Legal Page" template via `post__not_in`, matched on the `_wp_page_template`
->   meta rather than a list of IDs, so both languages and any legal page added
->   later are covered.
+> - `pre_get_posts`, main query, `is_search()` only: look the legal pages up by
+>   template rather than hardcoding IDs, so both languages and any legal page
+>   added later are covered. `post__not_in` takes post IDs only — it cannot match
+>   a meta value — so query the IDs first and pass those:
+>
+>   ```php
+>   $legal_ids = get_posts( array(
+>       'post_type'      => 'page',
+>       'fields'         => 'ids',
+>       'posts_per_page' => -1,
+>       'meta_key'       => '_wp_page_template',
+>       'meta_value'     => 'page-legal.php',
+>   ) );
+>   if ( $legal_ids ) {
+>       $query->set( 'post__not_in', $legal_ids );
+>   }
+>   ```
 > - The legal pages are footer boilerplate nobody searches for; a match on
 >   "privacidad" or "cookies" only pushes a real result off the first page. They
 >   stay published, linked and indexable — this hides them from site search only.
