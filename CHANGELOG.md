@@ -5,6 +5,16 @@
 ### Fixed
 - **`wp-robin`'s `robin-fix.sh` did nothing on MariaDB, and gave up on a partially populated queue.** Three bugs, found running it against a live site (MariaDB 10.x, WP 7.1, 95 attachments, only 2 of them in the queue): the thumbnail scan aborted the whole script under `set -e` whenever the theme registered no `add_image_size`; the attachment query used `CAST(meta_value AS JSON)`, which MariaDB does not implement, and read `_wp_attachment_metadata` with `json_decode()` even though WordPress serializes it — so the query errored out and the loop registered nothing; and registration ran only when the queue was completely empty, so a queue holding a couple of stale rows was reported as done and 93 attachments were never optimized. Registration now runs for every attachment missing from the queue, the counts are read with `unserialize()`, and both `NOT IN (...)` subqueries exclude `NULL` `object_id` values, which otherwise make the whole predicate match no rows.
 
+## [1.9.0] - 2026-08-29
+
+### Added
+- **Per-task model routing** — every agent now declares a `model:` cost tier in its
+  frontmatter (opus for planning `wp-normalize`/`wp-context`, sonnet for code authoring
+  and judgment audits, haiku for mechanical `wp-acf`/`wp-cf7`/AIOS/Rank Math), so
+  `/wp-yolo` and every other dispatcher route subagents to the cheapest capable model
+  automatically. `/wp-yolo` documents the contract in its "Model routing" section;
+  `tests/checks/model-routing.sh` enforces it.
+
 ## [1.8.0] - 2026-08-27
 
 ### Added

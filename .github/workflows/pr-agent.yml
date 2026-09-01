@@ -33,8 +33,8 @@ jobs:
           # Model + endpoint are also read from the committed .pr_agent.toml, but
           # setting them here too makes the workflow self-contained and overrides
           # the file if they ever drift. Double-underscore = nested config key.
-          CONFIG__MODEL: "openai/coder"
-          CONFIG__FALLBACK_MODELS: '["openai/coder"]'
+          CONFIG__MODEL: "openai/coder-plan"
+          CONFIG__FALLBACK_MODELS: '["openai/coder-plan"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"
           CONFIG__MAX_MODEL_TOKENS: "48000"
           # LiteLLM directly (NOT via Headroom :8788). Headroom short-circuits pr-agent's
