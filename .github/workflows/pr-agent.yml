@@ -39,6 +39,10 @@ jobs:
           # Model + endpoint are also read from the committed .pr_agent.toml, but
           # setting them here too makes the workflow self-contained and overrides
           # the file if they ever drift. Double-underscore = nested config key.
+          # Local 27B model generates a full review in ~5-6 min; the default
+          # ai_timeout of 120s kills every attempt mid-generation and PR-Agent
+          # posts "Failed to review PR" (observed on PR #28, 2026-09-01).
+          CONFIG__AI_TIMEOUT: "900"
           CONFIG__MODEL: "openai/coder-plan"
           CONFIG__FALLBACK_MODELS: '["openai/coder-plan"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"
