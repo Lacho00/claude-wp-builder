@@ -583,7 +583,10 @@ echo 'Generated robots.txt at ' . ABSPATH . 'robots.txt';
 
 ```php
 function prefix_breadcrumbs() {
-    if (is_front_page()) return;
+    // Not on the front page, and not on a 404: the trail says WHERE YOU ARE, and a
+    // 404 is not a place. Rank Math builds an "Error 404" crumb for it, which only
+    // restates the heading already on screen.
+    if (is_front_page() || is_404()) return;
     echo '<nav class="breadcrumbs" aria-label="Breadcrumb">';
     if (function_exists('rank_math_the_breadcrumbs')) {
         rank_math_the_breadcrumbs();

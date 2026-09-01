@@ -252,6 +252,17 @@ Dispatch **wp-template** agent:
 > - `get_footer()`
 > - BEM classes: `.legal__*`
 
+Dispatch **wp-template** agent (second file):
+
+> Generate `inc/legal-search.php`, required from `functions.php`:
+> - `pre_get_posts`, main query, `is_search()` only: exclude every page on the
+>   "Legal Page" template via `post__not_in`, matched on the `_wp_page_template`
+>   meta rather than a list of IDs, so both languages and any legal page added
+>   later are covered.
+> - The legal pages are footer boilerplate nobody searches for; a match on
+>   "privacidad" or "cookies" only pushes a real result off the first page. They
+>   stay published, linked and indexable — this hides them from site search only.
+
 Dispatch **wp-acf** agent:
 
 > Generate `fields/legal.php`:

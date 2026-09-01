@@ -191,6 +191,26 @@ Read `components/buttons.css` before writing any button class.
   exception.)
 - Hand-written `@media` queries.
 
+## `hidden` is two different things
+
+Tailwind's `hidden` utility is `display: none`. HTML's `hidden` ATTRIBUTE is a
+separate mechanism, and it is the one JavaScript toggles (`el.hidden = false`).
+Put both on the same element and the element never appears: clearing the attribute
+leaves the class, and the class still says `display: none`.
+
+Anything a script shows and hides — a status line, a live region, a panel — is
+hidden with the ATTRIBUTE alone. Never with the utility, and never with both.
+
+```html
+<!-- wrong: the script clears the attribute, the class keeps it invisible -->
+<p class="newsletter__status hidden …" hidden></p>
+<!-- right -->
+<p class="newsletter__status …" hidden></p>
+```
+
+The same applies to any class that is really a state (`opacity-0`,
+`pointer-events-none`): pick ONE mechanism per element and let the script own it.
+
 ## Verify
 
 ```bash
