@@ -56,6 +56,9 @@ focus_only_on_problems = true
 num_code_suggestions_per_chunk = 3
 
 [github_action_config]
+# Re-run the auto tools when NEW COMMITS are pushed to an open PR (2026-09-01).
+# Default pr_actions excludes "synchronize", so pushes never triggered a re-review.
+pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
 # Which tools run automatically when a PR opens.
 # auto_improve enabled 2026-09-01: posts code-fix suggestions on every new PR.
 # Suggestions are rendered committable (see [pr_code_suggestions]) so yojahny
