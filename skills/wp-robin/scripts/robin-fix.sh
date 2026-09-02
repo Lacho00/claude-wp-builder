@@ -273,6 +273,31 @@ flush_batch() {
 	BATCH_IDS=()
 }
 
+# The row list is materialized first so a failed query is fatal. Read straight
+# from a process substitution, a query that errors out delivers zero rows and the
+# step reports "0 new attachments" — the same false "nothing left to do" this
+# script exists to undo. `pipefail` makes the mariadb side of the pipe count too.
+ATTACH_ROWS=$(mktemp)
+trap 'rm -f "$ATTACH_ROWS"' EXIT
+if ! db_q "
+	SELECT p.ID, p.post_mime_type, COALESCE(MAX(TO_BASE64(pm.meta_value)), '')
+	FROM ${POSTS_TABLE} p
+	LEFT JOIN ${TABLE_PREFIX}postmeta pm
+	       ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
+	WHERE p.post_type = 'attachment'
+	  AND p.post_status = 'inherit'
+	  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
+	  AND p.ID NOT IN (
+	    SELECT object_id FROM ${QUEUE_TABLE}
+	    WHERE item_type='attachment' AND object_id IS NOT NULL
+	  )
+	GROUP BY p.ID, p.post_mime_type
+	ORDER BY p.ID;
+" | php -r "$DECODE_META" > "$ATTACH_ROWS"; then
+	err "Could not read the attachment list from the database — refusing to report the queue as complete."
+	exit 1
+fi
+
 while IFS=$'\t' read -r post_id mime THUMB_COUNT MAIN_FILE; do
 	[[ -z "$post_id" ]] && continue
 	FILE_SIZE=0
@@ -288,21 +313,7 @@ while IFS=$'\t' read -r post_id mime THUMB_COUNT MAIN_FILE; do
 	BATCH+=("(${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE}, ${FILE_SIZE}, '${mime}', '${mime}', '${EXTRA}', ${NOW})")
 	BATCH_IDS+=("${post_id}")
 	[[ ${#BATCH[@]} -ge $BATCH_SIZE ]] && flush_batch
-done < <(db_q "
-	SELECT p.ID, p.post_mime_type, COALESCE(MAX(TO_BASE64(pm.meta_value)), '')
-	FROM ${POSTS_TABLE} p
-	LEFT JOIN ${TABLE_PREFIX}postmeta pm
-	       ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
-	WHERE p.post_type = 'attachment'
-	  AND p.post_status = 'inherit'
-	  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
-	  AND p.ID NOT IN (
-	    SELECT object_id FROM ${QUEUE_TABLE}
-	    WHERE item_type='attachment' AND object_id IS NOT NULL
-	  )
-	GROUP BY p.ID, p.post_mime_type
-	ORDER BY p.ID;
-" | php -r "$DECODE_META")
+done < "$ATTACH_ROWS"
 flush_batch
 
 if [[ $SKIPPED_MISSING -gt 0 ]]; then
@@ -350,12 +361,15 @@ else
 		[[ -z "$META" ]] && { warn "  #${post_id}: no metadata, skipping"; continue; }
 		MIME=$(db_q "SELECT post_mime_type FROM ${POSTS_TABLE} WHERE ID=${post_id};" || echo "image/png")
 
-		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo is_string(\$m['file'] ?? null) ? \$m['file'] : '';" 2>/dev/null)
+		# `set -e` aborts the whole run on a non-zero command substitution, so every
+		# php call here has to answer for itself: one attachment with unreadable
+		# metadata must be skipped, not take the remaining ones down with it.
+		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo is_string(\$m['file'] ?? null) ? \$m['file'] : '';" 2>/dev/null || echo '')
 		# Without a main file every path below collapses to the uploads root with a
 		# trailing slash, and the webp entries built from it point at nothing.
 		[[ -z "$MAIN_FILE" ]] && { warn "  #${post_id}: metadata has no file, skipping"; continue; }
 		DIR=$(dirname "$MAIN_FILE")
-		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} echo count(\$m['sizes'] ?? []);" 2>/dev/null)
+		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} \$s = \$m['sizes'] ?? null; echo is_array(\$s) ? count(\$s) : 0;" 2>/dev/null || echo 0)
 
 		# Collect all sizes: original + thumbnails
 		declare -a ENTRIES=()
@@ -367,7 +381,7 @@ else
 			SURL="${SITE_URL}/wp-content/uploads/${DIR}/${sfile}"
 			SB=$(stat -c%s "$SP" 2>/dev/null || echo 0)
 			ENTRIES+=("$sname|$SP|$SURL|$SB")
-		done < <(echo "$META" | php -r "${PHP_META} foreach (\$m['sizes'] ?? [] as \$k => \$v) echo \$k.'|'.\$v['file'].PHP_EOL;" 2>/dev/null)
+		done < <(echo "$META" | php -r "${PHP_META} \$s = \$m['sizes'] ?? null; if (is_array(\$s)) { foreach (\$s as \$k => \$v) { if (is_array(\$v) && is_string(\$v['file'] ?? null)) echo \$k.'|'.\$v['file'].PHP_EOL; } }" 2>/dev/null || true)
 
 		INSERTED=0
 		TS=$(date +%s)
