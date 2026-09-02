@@ -57,8 +57,12 @@ UPLOAD_DIR="$WP_ROOT/wp-content/uploads"
 info "DB: ${DB_NAME}@${DB_HOST} | prefix=${TABLE_PREFIX}"
 
 # DB query helpers
-db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1" 2>/dev/null; }
-db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1" 2>/dev/null; }
+# stderr is deliberately NOT silenced: several callers tolerate a failed query with
+# `|| true` or `|| echo 0`, so mariadb's own message is the only evidence left that
+# anything went wrong. MYSQL_PWD keeps the password off the command line, so there
+# is no "insecure" warning to suppress here.
+db_q()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -N -s -e "$1"; }
+db_v()  { MYSQL_PWD="$DB_PASSWORD" mariadb -u "$DB_USER" -h "$DB_HOST" "$DB_NAME" -e "$1"; }
 
 # ── Check / install WP-CLI ──────────────────────────────────────────────────
 WP_CLI=""
@@ -132,7 +136,8 @@ get_all_thumbnails() {
 
 # Start with built-in WordPress sizes
 DEFAULT_SIZES="thumbnail,medium,medium_large,large,1536x1536,2048x2048"
-CUSTOM_SIZES="$(get_all_thumbnails)"
+# `grep` exits 1 when a theme registers no custom sizes — that must not abort the run.
+CUSTOM_SIZES="$(get_all_thumbnails || true)"
 if [[ -n "$CUSTOM_SIZES" ]]; then
 	ALL_SIZES="${DEFAULT_SIZES},${CUSTOM_SIZES}"
 else
@@ -187,6 +192,26 @@ convert_to_webp() {
 	esac
 }
 
+# ── Read _wp_attachment_metadata (PHP-serialized, NOT JSON) ─────────────────
+# WordPress stores attachment metadata with serialize(), so json_decode() always
+# returns null here. Falls back to JSON for the rare filtered install.
+PHP_META='$s=file_get_contents("php://stdin");$m=@unserialize($s, ["allowed_classes" => false]);if(!is_array($m)){$m=json_decode($s,true);}if(!is_array($m)){$m=[];}'
+
+# ── The queue table must exist before any of the steps below ────────────────
+# Robin creates it on activation. Without this guard a missing table makes every
+# query below fail one by one, and the counters read as a clean, empty queue.
+TABLE_COUNT=$(db_q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='${QUEUE_TABLE}';" || true)
+if [[ "$TABLE_COUNT" != "1" ]]; then
+	# An unreachable database answers the same way a missing table does — empty.
+	# Reporting the wrong one sends the user to reinstall a plugin that is fine.
+	if [[ -z "$TABLE_COUNT" ]]; then
+		err "Could not query information_schema for ${QUEUE_TABLE} — check the database connection and the user's privileges."
+	else
+		err "Queue table ${QUEUE_TABLE} does not exist — is Robin Image Optimizer activated?"
+	fi
+	exit 1
+fi
+
 # ── Step 3: Fix stuck 'processing' webp items ───────────────────────────────
 echo ""
 info "━━━ Fixing stuck 'processing' items ━━━"
@@ -208,34 +233,101 @@ if [[ "${STUCK_COUNT:-0}" -gt 0 ]]; then
 	done < <(db_q "SELECT id, extra_data FROM ${QUEUE_TABLE} WHERE item_type='webp' AND result_status='processing';")
 fi
 
-# ── Step 4: Register attachments for optimization if queue is empty ─────────
+# ── Step 4: Register attachments missing from the optimization queue ────────
 echo ""
 info "━━━ Checking attachment optimization queue ━━━"
-ATTACH_COUNT=$(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "0")
-if [[ "${ATTACH_COUNT:-0}" -eq 0 ]]; then
-	info "  Queue empty — registering all attachments for optimization"
-	NOW=$(date +%s)
-	while IFS=$'\t' read -r post_id mime thumbcount filesize main_size; do
-		[[ -z "$post_id" ]] && continue
-		EXTRA="{\"thumbnails_count\":${thumbcount:-0},\"original_main_size\":${main_size:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
-		db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${filesize:-0}, ${filesize:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});" || true
-	done < <(db_q "
-		SELECT p.ID, p.post_mime_type,
-		       COALESCE(JSON_LENGTH(CAST(pm.meta_value AS JSON), '\$.sizes'), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0),
-		       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(pm.meta_value, '\$.filesize')) AS UNSIGNED), 0)
-		FROM ${POSTS_TABLE} p
-		LEFT JOIN ${TABLE_PREFIX}postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
-		WHERE p.post_type = 'attachment'
-		  AND p.post_status = 'inherit'
-		  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
-		  AND p.ID NOT IN (SELECT object_id FROM ${QUEUE_TABLE} WHERE item_type='attachment')
-		ORDER BY p.ID;
-	")
-	info "  Registered $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?") attachments"
-else
-	info "  Already have ${ATTACH_COUNT:-?} attachment entries, skipping registration"
+
+# NOTE: no JSON_LENGTH/JSON_EXTRACT here — MariaDB has no CAST(... AS JSON), and the
+# metadata is serialized anyway, so the counts are read with PHP below.
+# `object_id IS NOT NULL` matters: a single NULL makes `NOT IN (...)` match no rows.
+REGISTERED=0
+NOW=$(date +%s)
+# One query, one PHP process for the whole step. The loop used to open a mariadb
+# connection and fork two PHP interpreters per attachment, which put a few thousand
+# images out of reach. The metadata rides along base64-encoded so it cannot carry a
+# tab or a newline into the tab-separated read below.
+DECODE_META='while (($l = fgets(STDIN)) !== false) {
+	$l = rtrim($l, "\n"); if ($l === "") continue;
+	$p = explode("\t", $l);
+	$raw = base64_decode($p[2] ?? "");
+	$m = @unserialize($raw, ["allowed_classes" => false]);
+	if (!is_array($m)) { $m = json_decode($raw, true); }
+	if (!is_array($m)) { $m = []; }
+	$sizes = $m["sizes"] ?? null;
+	$file  = $m["file"] ?? null;
+	echo $p[0], "\t", $p[1], "\t", (is_array($sizes) ? count($sizes) : 0), "\t", (is_string($file) ? $file : ""), "\n";
+}'
+# Rows go in batched: one INSERT per BATCH_SIZE attachments instead of one
+# mariadb client per attachment. A failed INSERT is reported for the whole batch
+# rather than the offending row — a rejected insert here is a schema or
+# connection problem, not per-row data, so the batch is the useful unit.
+BATCH_SIZE=200
+QUEUE_COLS="object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at"
+BATCH=()
+BATCH_IDS=()
+SKIPPED_MISSING=0
+
+flush_batch() {
+	[[ ${#BATCH[@]} -eq 0 ]] && return 0
+	local values
+	values=$(IFS=,; printf '%s' "${BATCH[*]}")
+	if db_q "INSERT INTO ${QUEUE_TABLE} (${QUEUE_COLS}) VALUES ${values};"; then
+		REGISTERED=$(( REGISTERED + ${#BATCH[@]} ))
+	else
+		warn "  queue insert failed for attachment(s): ${BATCH_IDS[*]} — skipped"
+	fi
+	BATCH=()
+	BATCH_IDS=()
+}
+
+# The row list is materialized first so a failed query is fatal. Read straight
+# from a process substitution, a query that errors out delivers zero rows and the
+# step reports "0 new attachments" — the same false "nothing left to do" this
+# script exists to undo. `pipefail` makes the mariadb side of the pipe count too.
+ATTACH_ROWS=$(mktemp)
+trap 'rm -f "$ATTACH_ROWS"' EXIT
+if ! db_q "
+	SELECT p.ID, p.post_mime_type, COALESCE(MAX(TO_BASE64(pm.meta_value)), '')
+	FROM ${POSTS_TABLE} p
+	LEFT JOIN ${TABLE_PREFIX}postmeta pm
+	       ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
+	WHERE p.post_type = 'attachment'
+	  AND p.post_status = 'inherit'
+	  AND p.post_mime_type IN ('image/png','image/jpeg','image/jpg','image/gif','image/webp')
+	  AND p.ID NOT IN (
+	    SELECT object_id FROM ${QUEUE_TABLE}
+	    WHERE item_type='attachment' AND object_id IS NOT NULL
+	  )
+	GROUP BY p.ID, p.post_mime_type
+	ORDER BY p.ID;
+" | php -r "$DECODE_META" > "$ATTACH_ROWS"; then
+	err "Could not read the attachment list from the database — refusing to report the queue as complete."
+	exit 1
 fi
+
+while IFS=$'\t' read -r post_id mime THUMB_COUNT MAIN_FILE; do
+	[[ -z "$post_id" ]] && continue
+	FILE_SIZE=0
+	[[ -n "$MAIN_FILE" ]] && FILE_SIZE=$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)
+	# An attachment whose original file is gone must not be queued as a
+	# successful, backed-up optimization: step 5 would then build webp entries
+	# from a path that does not exist, and the report would count it as done.
+	if [[ "${FILE_SIZE:-0}" -eq 0 ]]; then
+		SKIPPED_MISSING=$(( SKIPPED_MISSING + 1 ))
+		continue
+	fi
+	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE},\"class\":\"RIO_Attachment_Extra_Data\"}"
+	BATCH+=("(${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE}, ${FILE_SIZE}, '${mime}', '${mime}', '${EXTRA}', ${NOW})")
+	BATCH_IDS+=("${post_id}")
+	[[ ${#BATCH[@]} -ge $BATCH_SIZE ]] && flush_batch
+done < "$ATTACH_ROWS"
+flush_batch
+
+if [[ $SKIPPED_MISSING -gt 0 ]]; then
+	warn "  ${SKIPPED_MISSING} attachment(s) skipped — original file missing on disk"
+fi
+
+info "  Registered ${REGISTERED} new attachment(s) — queue total: $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?")"
 
 # ── Step 5: Sync missing webp entries ───────────────────────────────────────
 echo ""
@@ -256,7 +348,7 @@ MISSING=$(db_q "
 	  )
 	  AND posts.ID NOT IN (
 	    SELECT object_id FROM ${QUEUE_TABLE} rio
-	    WHERE rio.item_type = 'webp'
+	    WHERE rio.item_type = 'webp' AND rio.object_id IS NOT NULL
 	    GROUP BY object_id
 	  )
 	ORDER BY posts.ID;
@@ -276,9 +368,19 @@ else
 		[[ -z "$META" ]] && { warn "  #${post_id}: no metadata, skipping"; continue; }
 		MIME=$(db_q "SELECT post_mime_type FROM ${POSTS_TABLE} WHERE ID=${post_id};" || echo "image/png")
 
-		MAIN_FILE=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo $m["file"]??"";' 2>/dev/null)
+		# `set -e` aborts the whole run on a non-zero command substitution, so every
+		# php call here has to answer for itself: one attachment with unreadable
+		# metadata must be skipped, not take the remaining ones down with it.
+		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo is_string(\$m['file'] ?? null) ? \$m['file'] : '';" 2>/dev/null || echo '')
+		# Without a main file every path below collapses to the uploads root with a
+		# trailing slash, and the webp entries built from it point at nothing.
+		[[ -z "$MAIN_FILE" ]] && { warn "  #${post_id}: metadata has no file, skipping"; continue; }
+		# Step 4 skips these, but step 5 reads the database on its own: a row queued
+		# by an earlier run or by Robin itself can still name a file that is gone,
+		# and every entry below would be written with size 0 and read as optimized.
+		[[ -f "$UPLOAD_DIR/$MAIN_FILE" ]] || { warn "  #${post_id}: original file missing, skipping"; continue; }
 		DIR=$(dirname "$MAIN_FILE")
-		THUMB_COUNT=$(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);echo count($m["sizes"]??[]);' 2>/dev/null)
+		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} \$s = \$m['sizes'] ?? null; echo is_array(\$s) ? count(\$s) : 0;" 2>/dev/null || echo 0)
 
 		# Collect all sizes: original + thumbnails
 		declare -a ENTRIES=()
@@ -290,7 +392,7 @@ else
 			SURL="${SITE_URL}/wp-content/uploads/${DIR}/${sfile}"
 			SB=$(stat -c%s "$SP" 2>/dev/null || echo 0)
 			ENTRIES+=("$sname|$SP|$SURL|$SB")
-		done < <(echo "$META" | php -r '$m=json_decode(file_get_contents("php://stdin"),true);foreach($m["sizes"]??[]as$k=>$v)echo$k."|".$v["file"]."\n";' 2>/dev/null)
+		done < <(echo "$META" | php -r "${PHP_META} \$s = \$m['sizes'] ?? null; if (is_array(\$s)) { foreach (\$s as \$k => \$v) { if (is_array(\$v) && is_string(\$v['file'] ?? null)) echo \$k.'|'.\$v['file'].PHP_EOL; } }" 2>/dev/null || true)
 
 		INSERTED=0
 		TS=$(date +%s)
