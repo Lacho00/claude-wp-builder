@@ -203,8 +203,8 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
    ```bash
    $WP option get rank_math_options --format=json >/dev/null 2>&1 || echo "Rank Math NOT configured"
    $WP eval "echo get_option('rank_math_registration_skip') ? 'skip-ok' : 'REGISTRATION FLAG MISSING';"
-   curl -s "$SITE/<a-cpt-archive-slug>/" | grep -c 'rel="canonical"'   # must be 1
-   curl -s "$SITE/" | grep -c 'application/ld+json'                     # must be >= 1
+   curl -s "$SITE/<a-cpt-archive-slug>/" | grep -o 'rel="canonical"' | wc -l   # must be 1
+   curl -s "$SITE/" | grep -o 'application/ld+json' | wc -l               # must be >= 1
    ```
    Configure it with `/wp-audit` (the `wp-audit-rankmath` agent) rather than the
    plugin's wizard, so the settings live in a re-runnable seed file.
@@ -212,7 +212,7 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 9. **No placeholder links in the delivered markup.** `href="#"` renders as a
    link, announces as a link, and goes nowhere:
    ```bash
-   curl -s "$SITE/" | grep -c 'href="#"'
+   curl -s "$SITE/" | grep -o 'href="#"' | wc -l
    ```
    Any hit is either a real destination the client still owes — list it in the
    report as **content pending**, with the field that holds it — or markup that
@@ -221,7 +221,7 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 10. **One `<h1>` per page.** A demo often draws the hero title as a styled
     `<div>`, and the conversion keeps it:
     ```bash
-    curl -s "$SITE/" | grep -c '<h1'   # must be exactly 1
+    curl -s "$SITE/" | grep -o '<h1' | wc -l   # must be exactly 1
     ```
 
 11. **No horizontal overflow on a phone.** A carousel track sized in absolute
