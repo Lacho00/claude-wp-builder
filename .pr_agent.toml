@@ -46,9 +46,23 @@ persistent_comment = true       # update one comment instead of spamming new one
 [pr_description]
 publish_labels = false          # set true if you want auto PR labels
 
+[pr_code_suggestions]
+# Render each suggestion as a GitHub code-suggestion block with an
+# "Apply suggestion" button (only for single-hunk edits in existing files —
+# multi-file or new-file suggestions stay as normal comments). Local 27B model,
+# so keep it focused: problems only, max 3 suggestions per chunk.
+commitable_code_suggestions = true
+focus_only_on_problems = true
+num_code_suggestions_per_chunk = 3
+
 [github_action_config]
-# Which tools run automatically when a PR opens. Start with just review;
-# add "describe" / "improve" once you trust the output.
+# Re-run the auto tools when NEW COMMITS are pushed to an open PR (2026-09-01).
+# Default pr_actions excludes "synchronize", so pushes never triggered a re-review.
+pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+# Which tools run automatically when a PR opens.
+# auto_improve enabled 2026-09-01: posts code-fix suggestions on every new PR.
+# Suggestions are rendered committable (see [pr_code_suggestions]) so yojahny
+# applies them with one click — the bot itself never pushes code.
 auto_review = true
 auto_describe = false
-auto_improve = false
+auto_improve = true

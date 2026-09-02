@@ -4,8 +4,14 @@
 name: PR-Agent
 
 on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
+  # pull_request_target (not pull_request): fork PRs run plain pull_request
+  # workflows read-only with NO secrets, so PR-Agent exits silently without
+  # posting anything (observed on Lacho00 fork PRs #28/#30/#31, 2026-09-01).
+  # Safe here: the-pr-agent action reads the diff via GitHub API only and
+  # never checks out or executes PR code, so fork code gets no privileged token.
+  # The workflow file itself is always read from the BASE branch (main).
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:                 # lets you type /review, /improve, /ask in a PR comment
 
 jobs:
@@ -33,6 +39,10 @@ jobs:
           # Model + endpoint are also read from the committed .pr_agent.toml, but
           # setting them here too makes the workflow self-contained and overrides
           # the file if they ever drift. Double-underscore = nested config key.
+          # Local 27B model generates a full review in ~5-6 min; the default
+          # ai_timeout of 120s kills every attempt mid-generation and PR-Agent
+          # posts "Failed to review PR" (observed on PR #28, 2026-09-01).
+          CONFIG__AI_TIMEOUT: "900"
           CONFIG__MODEL: "openai/coder-plan"
           CONFIG__FALLBACK_MODELS: '["openai/coder-plan"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "65536"

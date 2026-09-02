@@ -85,6 +85,79 @@ For each configured language, generate a complete CF7 form markup file:
 </div>
 ```
 
+## Styling: the form lives in the database, not in the theme
+
+A CF7 form is a post row. **No build step ever sees it** — Tailwind, PostCSS and
+every other scanner read theme FILES. Two consequences, both of which have shipped
+broken sites:
+
+1. **Never write utility classes into the form.** They compile only by coincidence,
+   for as long as some theme file happens to use the same utility, and they vanish
+   the day it stops — a theme that moved from `max-[759px]:` to `max-md:` took every
+   responsive rule of its footer form with it, silently. Give each element ONE hook
+   class and declare it in the theme's stylesheet:
+
+   ```html
+   <div class="contact-form__row">
+     [text* your-name id:your-name class:contact-form__input placeholder "John Doe"]
+   </div>
+   <button class="contact-form__submit" type="submit">Send message</button>
+   ```
+
+   ```css
+   /* assets/css/src/tailwindcss/components/forms.css — where the build CAN see it */
+   .contact-form__input { @apply h-9 w-full rounded-lg border-0 bg-white px-6 …; }
+   .contact-form__submit { @apply inline-flex h-14 items-center …; }
+   ```
+
+2. **The markup needs a seeder.** Write `inc/seed/cf7.php`, idempotent, that puts the
+   form body back on a fresh database — see "Re-seeding" below. Without it the form
+   is the one part of the site that does not travel with the theme.
+
+### CF7's own wrappers
+
+CF7 wraps every control in `<span class="wpcf7-form-control-wrap">` and renders its
+own `<form>`. When the design expects the controls to be direct children of a flex or
+grid container, `display: contents` on those wrappers is the usual fix — but **not on
+a row of side-by-side fields**: CF7 prints the per-field error INSIDE the wrap, so with
+the box removed each error becomes another flex item, the fields shrink and the last
+message lands outside the panel. Keep the box on those, `flex: 1`, and let the error
+stack under its own field.
+
+**Always look at the invalid state, not just the resting one.** Submit the empty form
+once and screenshot it. Resting-state-only review is how error tips, the response
+notice and the consent line all get discovered by the client instead.
+
+### Custom submit buttons and validation messages
+
+When the design supplies its own `<button type="submit">` instead of `[submit]`, and
+the theme posts the form with JavaScript, the browser's native validity bubble is
+written in the **browser's** language, not the page's — an English tooltip on a Spanish
+site. Set `form.noValidate = true` from the script, check `checkValidity()` yourself and
+write the answer where every other outcome of the form goes, in the page's language.
+Without JavaScript the attributes stand and the native check runs as before.
+
+## Re-seeding
+
+Generate `inc/seed/cf7.php` alongside the `cf7/` reference files:
+
+```php
+wp --path=<site> eval-file wp-content/themes/<theme>/inc/seed/cf7.php
+```
+
+Rules for the seeder:
+
+- **Idempotent.** A marker class or comment in the block tells a re-run it already
+  applied; a `force` argument rewrites a block edited by hand.
+- **Strip before writing**, so `force` replaces rather than stacks. Match the class
+  attribute loosely (`class="[^"]*\bmarker\b[^"]*"`), or an earlier revision's extra
+  classes leave a second copy behind.
+- **Splice, do not append.** A consent line belongs above the submit; find the button
+  and insert before it with `substr()`, not a regex replacement — a `$` in the label
+  is a backreference to `preg_replace`.
+- Any **plugin option** the form's behaviour depends on goes in a seed too. Plugin
+  options are database rows exactly like the form.
+
 ## Email Template Generation
 
 Design branded HTML email templates for both admin notification and user confirmation emails. Use `frontend-design` skill for visual design decisions.
@@ -346,3 +419,7 @@ Do NOT create `-es` variants when the project is monolingual.
 4. **Use `WPCF7_ContactForm::get_template()` API** — never raw `post create` for CF7 forms
 5. **Read `:root` colors from CSS, fall back to defaults** — primary `#0066cc`, text `#333333`, bg `#f5f5f5`, muted `#999999`
 6. **Return form IDs as the final output line** — e.g., `EN Form ID: 42 | ES Form ID: 43`
+7. **No utility classes inside the form markup** — one hook class per element, declared in the theme's CSS. No build step reads the database.
+8. **Ship `inc/seed/cf7.php`** — the form is a post row and does not travel with the theme without it.
+9. **Every language gets the same form** — same fields, same required markers (`*` in the placeholder, "(required)" in the visually hidden label), same consent line. A translated form that quietly drops the required markers is a bilingual bug nobody reads in review.
+10. **Screenshot the invalid state before declaring the form done** — submit it empty and look at where CF7 puts its per-field errors and its response notice.

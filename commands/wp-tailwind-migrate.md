@@ -172,6 +172,13 @@ BEM markup. Each dispatch prompt states:
 - Translate each declaration to the equivalent utility, and every `@media` query to
   the matching Tailwind breakpoint prefix rather than re-writing the query. Prefer the
   `@theme` tokens Step 3 extracted over a built-in colour scale.
+- **When no built-in stop matches, name one — do not emit `max-[<n>px]:`.** A demo drawn
+  in a design tool has its queries at frame widths (1599, 1023, 759), and translating
+  them literally gives hundreds of arbitrary variants. Collect the widths the demo
+  actually switches at, declare them once as `--breakpoint-*` in `@theme`, and use the
+  named prefixes. See **Name the breakpoints** in `wp-tailwind-system` for why: chief
+  among them, markup that lives in the DATABASE rather than in a scanned file loses
+  every arbitrary variant the day the theme normalizes them.
 - All five inputs author mode's Inputs table declares — the `section HTML`,
   `--block <name>`, `--page <slug>`, the **theme path** and the project's function
   **prefix**. `--block` and `--page` are the two author mode requires outright; the
