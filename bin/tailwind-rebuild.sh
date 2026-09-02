@@ -5,10 +5,10 @@
 # section existed — and /wp-yolo's parity gate diffs the demo against an unstyled page.
 # Usage: bin/tailwind-rebuild.sh <theme-dir>
 # Exit 0 and print nothing on a non-Tailwind theme (no package.json / no tailwindcss src).
-# Skip the build when `npm run preview` / `tailwindwatch` is already running FOR THIS
-# THEME: the watcher owns dist/ then and a second compiler racing it only produces a torn
-# file. A watcher in another theme is irrelevant, so match on the process's cwd, not on
-# the command line alone — the watch command carries relative paths.
+#
+# Two writers must never touch dist/main.css at once, or it is served torn:
+#  - another builder for the SAME theme    → serialized by flock below
+#  - the user's `npm run preview` watcher  → detected, and we skip rather than fight it
 set -euo pipefail
 
 theme="${1:?usage: tailwind-rebuild.sh <theme-dir>}"
@@ -16,29 +16,69 @@ theme="${1:?usage: tailwind-rebuild.sh <theme-dir>}"
 [ -f "$theme/package.json" ] && [ -d "$theme/assets/css/src/tailwindcss" ] || exit 0
 
 theme_abs=$(cd "$theme" && pwd -P)
+out_abs="$theme_abs/assets/css/dist/main.css"
 
-watcher_cwd() {
+proc_cwd() {
   # Linux first; lsof for macOS. Empty when neither can tell.
   readlink -f "/proc/$1/cwd" 2>/dev/null \
     || lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' \
     || true
 }
 
+# The watcher's own -o argument is the ground truth for which theme it compiles: cwd alone
+# misses `npm --prefix wp-content/themes/acme run preview`, whose cwd is the parent. Read
+# the command line, resolve its -o relative to that cwd, and compare output files.
+watcher_output() {
+  local pid=$1 cwd out
+  cwd=$(proc_cwd "$pid") || return 1
+  [ -n "$cwd" ] || return 1
+  out=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+        | awk '$0 == "-o" || $0 == "--output" { getline; print; exit }') || return 1
+  [ -n "$out" ] || return 1
+  case "$out" in
+    /*) printf '%s\n' "$out" ;;
+    *)  printf '%s\n' "$cwd/$out" ;;
+  esac
+}
+
 for pid in $(pgrep -f 'tailwindcss.*--watch' 2>/dev/null || true); do
-  if [ "$(watcher_cwd "$pid")" = "$theme_abs" ]; then
+  # Either signal is enough: an output path that resolves to ours, or a cwd that is ours
+  # (the fallback when /proc is unreadable, e.g. macOS, where cmdline is not available).
+  w_out=$(watcher_output "$pid" || true)
+  if [ -n "$w_out" ] && [ "$(readlink -f "$w_out" 2>/dev/null || echo "$w_out")" = "$out_abs" ]; then
+    echo "tailwind: watcher running for this theme (npm run preview) — dist/main.css is live, skipping build"
+    exit 0
+  fi
+  if [ -z "$w_out" ] && [ "$(proc_cwd "$pid")" = "$theme_abs" ]; then
     echo "tailwind: watcher running for this theme (npm run preview) — dist/main.css is live, skipping build"
     exit 0
   fi
 done
-# ponytail: a watcher whose cwd we cannot read is treated as absent and we build anyway —
+# ponytail: a watcher we cannot identify at all is treated as absent and we build anyway —
 # a possible torn write the watcher immediately redoes beats silently never compiling.
 
-if [ ! -d "$theme/node_modules" ]; then
-  echo "tailwind: node_modules missing — running npm install once"
-  (cd "$theme" && npm install --silent)
-fi
+build() {
+  if [ ! -d "$theme/node_modules" ]; then
+    echo "tailwind: node_modules missing — running npm install once"
+    (cd "$theme" && npm install --silent)
+  fi
+  # ponytail: tailwindbuild only, never the starter's `build` — that also runs wp-scripts
+  # and takes 10x longer; JS is untouched by the section/header/footer/page builders.
+  (cd "$theme" && npm run --silent tailwindbuild)
+  echo "tailwind: rebuilt assets/css/dist/main.css"
+}
 
-# ponytail: tailwindbuild only, never the starter's `build` — that also runs wp-scripts
-# and takes 10x longer; JS is untouched by the section/header/footer/page builders.
-(cd "$theme" && npm run --silent tailwindbuild)
-echo "tailwind: rebuilt assets/css/dist/main.css"
+# /wp-yolo dispatches section builders in parallel, so two can land here at once for the
+# same theme: concurrent `npm install` corrupts node_modules and concurrent compiles tear
+# dist/main.css. One lock per theme, in the theme, so separate projects never block.
+lock="$theme_abs/.tailwind-rebuild.lock"
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$lock"
+  flock 9
+  build
+  exec 9>&-
+  rm -f "$lock"
+else
+  # ponytail: no flock (macOS ships none) — build unlocked rather than not at all.
+  build
+fi

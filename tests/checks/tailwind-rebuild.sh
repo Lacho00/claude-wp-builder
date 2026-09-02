@@ -11,6 +11,8 @@ b=bin/tailwind-rebuild.sh
 grep -Fq 'npm run --silent tailwindbuild' "$b" || fail "$b does not run tailwindbuild"
 grep -Fq -- 'tailwindcss.*--watch' "$b" || fail "$b does not detect a running watcher"
 grep -Fq '/proc/$1/cwd' "$b" || fail "$b matches watchers globally — one in another theme would suppress this theme's build"
+grep -Fq 'cmdline' "$b" || fail "$b identifies a watcher by cwd alone — npm --prefix starts one whose cwd is the parent"
+grep -Fq 'flock' "$b" || fail "$b has no lock — two parallel builders corrupt node_modules and tear dist/main.css"
 grep -Fq 'exit 0' "$b" || fail "$b has no silent exit for non-Tailwind themes"
 
 # behavior: non-tailwind dir → silent success
@@ -40,10 +42,33 @@ if [ -d /proc/self ]; then
   printf '#!/usr/bin/env bash\necho %s\n' "$mine" > "$tmp/fakebin/pgrep"
   : > "$tmp/npm.log"
   out=$(PATH="$tmp/fakebin:$PATH" bash "$b" "$tmp/t")
-  kill $other $mine 2>/dev/null; wait $other $mine 2>/dev/null || true
   [ ! -s "$tmp/npm.log" ] && grep -Fq 'skipping build' <<<"$out" \
-    || fail "$b rebuilt over a watcher that owns this theme's dist/"
+    || { kill $other $mine 2>/dev/null; fail "$b rebuilt over a watcher that owns this theme's dist/"; }
+  kill $other $mine 2>/dev/null; wait $other $mine 2>/dev/null || true
+
+  # a watcher started from the PARENT (npm --prefix) writes this theme's dist but its cwd
+  # is not the theme — the -o argument is what identifies it
+  printf '#!/usr/bin/env bash\nsleep 30\n' > "$tmp/tailwindcss"; chmod +x "$tmp/tailwindcss"
+  (cd "$tmp" && exec "$tmp/tailwindcss" -i t/assets/css/src/tailwindcss/main.css -o t/assets/css/dist/main.css --watch) & prefixw=$!
+  sleep 0.2
+  printf '#!/usr/bin/env bash\necho %s\n' "$prefixw" > "$tmp/fakebin/pgrep"
+  : > "$tmp/npm.log"
+  out=$(PATH="$tmp/fakebin:$PATH" bash "$b" "$tmp/t")
+  kill $prefixw 2>/dev/null; wait $prefixw 2>/dev/null || true
+  [ ! -s "$tmp/npm.log" ] && grep -Fq 'skipping build' <<<"$out" \
+    || fail "$b rebuilt over a watcher started from a parent directory (npm --prefix) whose -o is this theme"
 fi
+
+# the lock must not survive the run, and a second run must not deadlock on it
+: > "$tmp/npm.log"
+PATH="$tmp/fakebin_nowatch:$PATH" true
+mkdir -p "$tmp/fakebin_nowatch"
+cp "$tmp/fakebin/npm" "$tmp/fakebin_nowatch/npm"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/fakebin_nowatch/pgrep"; chmod +x "$tmp/fakebin_nowatch/pgrep"
+PATH="$tmp/fakebin_nowatch:$PATH" bash "$b" "$tmp/t" >/dev/null
+PATH="$tmp/fakebin_nowatch:$PATH" timeout 10 bash "$b" "$tmp/t" >/dev/null \
+  || fail "$b deadlocked or failed on a second consecutive run — the lock is not released"
+[ ! -e "$tmp/t/.tailwind-rebuild.lock" ] || fail "$b leaves .tailwind-rebuild.lock behind in the theme"
 
 # every builder that writes template classes calls it before its summary
 for c in wp-section wp-header wp-footer wp-page wp-cpt; do
