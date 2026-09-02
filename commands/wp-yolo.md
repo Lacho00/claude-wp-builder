@@ -451,9 +451,15 @@ Run, in order:
    `/wp-cpt` run in Phase 2) via the project's WP-CLI wrapper — e.g.
    `$WP eval-file inc/seed/team.php` — to create that type's posts from its `seed[]`.
    **Primary language only.**
-3. **`/wp-finalize`**
-4. **`/wp-polish`**
-5. **`/wp-responsive-check`**
+3. **Rebuild Tailwind CSS** — `bash "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-rebuild.sh" <theme-dir>`.
+   On `tailwind` the theme enqueues only the compiled `assets/css/dist/main.css`, last
+   built by `/wp-init` before any section existed. Every step below — and the parity
+   gate in Step 5.5 — looks at the live site, so without this they would judge an
+   unstyled page. No-op on `basic`; skipped when a `tailwindwatch` process already
+   owns `dist/`.
+4. **`/wp-finalize`**
+5. **`/wp-polish`**
+6. **`/wp-responsive-check`**
 
 ## Step 5.5: Demo-parity gate — auto-fix, re-verify, and block
 

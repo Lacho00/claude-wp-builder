@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Tailwind CSS is recompiled after every builder.** `functions.php` enqueues only the
+  compiled `assets/css/dist/main.css`, which `/wp-init` built before any section existed;
+  `/wp-section`, `/wp-header`, `/wp-footer`, `/wp-page`, `/wp-cpt` and `/wp-yolo` never
+  rebuilt it, so the live site — and `/wp-yolo`'s parity gate — showed an unstyled page
+  unless `npm run preview` happened to be running. New `bin/tailwind-rebuild.sh` runs
+  `npm run tailwindbuild` at the end of each (no-op on non-Tailwind themes, skipped when a
+  watcher owns `dist/`). `/wp-init`'s summary and `docs/workflows.md` now explain the
+  live-reload workflow. `tests/checks/tailwind-rebuild.sh`.
+
 ### Added
 - **`/wp-section --hybrid`** now exists. `/wp-init`, `/wp-cinematic-init` and
   `docs/cinematic-mode.md` had been pointing users at the flag while
