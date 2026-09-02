@@ -78,11 +78,32 @@ $(document).ready(function () {
 
 Scan every `.php` template in the theme root and `template-parts/` directory. For each file:
 
+**Never animate an element that also needs a stacking order or a slide.** AOS's
+`[data-aos^=fade]` rule leaves an identity `transform` behind for the whole life of
+the page, and a transform does two things that outlive the animation:
+
+- It creates a **stacking context**. Any `z-index` inside the animated element only
+  competes with its siblings, never with the rest of the page. An animated toolbar
+  holding a dropdown is the classic case: the open menu has `z-20`, the toolbar has
+  `z-index: auto`, so the menu paints under every card that follows the toolbar in
+  the DOM. Animate it anyway only if you also give it an explicit `z-index` above
+  what follows, and print that class in the template — not in an overridable class
+  variable, where the next archive that overrides it silently loses the fix.
+- It makes the element a **containing block** for its `position: fixed` and
+  `absolute` descendants, and it rewrites `transition-property` to
+  `opacity, transform` — so an element that slides on `translate` (a mobile drawer,
+  an off-canvas panel) stops transitioning and jumps. Animate a wrapper INSIDE it
+  instead, never the sliding element itself.
+
 **Skip these elements:**
 - `<html>`, `<head>`, `<body>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<title>`
 - Elements that already have `data-aos`
 - Elements inside `<nav>` or `<header>` (they have their own animations)
 - `role="presentation"` decorative elements
+- Any ancestor of a dropdown, popover, tooltip or custom `<select>` menu, unless you
+  also set an explicit `z-index` on it (see above)
+- Anything that slides: off-canvas drawers, filter panels, anything transitioning
+  `translate`
 - Skip links (`<a class="skip-link">`)
 - Screen reader text
 
