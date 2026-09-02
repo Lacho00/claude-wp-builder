@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.10.0] - 2026-09-02
 
 ### Fixed
 - **Tailwind CSS is recompiled after every builder.** `functions.php` enqueues only the
@@ -22,6 +22,26 @@
   injection; refused on non-cinematic projects. `tests/checks/wp-section-hybrid.sh` guards it.
 - **`/wp-seed` works without `.wp-create.json`** — falls back to bare `wp` and the
   `Languages:` line of `.claude/CLAUDE.md`, matching `/wp-debug`. `tests/checks/wp-seed-fallback.sh`.
+- **Five gaps a full client build hit in production, closed at the source** (#30). `wp-cf7`
+  now treats a CF7 form as what it is — a post row no build step ever scans: one hook class
+  per element declared in the theme CSS instead of utility classes that vanish when the
+  theme normalizes its variants, plus an idempotent `inc/seed/cf7.php` so the markup travels
+  with the theme. `wp-aos-animator` documents the identity `transform` AOS leaves behind
+  (stacking context, containing block, rewritten `transition-property`) as skip conditions.
+  `wp-tailwind-system` separates Tailwind's `hidden` utility from HTML's `hidden` attribute.
+  `/wp-page legal` emits `inc/legal-search.php`, and Rank Math builds no breadcrumb on a 404.
+- **Twenty-one defects a 52-commit client build had to work around** (#31), with
+  `docs/postmortem-reference-build.md` carrying the full table — defect, cost, root cause,
+  fix — including the three left open and why. Five were silent bugs in the Tailwind starter
+  (SVG upload support, an ACF options `ID` collision, `main.css` pathing, and 36 translation
+  twin fields that were dead on a Spanish-primary site because `fields/*.php` hardcoded `_es`
+  while the helper appends the non-default suffix — `/wp-init` now rewrites the suffix and a
+  grep proves it). Sixteen more are now documented traps with grep gates: the `_`-in-arbitrary-
+  variant escape that silently killed 22 focus indicators, unlayered CSS beating
+  `@layer utilities`, `/wp-yolo` porting no demo JavaScript (new Step 4.6 enumerates
+  `demo/js/*.js`) and having no re-run gate (it now refuses on an already-built theme without
+  `--force`), Rank Math shipping active but unconfigured, and ACF options fields with no
+  `default_value`.
 
 ### Changed
 - README "Tech Stack" no longer claims vanilla CSS / no build tools; it names the Tailwind
@@ -32,6 +52,7 @@
   to `docs/workflows.md` (per-path how-to, `/wp-init` choices, i18n systems, shared files)
   and `docs/commands.md` (arguments, inputs, outputs per command). Removed the phantom
   `/wp-robin` and `/wp-aos-animator` command rows — they are skills, not slash commands.
+- `docs/code-connect-draft.md` — proposal for Figma Code Connect integration (#26), draft only.
 
 ## [1.9.0] - 2026-08-29
 
