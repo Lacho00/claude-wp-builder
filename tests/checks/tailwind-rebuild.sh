@@ -9,7 +9,8 @@ b=bin/tailwind-rebuild.sh
 
 [ -x "$b" ] || fail "$b missing or not executable"
 grep -Fq 'npm run --silent tailwindbuild' "$b" || fail "$b does not run tailwindbuild"
-grep -Fq -- 'tailwindcss.*--watch' "$b" || fail "$b does not skip when a watcher owns dist/"
+grep -Fq -- 'tailwindcss.*--watch' "$b" || fail "$b does not detect a running watcher"
+grep -Fq '/proc/$1/cwd' "$b" || fail "$b matches watchers globally — one in another theme would suppress this theme's build"
 grep -Fq 'exit 0' "$b" || fail "$b has no silent exit for non-Tailwind themes"
 
 # behavior: non-tailwind dir → silent success
@@ -25,6 +26,24 @@ chmod +x "$tmp/fakebin/npm" "$tmp/fakebin/pgrep"
 PATH="$tmp/fakebin:$PATH" bash "$b" "$tmp/t" >/dev/null
 grep -Fq 'run --silent tailwindbuild' "$tmp/npm.log" || fail "$b did not invoke npm run tailwindbuild on a Tailwind theme"
 ! grep -Eq 'run( --silent)? build$' "$tmp/npm.log" || fail "$b ran the full build script instead of tailwindbuild"
+
+# behavior: a watcher running in ANOTHER directory must not suppress this theme's build
+if [ -d /proc/self ]; then
+  mkdir -p "$tmp/other"
+  (cd "$tmp/other" && exec -a 'tailwindcss -i x -o y --watch' sleep 30) & other=$!
+  (cd "$tmp/t"     && exec -a 'tailwindcss -i x -o y --watch' sleep 30) & mine=$!
+  sleep 0.2
+  printf '#!/usr/bin/env bash\necho %s\n' "$other" > "$tmp/fakebin/pgrep"
+  : > "$tmp/npm.log"
+  PATH="$tmp/fakebin:$PATH" bash "$b" "$tmp/t" >/dev/null
+  grep -Fq 'tailwindbuild' "$tmp/npm.log" || { kill $other $mine; fail "$b skipped the build because of a watcher in a different theme"; }
+  printf '#!/usr/bin/env bash\necho %s\n' "$mine" > "$tmp/fakebin/pgrep"
+  : > "$tmp/npm.log"
+  out=$(PATH="$tmp/fakebin:$PATH" bash "$b" "$tmp/t")
+  kill $other $mine 2>/dev/null; wait $other $mine 2>/dev/null || true
+  [ ! -s "$tmp/npm.log" ] && grep -Fq 'skipping build' <<<"$out" \
+    || fail "$b rebuilt over a watcher that owns this theme's dist/"
+fi
 
 # every builder that writes template classes calls it before its summary
 for c in wp-section wp-header wp-footer wp-page wp-cpt; do
