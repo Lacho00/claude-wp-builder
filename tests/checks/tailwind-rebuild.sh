@@ -68,7 +68,23 @@ printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/fakebin_nowatch/pgrep"; chmod +x 
 PATH="$tmp/fakebin_nowatch:$PATH" bash "$b" "$tmp/t" >/dev/null
 PATH="$tmp/fakebin_nowatch:$PATH" timeout 10 bash "$b" "$tmp/t" >/dev/null \
   || fail "$b deadlocked or failed on a second consecutive run — the lock is not released"
-[ ! -e "$tmp/t/.tailwind-rebuild.lock" ] || fail "$b leaves .tailwind-rebuild.lock behind in the theme"
+[ ! -e "$tmp/t/.tailwind-rebuild.lock" ] || fail "$b writes its lock inside the theme, where the user would commit it"
+
+# two builders for the same theme must not compile at once. The lock file is
+# deliberately never unlinked: deleting it after the flock is released lets a late
+# arrival open a fresh inode while an earlier waiter still holds the old one.
+! grep -Fq 'rm -f "$lock"' "$b" || fail "$b unlinks its lock file — a third builder then locks a different inode"
+if command -v flock >/dev/null 2>&1; then
+  printf '#!/usr/bin/env bash\necho "IN $$" >> "%s/seq.log"\nsleep 0.4\necho "OUT $$" >> "%s/seq.log"\n' "$tmp" "$tmp" \
+    > "$tmp/fakebin_nowatch/npm"
+  chmod +x "$tmp/fakebin_nowatch/npm"
+  : > "$tmp/seq.log"
+  PATH="$tmp/fakebin_nowatch:$PATH" bash "$b" "$tmp/t" >/dev/null & p1=$!
+  PATH="$tmp/fakebin_nowatch:$PATH" bash "$b" "$tmp/t" >/dev/null & p2=$!
+  wait $p1 $p2
+  awk '{print $1}' "$tmp/seq.log" | tr '\n' ' ' | grep -Fq 'IN OUT IN OUT ' \
+    || fail "$b let two builders for the same theme compile at once (order: $(awk '{print $1}' "$tmp/seq.log" | tr '\n' ' '))"
+fi
 
 # every builder that writes template classes calls it before its summary
 for c in wp-section wp-header wp-footer wp-page wp-cpt; do

@@ -28,11 +28,19 @@ proc_cwd() {
 # The watcher's own -o argument is the ground truth for which theme it compiles: cwd alone
 # misses `npm --prefix wp-content/themes/acme run preview`, whose cwd is the parent. Read
 # the command line, resolve its -o relative to that cwd, and compare output files.
+# One argument per line. /proc is exact; `ps` is the macOS fallback and splits on
+# spaces, so a theme path containing one is not matched there — it falls through to
+# the cwd comparison below, which is where macOS stood before.
+proc_argv() {
+  tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null && return 0
+  ps -ww -o command= -p "$1" 2>/dev/null | tr ' ' '\n'
+}
+
 watcher_output() {
   local pid=$1 cwd out
   cwd=$(proc_cwd "$pid") || return 1
   [ -n "$cwd" ] || return 1
-  out=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+  out=$(proc_argv "$pid" \
         | awk '$0 == "-o" || $0 == "--output" { getline; print; exit }') || return 1
   [ -n "$out" ] || return 1
   case "$out" in
@@ -71,13 +79,17 @@ build() {
 # /wp-yolo dispatches section builders in parallel, so two can land here at once for the
 # same theme: concurrent `npm install` corrupts node_modules and concurrent compiles tear
 # dist/main.css. One lock per theme, in the theme, so separate projects never block.
-lock="$theme_abs/.tailwind-rebuild.lock"
+# The lock file is never deleted. Unlinking it after the flock is released hands a
+# late arrival a fresh inode while an earlier waiter still holds the old one, and the
+# two then build at once — the exact collision the lock exists to stop. It lives in
+# the temp dir, keyed by the theme's absolute path, so nothing is left inside the
+# theme for the user to commit.
+lock="${TMPDIR:-/tmp}/tailwind-rebuild-$(printf '%s' "$theme_abs" | cksum | tr -d ' ').lock"
 if command -v flock >/dev/null 2>&1; then
   exec 9>"$lock"
   flock 9
   build
   exec 9>&-
-  rm -f "$lock"
 else
   # ponytail: no flock (macOS ships none) — build unlocked rather than not at all.
   build

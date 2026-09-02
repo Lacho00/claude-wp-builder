@@ -11,6 +11,10 @@
   `npm run tailwindbuild` at the end of each (no-op on non-Tailwind themes, skipped when a
   watcher owns `dist/`). `/wp-init`'s summary and `docs/workflows.md` now explain the
   live-reload workflow. `tests/checks/tailwind-rebuild.sh`.
+  The per-theme lock lives in the temp dir and is never unlinked — deleting it after the
+  `flock` is released hands a late arrival a fresh inode while an earlier waiter still holds
+  the old one, and both build at once. A watcher's `-o` argument is read from `ps` where
+  `/proc` is unavailable.
 
 ### Added
 - **`/wp-section --hybrid`** now exists. `/wp-init`, `/wp-cinematic-init` and
