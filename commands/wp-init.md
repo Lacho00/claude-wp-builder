@@ -539,7 +539,10 @@ Next step: Run /wp-demo to create a demo mockup.
 
 If `$TEMPLATE` is `tailwind`, add after "Next step":
 ```
-Build:      Run `npm run preview` in the theme directory to start development.
+Live view:  In a second terminal, `cd <theme-dir> && npm run preview` and keep it running.
+            It recompiles CSS/JS on every file the builders write and reloads the browser
+            through BrowserSync (http://localhost:3000, proxying <domain>). Without it,
+            each builder recompiles once when it finishes; reload manually.
 ```
 
 **If this is a demo-first project**, adjust the summary:

@@ -206,5 +206,18 @@ image (`media_sideload_image`) into the media library and set it as the thumbnai
 Make it idempotent where practical (skip if a post with the same title already exists).
 Primary language only; flag secondary.
 
+## Step 6.5: Rebuild Tailwind CSS
+
+On `Template: tailwind` the site enqueues only the compiled `assets/css/dist/main.css`, so
+the classes the agents just wrote are invisible until it is recompiled:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-rebuild.sh" <theme-dir>
+```
+
+Silent no-op on a non-Tailwind theme; skips itself when the user has `npm run preview`
+running (the watcher already owns `dist/`). Do this before the summary — a summary that
+lists files no browser can see yet is not a finished section.
+
 ## Step 7: Print Summary
 List every file created and the registered post type, archive URL, and seed count.

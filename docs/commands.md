@@ -174,7 +174,9 @@ Footer: `footer.php` from the Footer/Contact/Social/Legal settings tabs.
 | `--block <bem>` | — | unique BEM block to scope every selector (with `--transcribe`) |
 | `--css <source>` | — | the demo CSS to transcribe (required with `--transcribe`) |
 
-Emits `fields/<section>.php`, `template-parts/section-<name>.php`, and CSS, in parallel.
+Emits `fields/<section>.php`, `template-parts/section-<name>.php`, and CSS, in parallel, then
+recompiles `assets/css/dist/main.css` on the tailwind template (`bin/tailwind-rebuild.sh`; skipped
+when `npm run preview` is running). `/wp-header`, `/wp-footer`, `/wp-page`, `/wp-cpt` and `/wp-yolo` do the same.
 
 ### `/wp-page`
 
