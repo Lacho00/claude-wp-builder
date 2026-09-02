@@ -246,18 +246,48 @@ DECODE_META='while (($l = fgets(STDIN)) !== false) {
 	$m = @unserialize($raw);
 	if (!is_array($m)) { $m = json_decode($raw, true); }
 	if (!is_array($m)) { $m = []; }
-	echo $p[0], "\t", $p[1], "\t", count($m["sizes"] ?? []), "\t", ($m["file"] ?? ""), "\n";
+	$sizes = $m["sizes"] ?? null;
+	$file  = $m["file"] ?? null;
+	echo $p[0], "\t", $p[1], "\t", (is_array($sizes) ? count($sizes) : 0), "\t", (is_string($file) ? $file : ""), "\n";
 }'
+# Rows go in batched: one INSERT per BATCH_SIZE attachments instead of one
+# mariadb client per attachment. A failed INSERT is reported for the whole batch
+# rather than the offending row — a rejected insert here is a schema or
+# connection problem, not per-row data, so the batch is the useful unit.
+BATCH_SIZE=200
+QUEUE_COLS="object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at"
+BATCH=()
+BATCH_IDS=()
+SKIPPED_MISSING=0
+
+flush_batch() {
+	[[ ${#BATCH[@]} -eq 0 ]] && return 0
+	local values
+	values=$(IFS=,; printf '%s' "${BATCH[*]}")
+	if db_q "INSERT INTO ${QUEUE_TABLE} (${QUEUE_COLS}) VALUES ${values};"; then
+		REGISTERED=$(( REGISTERED + ${#BATCH[@]} ))
+	else
+		warn "  queue insert failed for attachment(s): ${BATCH_IDS[*]} — skipped"
+	fi
+	BATCH=()
+	BATCH_IDS=()
+}
+
 while IFS=$'\t' read -r post_id mime THUMB_COUNT MAIN_FILE; do
 	[[ -z "$post_id" ]] && continue
 	FILE_SIZE=0
 	[[ -n "$MAIN_FILE" ]] && FILE_SIZE=$(stat -c%s "$UPLOAD_DIR/$MAIN_FILE" 2>/dev/null || echo 0)
-	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE:-0},\"class\":\"RIO_Attachment_Extra_Data\"}"
-	if db_q "INSERT INTO ${QUEUE_TABLE} (object_id, item_type, result_status, processing_level, is_backed_up, original_size, final_size, original_mime_type, final_mime_type, extra_data, created_at) VALUES (${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE:-0}, ${FILE_SIZE:-0}, '${mime}', '${mime}', '${EXTRA}', ${NOW});"; then
-		((REGISTERED++)) || true
-	else
-		warn "  queue insert failed for attachment ${post_id} — skipped"
+	# An attachment whose original file is gone must not be queued as a
+	# successful, backed-up optimization: step 5 would then build webp entries
+	# from a path that does not exist, and the report would count it as done.
+	if [[ "${FILE_SIZE:-0}" -eq 0 ]]; then
+		SKIPPED_MISSING=$(( SKIPPED_MISSING + 1 ))
+		continue
 	fi
+	EXTRA="{\"thumbnails_count\":${THUMB_COUNT:-0},\"original_main_size\":${FILE_SIZE},\"class\":\"RIO_Attachment_Extra_Data\"}"
+	BATCH+=("(${post_id}, 'attachment', 'success', 'normal', 1, ${FILE_SIZE}, ${FILE_SIZE}, '${mime}', '${mime}', '${EXTRA}', ${NOW})")
+	BATCH_IDS+=("${post_id}")
+	[[ ${#BATCH[@]} -ge $BATCH_SIZE ]] && flush_batch
 done < <(db_q "
 	SELECT p.ID, p.post_mime_type, COALESCE(MAX(TO_BASE64(pm.meta_value)), '')
 	FROM ${POSTS_TABLE} p
@@ -273,6 +303,12 @@ done < <(db_q "
 	GROUP BY p.ID, p.post_mime_type
 	ORDER BY p.ID;
 " | php -r "$DECODE_META")
+flush_batch
+
+if [[ $SKIPPED_MISSING -gt 0 ]]; then
+	warn "  ${SKIPPED_MISSING} attachment(s) skipped — original file missing on disk"
+fi
+
 info "  Registered ${REGISTERED} new attachment(s) — queue total: $(db_q "SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE item_type='attachment';" || echo "?")"
 
 # ── Step 5: Sync missing webp entries ───────────────────────────────────────
@@ -314,7 +350,10 @@ else
 		[[ -z "$META" ]] && { warn "  #${post_id}: no metadata, skipping"; continue; }
 		MIME=$(db_q "SELECT post_mime_type FROM ${POSTS_TABLE} WHERE ID=${post_id};" || echo "image/png")
 
-		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo \$m['file'] ?? '';" 2>/dev/null)
+		MAIN_FILE=$(echo "$META" | php -r "${PHP_META} echo is_string(\$m['file'] ?? null) ? \$m['file'] : '';" 2>/dev/null)
+		# Without a main file every path below collapses to the uploads root with a
+		# trailing slash, and the webp entries built from it point at nothing.
+		[[ -z "$MAIN_FILE" ]] && { warn "  #${post_id}: metadata has no file, skipping"; continue; }
 		DIR=$(dirname "$MAIN_FILE")
 		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} echo count(\$m['sizes'] ?? []);" 2>/dev/null)
 
