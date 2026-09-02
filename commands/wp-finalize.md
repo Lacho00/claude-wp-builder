@@ -189,9 +189,10 @@ If `.wp-create.json` exists in the project, read `wp_cli.wrapper` and run runtim
 
 7. **Every post has an author.** `wp post create` and `wp media import` leave
    `post_author` at 0, which renders fine and breaks the author schema, the
-   admin column and `the_author()`:
+   admin column and `the_author()`. Menu items are exempt: `wp menu item add-*`
+   creates them with no author too, and nothing ever displays one for them.
    ```bash
-   $WP db query "SELECT COUNT(*) FROM $($WP db prefix)posts WHERE post_author = 0 AND post_status != 'auto-draft';"
+   $WP db query "SELECT COUNT(*) FROM $($WP db prefix)posts WHERE post_author = 0 AND post_status != 'auto-draft' AND post_type != 'nav_menu_item';"
    ```
    Must be 0.
 
