@@ -419,6 +419,19 @@ Dispatch **wp-css** agent (routed — see "CSS agent routing" above; on `tailwin
 
 > Add custom page CSS to `assets/css/styles.css` within delimiters.
 
+## Step 3.5: Rebuild Tailwind CSS
+
+On `Template: tailwind` the site enqueues only the compiled `assets/css/dist/main.css`, so
+the classes the agents just wrote are invisible until it is recompiled:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-rebuild.sh" <theme-dir>
+```
+
+Silent no-op on a non-Tailwind theme; skips itself when the user has `npm run preview`
+running (the watcher already owns `dist/`). Do this before the summary — a summary that
+lists files no browser can see yet is not a finished section.
+
 ## Step 4: Print Summary
 
 ```

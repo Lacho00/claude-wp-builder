@@ -156,6 +156,71 @@ Rules:
 reason — and check 1 (menus) now also inspects `custom` items whose URL
 resolves to a post.
 
+## An object with no language does not exist
+
+Polylang filters every front-end query by the current language, and an object
+carrying no `language` term matches none of them. A post, a page, a menu, a
+media item or a **taxonomy term** created without `pll_set_post_language()` /
+`pll_set_term_language()` is present in the database, visible in the admin, and
+absent from the site. There is no warning. Assign a language in the same step
+that creates the object, and sweep afterwards:
+
+Sweep both halves. `post_type => "any"` silently skips attachments — they are
+`exclude_from_search` — so the types are listed and filtered instead, and terms
+need their own pass because no post query ever reaches them:
+
+```bash
+# Posts, pages, menu items and media.
+$WP eval 'foreach (get_post_types() as $pt) { if (!pll_is_translated_post_type($pt)) continue; foreach (get_posts(["post_type"=>$pt,"numberposts"=>-1,"post_status"=>"any"]) as $p) { if (!pll_get_post_language($p->ID)) echo "NO LANG: {$pt} {$p->ID} {$p->post_title}\n"; } }'
+
+# Taxonomy terms.
+$WP eval 'foreach (get_taxonomies() as $tax) { if (!pll_is_translated_taxonomy($tax)) continue; foreach (get_terms(["taxonomy"=>$tax,"hide_empty"=>false]) as $t) { if (!pll_get_term_language($t->term_id)) echo "NO LANG: {$tax} {$t->term_id} {$t->name}\n"; } }'
+```
+
+Both must print nothing. The `pll_is_translated_*` guards keep the sweep quiet
+about types and taxonomies Polylang was never asked to translate, which have no
+language by design.
+
+## Do not translate a taxonomy of proper nouns
+
+Registering a taxonomy with `pll_get_taxonomies` looks free and is not. Where
+the terms are proper nouns — provinces, countries, brands, venue names — most
+of them are spelled identically in both languages, so translating the taxonomy
+duplicates every term in order to relabel the one or two that differ. Three
+things then go wrong:
+
+1. **Slugs.** WordPress forces term slugs to be unique per taxonomy, so the
+   translated copies can only be `matanzas-en`, `holguin-en`. An archive facet
+   writes that slug straight into a URL the visitor shares.
+2. **Import collision.** Because the "translated" name matches its source, an
+   importer adopts the *existing* term as its own counterpart and flips its
+   language — one project lost the province facet from every Spanish archive
+   this way, with 14 terms silently reassigned from `es` to `en`.
+3. **Counts.** A shared taxonomy's `get_terms()` count spans every object type
+   registered to it; per-post-type facet counts must be recomputed.
+
+Leave such a taxonomy **out** of `pll_get_taxonomies` so both languages share
+one clean term list, and write the reason into `inc/post-types.php` — the next
+person will otherwise "fix" the omission.
+
+## Labels registered in PHP are not translatable strings
+
+`prefix_t()` covers the strings the templates print, but WordPress builds some
+output from the labels passed to `register_post_type()`, which are plain
+literals with no gettext behind them. `post_type_archive_title()` — the CPT
+archive's `<title>` — is the one that bites: an English visitor gets the
+Spanish plural over an English page. Filter it against a registered string:
+
+```php
+add_filter( 'post_type_archive_title', function ( $title, $post_type ) {
+    $key = 'plural_' . $post_type;
+    return prefix_t( $key ) ?: $title;
+}, 10, 2 );
+```
+
+Audit `wp_title`/`document_title_parts`, `the_archive_title`, and any admin
+label a client will see, the same way.
+
 ## What free Polylang covers
 
 Verified on Polylang 3.8.7 with no paid addon: `product` is translatable as a

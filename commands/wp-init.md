@@ -305,6 +305,37 @@ Edit `inc/i18n.php` in the new theme directory:
 - Set the `SUPPORTED_LANGS` constant to an array containing all specified languages (primary + secondary). Example: `['en', 'es']`
 - Set the `DEFAULT_LANG` constant to the primary language. Example: `'en'`
 
+#### Then rewrite the field suffix — MANDATORY when the secondary language is not `es`
+
+The starter ships its translation twins hardcoded as `_es`, because it was
+written for an English-primary site. `<prefix>get_field()` does NOT read that
+suffix: it appends the suffix of the **current non-default language**. So on a
+Spanish-primary site the helper looks for `_en` while the field group defines
+`_es`, and **every twin field is dead** — the client fills them in and the front
+end never reads a single one. This is silent: no error, no empty group, just a
+translation tab that does nothing.
+
+Rewrite the suffix wherever it appears — field `name`, field `key`, and the tab
+label — so it names the **secondary** language:
+
+```bash
+# $SECONDARY is the non-default language, e.g. 'en' on a Spanish-primary site.
+[ "$SECONDARY" != "es" ] && \
+  find <theme>/fields -name '*.php' \
+    -exec sed -i "s/_es'/_${SECONDARY}'/g; s/_es\"/_${SECONDARY}\"/g" {} +
+```
+
+Then relabel the tab and the `(ES)` field labels for the real language, and
+verify before moving on:
+
+```bash
+grep -c "_es" <theme>/fields/*.php     # must be 0 unless the secondary language IS es
+grep -c "_$SECONDARY" <theme>/fields/*.php  # must equal the twin count
+```
+
+With three or more languages, one twin suffix per secondary language is needed;
+the helper resolves whichever is current.
+
 ## Step 6: Configure Theme Setup
 
 Edit `inc/theme-setup.php` in the new theme directory.
@@ -539,7 +570,10 @@ Next step: Run /wp-demo to create a demo mockup.
 
 If `$TEMPLATE` is `tailwind`, add after "Next step":
 ```
-Build:      Run `npm run preview` in the theme directory to start development.
+Live view:  In a second terminal, `cd <theme-dir> && npm run preview` and keep it running.
+            It recompiles CSS/JS on every file the builders write and reloads the browser
+            through BrowserSync (http://localhost:3000, proxying <domain>). Without it,
+            each builder recompiles once when it finishes; reload manually.
 ```
 
 **If this is a demo-first project**, adjust the summary:

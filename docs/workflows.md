@@ -60,6 +60,19 @@ Then it asks project name, slug, languages and industry (or infers them from the
 copies the starter theme, replaces `__starter__` placeholders, writes `.claude/CLAUDE.md`,
 and — when `.wp-create.json` exists — activates the theme via WP-CLI.
 
+**Seeing the site while you build (tailwind template).** The theme enqueues only the
+compiled `assets/css/dist/main.css`. Every builder (`/wp-section`, `/wp-header`, `/wp-footer`,
+`/wp-page`, `/wp-cpt`, `/wp-yolo`) recompiles it once when it finishes, so a reload shows the
+result. For a live view instead, open a second terminal and keep this running:
+
+```
+cd wp-content/themes/<slug> && npm run preview
+```
+
+That is Tailwind `--watch` + `wp-scripts start` + BrowserSync proxying your site at
+`http://localhost:3000`; every PHP/CSS/JS write reloads the browser, and the builders detect
+the watcher and skip their own rebuild.
+
 Things `/wp-init` does **for you** (auto):
 - runs `/wp-polish` on the demo if it has no `<!-- SECTION: -->` delimiters;
 - runs `/wp-context` if a `docs/` folder exists in the project root.

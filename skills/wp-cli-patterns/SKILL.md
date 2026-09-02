@@ -218,11 +218,37 @@ update_field('services_cards', \$rows, 'option');
 
 ## Common Patterns
 
+### Always set an author
+
+`wp post create` and `wp media import` leave `post_author` at **0** — a user
+that does not exist. The post saves and renders, so nothing looks wrong until
+something asks for the author: `the_author()` prints nothing, an Article schema
+emits an empty `author`, the admin list shows a blank column, and a plugin that
+dereferences the author object can fatal. Resolve an author once and pass it to
+every create:
+
+```bash
+AUTHOR=$($WP user list --role=administrator --field=ID --number=1)
+$WP post create --post_author=$AUTHOR ...
+$WP media import file.jpg --post_author=$AUTHOR ...
+```
+
+Sweep at the end of any seeding run — it must print 0. Two exclusions, or the
+sweep fails on a site that is perfectly seeded: WordPress creates auto-drafts with
+`post_author = 0` on its own, and menu items get the same treatment because
+`wp_insert_post()` falls back to `get_current_user_id()`, which is 0 under WP-CLI —
+a menu item has no author to display, so it is noise here rather than a defect.
+
+```bash
+$WP db query "SELECT COUNT(*) FROM $($WP db prefix)posts WHERE post_author = 0 AND post_status != 'auto-draft' AND post_type != 'nav_menu_item';"
+```
+
 ### Create Pages and Set Front Page
 
 ```bash
-HOME_ID=$($WP post create --post_type=page --post_title='Home' --post_status=publish --porcelain)
-ABOUT_ID=$($WP post create --post_type=page --post_title='About' --post_status=publish --porcelain)
+AUTHOR=$($WP user list --role=administrator --field=ID --number=1)
+HOME_ID=$($WP post create --post_type=page --post_title='Home' --post_status=publish --post_author=$AUTHOR --porcelain)
+ABOUT_ID=$($WP post create --post_type=page --post_title='About' --post_status=publish --post_author=$AUTHOR --porcelain)
 
 $WP option update show_on_front 'page'
 $WP option update page_on_front $HOME_ID

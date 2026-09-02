@@ -5,6 +5,14 @@
 ### Fixed
 - **`wp-robin`'s `robin-fix.sh` did nothing on MariaDB, and gave up on a partially populated queue.** Three bugs, found running it against a live site (MariaDB 10.x, WP 7.1, 95 attachments, only 2 of them in the queue): the thumbnail scan aborted the whole script under `set -e` whenever the theme registered no `add_image_size`; the attachment query used `CAST(meta_value AS JSON)`, which MariaDB does not implement, and read `_wp_attachment_metadata` with `json_decode()` even though WordPress serializes it — so the query errored out and the loop registered nothing; and registration ran only when the queue was completely empty, so a queue holding a couple of stale rows was reported as done and 93 attachments were never optimized. Registration now runs for every attachment missing from the queue, the counts are read with `unserialize()`, and both `NOT IN (...)` subqueries exclude `NULL` `object_id` values, which otherwise make the whole predicate match no rows.
 - The same script no longer reports a clean run it did not have: a failed `INSERT` is counted as a failure rather than silently inflating the total, mariadb's stderr is no longer discarded, a missing queue table stops the run instead of producing ten unexplained errors, an attachment whose original file is gone is skipped instead of being queued as a successful optimization, and a failed attachment query aborts instead of announcing "0 new attachments". Step 4 now reads every attachment in one query and one PHP pass and inserts in batches, rather than opening a client and forking two interpreters per image.
+- **Tailwind CSS is recompiled after every builder.** `functions.php` enqueues only the
+  compiled `assets/css/dist/main.css`, which `/wp-init` built before any section existed;
+  `/wp-section`, `/wp-header`, `/wp-footer`, `/wp-page`, `/wp-cpt` and `/wp-yolo` never
+  rebuilt it, so the live site — and `/wp-yolo`'s parity gate — showed an unstyled page
+  unless `npm run preview` happened to be running. New `bin/tailwind-rebuild.sh` runs
+  `npm run tailwindbuild` at the end of each (no-op on non-Tailwind themes, skipped when a
+  watcher owns `dist/`). `/wp-init`'s summary and `docs/workflows.md` now explain the
+  live-reload workflow. `tests/checks/tailwind-rebuild.sh`.
 
 ### Added
 - **`/wp-section --hybrid`** now exists. `/wp-init`, `/wp-cinematic-init` and
