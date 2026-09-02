@@ -137,6 +137,45 @@ site. Set `form.noValidate = true` from the script, check `checkValidity()` your
 write the answer where every other outcome of the form goes, in the page's language.
 Without JavaScript the attributes stand and the native check runs as before.
 
+### Taking the plugin's presentation over
+
+The rules above keep the theme's classes intact; these keep CF7's own CSS and
+markup from fighting them.
+
+- **Dequeue `contact-form-7`'s stylesheet.** It is **unlayered**, and in
+  Tailwind v4 unlayered CSS beats `@layer components`/`@layer utilities` at any
+  specificity — a success notice will render inside the plugin's red error
+  border no matter what you write. Reproduce what you still need (the notice
+  states, the spinner) in the theme's own component file, in the theme's
+  colours.
+  ```php
+  add_action( 'wp_enqueue_scripts', function () { wp_dequeue_style( 'contact-form-7' ); }, 20 );
+  ```
+- **The plugin's own `<div>` and `<form>` need the same treatment as the control
+  wraps.** They are not in the demo's grid and they push the panel off its
+  approved size; `display: contents` takes them out of layout while keeping the
+  plugin's hooks intact. Mind the exception above — the wrap around a field in a
+  side-by-side row keeps its box.
+- **Turn `wpcf7_autop` off** (`add_filter('wpcf7_autop_or_not','__return_false')`)
+  or every control arrives wrapped in `<p>` with `<br>` between.
+- **A second reason the submit is the demo's own `<button>`:** CF7's `[submit]`
+  renders an `<input>`, and an `<input>` is a replaced element — it cannot hold
+  an icon child and `::after` does not apply to it, so a demo's paper-plane or
+  arrow silently vanishes. Hand-place the spinner CF7 would have emitted too:
+  over SMTP the send takes seconds and the form looks frozen without one.
+- **Hide the screen-reader response list** with the clip-rect technique. The
+  dequeued stylesheet used to do it; without it every message is announced and
+  printed twice.
+- **A panel with a fixed height from the demo must become content-driven once
+  CF7 has something to say**, or validation messages spill out of the rounded
+  box. Likewise, a submit button positioned absolutely inside that panel lands
+  on top of a field the moment the panel grows — put it back in flow in the
+  states that grow (`invalid`, `unaccepted`, `sent`, `failed`, `aborted`,
+  `spam`).
+
+Measure the rendered panel against the demo at three widths, invalid state
+included — it is the state that changes the box.
+
 ## Re-seeding
 
 Generate `inc/seed/cf7.php` alongside the `cf7/` reference files:

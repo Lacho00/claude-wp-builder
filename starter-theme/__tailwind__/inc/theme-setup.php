@@ -85,14 +85,28 @@ add_action('init', '__starter___disable_emojis');
 remove_action('wp_head', 'wp_generator');
 
 /**
- * Allow SVG uploads
+ * Allow SVG uploads — administrators only.
+ *
+ * WordPress serves an uploaded SVG straight from the uploads directory, so a
+ * browser opening one executes any script it carries in the site's OWN origin.
+ * Granting the mime type to everyone who can upload media therefore hands
+ * stored XSS to the Author role. `unfiltered_html` is the capability WordPress
+ * already uses for "may post markup that is trusted verbatim".
  */
-function __starter___allow_svg_upload($mimes) {
+function __starter___allow_svg_upload($mimes, $user = null) {
+    // `get_allowed_mime_types()` passes the user the list is being built FOR, which
+    // is not always the current one: a CLI or programmatic upload runs on behalf of
+    // another account. Resolve the capability the same way core does one line above
+    // this filter, or the gate answers for the wrong user in both directions.
+    $allowed = $user ? user_can($user, 'unfiltered_html') : current_user_can('unfiltered_html');
+    if (!$allowed) {
+        return $mimes;
+    }
     $mimes['svg'] = 'image/svg+xml';
     $mimes['svgz'] = 'image/svg+xml';
     return $mimes;
 }
-add_filter('upload_mimes', '__starter___allow_svg_upload');
+add_filter('upload_mimes', '__starter___allow_svg_upload', 10, 2);
 
 // Body classes (lang / template / front-page) are added by __starter___body_classes()
 // in inc/template-functions.php — kept in one place to avoid a duplicate-declaration fatal.

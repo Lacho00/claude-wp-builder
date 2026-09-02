@@ -436,15 +436,28 @@ remove_action('wp_head', 'wp_generator');
 
 ## SVG Upload Support
 
-Allow SVG file uploads in the WordPress media library.
+Allow SVG file uploads in the WordPress media library — for users who may post
+trusted markup, and no one else. WordPress serves an uploaded SVG straight from
+the uploads directory, so a browser opening one runs any script it carries in
+the site's OWN origin: granting the mime type to everyone who can upload media
+hands stored XSS to the Author role. Gate it on `unfiltered_html`, the
+capability core already uses for "may post markup that is trusted verbatim".
 
 ```php
-function prefix_allow_svg_upload($mimes) {
+function prefix_allow_svg_upload($mimes, $user = null) {
+    // `get_allowed_mime_types()` passes the user the list is being built FOR, which
+    // is not always the current one: a CLI or programmatic upload runs on behalf of
+    // another account. Resolve the capability the same way core does one line above
+    // this filter, or the gate answers for the wrong user in both directions.
+    $allowed = $user ? user_can($user, 'unfiltered_html') : current_user_can('unfiltered_html');
+    if (!$allowed) {
+        return $mimes;
+    }
     $mimes['svg']  = 'image/svg+xml';
     $mimes['svgz'] = 'image/svg+xml';
     return $mimes;
 }
-add_filter('upload_mimes', 'prefix_allow_svg_upload');
+add_filter('upload_mimes', 'prefix_allow_svg_upload', 10, 2);
 
 function prefix_fix_svg_display() {
     echo '<style>
