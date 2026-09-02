@@ -195,13 +195,20 @@ convert_to_webp() {
 # ── Read _wp_attachment_metadata (PHP-serialized, NOT JSON) ─────────────────
 # WordPress stores attachment metadata with serialize(), so json_decode() always
 # returns null here. Falls back to JSON for the rare filtered install.
-PHP_META='$s=file_get_contents("php://stdin");$m=@unserialize($s);if(!is_array($m)){$m=json_decode($s,true);}if(!is_array($m)){$m=[];}'
+PHP_META='$s=file_get_contents("php://stdin");$m=@unserialize($s, ["allowed_classes" => false]);if(!is_array($m)){$m=json_decode($s,true);}if(!is_array($m)){$m=[];}'
 
 # ── The queue table must exist before any of the steps below ────────────────
 # Robin creates it on activation. Without this guard a missing table makes every
 # query below fail one by one, and the counters read as a clean, empty queue.
-if [[ "$(db_q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='${QUEUE_TABLE}';")" != "1" ]]; then
-	err "Queue table ${QUEUE_TABLE} does not exist — is Robin Image Optimizer activated?"
+TABLE_COUNT=$(db_q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='${QUEUE_TABLE}';" || true)
+if [[ "$TABLE_COUNT" != "1" ]]; then
+	# An unreachable database answers the same way a missing table does — empty.
+	# Reporting the wrong one sends the user to reinstall a plugin that is fine.
+	if [[ -z "$TABLE_COUNT" ]]; then
+		err "Could not query information_schema for ${QUEUE_TABLE} — check the database connection and the user's privileges."
+	else
+		err "Queue table ${QUEUE_TABLE} does not exist — is Robin Image Optimizer activated?"
+	fi
 	exit 1
 fi
 
@@ -243,7 +250,7 @@ DECODE_META='while (($l = fgets(STDIN)) !== false) {
 	$l = rtrim($l, "\n"); if ($l === "") continue;
 	$p = explode("\t", $l);
 	$raw = base64_decode($p[2] ?? "");
-	$m = @unserialize($raw);
+	$m = @unserialize($raw, ["allowed_classes" => false]);
 	if (!is_array($m)) { $m = json_decode($raw, true); }
 	if (!is_array($m)) { $m = []; }
 	$sizes = $m["sizes"] ?? null;
@@ -368,6 +375,10 @@ else
 		# Without a main file every path below collapses to the uploads root with a
 		# trailing slash, and the webp entries built from it point at nothing.
 		[[ -z "$MAIN_FILE" ]] && { warn "  #${post_id}: metadata has no file, skipping"; continue; }
+		# Step 4 skips these, but step 5 reads the database on its own: a row queued
+		# by an earlier run or by Robin itself can still name a file that is gone,
+		# and every entry below would be written with size 0 and read as optimized.
+		[[ -f "$UPLOAD_DIR/$MAIN_FILE" ]] || { warn "  #${post_id}: original file missing, skipping"; continue; }
 		DIR=$(dirname "$MAIN_FILE")
 		THUMB_COUNT=$(echo "$META" | php -r "${PHP_META} \$s = \$m['sizes'] ?? null; echo is_array(\$s) ? count(\$s) : 0;" 2>/dev/null || echo 0)
 
