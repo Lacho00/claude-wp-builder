@@ -88,8 +88,23 @@ Every variable output MUST be escaped with the appropriate function:
 | URLs | `esc_url()` | `<a href="<?php echo esc_url($link); ?>">` |
 | HTML attributes | `esc_attr()` | `<div class="<?php echo esc_attr($class); ?>">` |
 | Rich HTML content | `wp_kses_post()` | `<?php echo wp_kses_post($description); ?>` |
+| A text field carrying markup by design — a headline with a highlight `<span>` and its line breaks | `wp_kses()` + explicit allowlist | `<?php echo wp_kses($title, array('br'=>array(), 'span'=>array())); ?>` |
 
 **NEVER echo an unescaped variable.** No exceptions.
+
+**`the_field()` / `the_sub_field()` echo unescaped — never emit them.** They read as
+the natural template call and are the easiest way to ship stored XSS: an editor's
+value reaches every visitor as markup. Use `echo esc_html( prefix_get_field( … ) )`
+so the escaping is visible where the value is printed. Grepping the finished
+templates for `the_field(` must return nothing.
+
+For the headline row above, do not reach for `wp_kses_post()` instead. It admits
+`<iframe>`, `<img>`, inline `style` and a `class` on any tag, so a headline field
+becomes a way to restyle the page. Two tags is the whole contract, and the allowlist
+is what enforces it: `<br class="…">` cannot survive `array('br' => array())`, which
+is correct — see `skills/wp-theme-standards/SKILL.md` for why the choice of *which*
+break applies at which width belongs in the stylesheet, and for the `display:none`
+whitespace trap that comes with it.
 
 ## i18n Helper Functions (CRITICAL)
 

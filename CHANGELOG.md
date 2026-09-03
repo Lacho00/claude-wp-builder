@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Fixed
+- **A headline field that carries markup now has a correct escaper.** Section headlines
+  routinely hold a `<span>` the CSS paints as a highlight and `<br>` where the design breaks
+  the line, and both usual answers were wrong: `esc_html()` prints the tags, `wp_kses_post()`
+  admits `<iframe>`, `<img>`, inline styles and a class on any tag — the run of the page from
+  a headline field. `wp-theme-standards` and `wp-template` now carry `wp_kses()` with a
+  two-tag allowlist, forbid `the_field()`/`the_sub_field()` by name (they echo unescaped and
+  read as the natural template call), and state the corollary: a CSS class inside field
+  content is not a thing that exists, so which break applies at which width is chosen in the
+  stylesheet by `br:nth-of-type()`, with the `display:none` whitespace trap spelled out.
+  New check: `tests/checks/acf-markup-escaping.sh`.
 - **The CSS skills now say where a reset must live.** A reset scoped to a page —
   `.page img { max-width:100%; height:auto }` at (0,2,1) — outranks a single class on
   that same image at (0,2,0), so the image ignores its own class and paints at its

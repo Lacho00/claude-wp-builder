@@ -268,6 +268,7 @@ add_action('after_setup_theme', 'prefix_content_width', 0);
 | `esc_url()` | Outputting URLs in href, src, action attributes | `<a href="<?php echo esc_url($link); ?>">` |
 | `esc_attr()` | Outputting values inside HTML attributes | `<div class="<?php echo esc_attr($class); ?>">` |
 | `wp_kses_post()` | Outputting rich text/HTML that should allow safe tags | `<div><?php echo wp_kses_post($content); ?></div>` |
+| `wp_kses()` + explicit allowlist | A **text** field that carries a little markup by design — a headline with a highlighted `<span>` and its line breaks | `<h2><?php echo wp_kses( $title, array( 'br' => array(), 'span' => array() ) ); ?></h2>` |
 
 ### Rules
 
@@ -276,6 +277,40 @@ add_action('after_setup_theme', 'prefix_content_width', 0);
 - **Attribute values** (class, id, data-*): `esc_attr()`
 - **Rich HTML content** from WYSIWYG/editor fields: `wp_kses_post()`
 - **Never output raw** `get_field()`, `$_GET`, `$_POST`, or any user input without escaping
+- **`the_field()` and `the_sub_field()` echo unescaped.** Neither belongs in a template.
+  Use `echo esc_html( get_field( … ) )` and its siblings, so the escaping is visible at
+  the point of output. A grep for `the_field(` in the templates should return nothing.
+
+### A headline that carries markup is neither `esc_html()` nor `wp_kses_post()`
+
+Section headlines routinely hold two tags on purpose: a `<span>` the CSS paints as a
+highlight pill, and `<br>` where the design breaks the line. Escaping is still
+mandatory, but both usual answers are wrong for this field:
+
+- `esc_html()` prints the tags as visible text and destroys the design.
+- `wp_kses_post()` admits everything a post can contain — `<script>` is out, but
+  `<iframe>`, `<img>`, inline `style` and a `class` on any tag are all in. An editor
+  can restyle the page from a headline field, which is exactly the blast radius a
+  headline should not have.
+
+Give it `wp_kses()` with the two tags it is allowed and nothing else. The allowlist is
+also the enforcement: **a CSS class inside field content is not a thing that exists.**
+`<br class="brand-br-lg">` cannot survive `array( 'br' => array() )`, and it should not
+— which width a break applies at is presentation, and presentation lives in the
+stylesheet:
+
+```css
+/* Field value: "Del entendimiento<br> de la<br> operación al <span>despliegue</span>"
+   Three line breaks in the frame at 430, two at 1920 — chosen here, by position. */
+.section__title br            { display: none; }
+@media (max-width: 767.98px)  { .section__title br:nth-of-type(1) { display: inline; } }
+@media (min-width: 1024px)    { .section__title br:nth-of-type(2) { display: inline; } }
+```
+
+One trap comes with it: `display: none` on a `<br>` removes the line break **and the
+whitespace around it**. `antes<br>de` renders as `antesde` the moment the rule hides
+it. Store the value with the space on one side — `antes<br> de` — so hiding the tag
+still leaves a word gap.
 
 ---
 
