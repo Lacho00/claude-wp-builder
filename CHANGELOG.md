@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Fixed
+- **Three ways a design frame's numbers are transcribed correctly and still render wrong**,
+  now in `wp-css`'s transcription contract: a frame `y` is a page coordinate in a page with
+  no site chrome, so a breadcrumb the design never drew shifts everything below it (take
+  vertical positions as distances between neighbours); section gaps are authored and
+  irregular — one real design ran 53, 73, 103, 94, 107, 117, 147, 128, 73, so a single
+  spacing token is uniformly wrong and splitting a gap across two paddings renders their sum;
+  and a px width in the frame is a fraction of that frame's track, which frozen as px inside
+  a `max-width` query holds the narrow-frame width up to the breakpoint.
+- **`/wp-debug` can now diagnose "my CSS change doesn't show".** A static version constant in
+  `wp_enqueue_style` keeps the URL stable while the file changes, so browsers serve the copy
+  they cached. The `filemtime()` rule already existed in `wp-theme-standards` but only reaches
+  themes this plugin generated; `/wp-debug` runs on themes it did not write. The same symptom
+  was diagnosed twice as something else — once as broken images, once as a specificity
+  problem — before anyone read the enqueue. New checks:
+  `tests/checks/design-value-transfer.sh`.
 - **A headline field that carries markup now has a correct escaper.** Section headlines
   routinely hold a `<span>` the CSS paints as a highlight and `<br>` where the design breaks
   the line, and both usual answers were wrong: `esc_html()` prints the tags, `wp_kses_post()`

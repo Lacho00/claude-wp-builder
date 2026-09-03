@@ -159,8 +159,28 @@ If the user provided an issue description (the command argument), scan it for ke
 | "404", "permalink", "not found" | Flush rewrite rules: `bash -c "$WP rewrite flush"`. Check permalink structure: `bash -c "$WP option get permalink_structure"`. Check server config for rewrite support (Nginx: check for `try_files`; Apache: check `mod_rewrite` and `.htaccess`). |
 | "email", "mail", "smtp" | Test email sending: `bash -c "$WP eval \"var_dump(wp_mail('test@example.com', 'WP Debug Test', 'Testing mail from wp-debug'));\""`. Check if Mailpit is running (Docker): `bash -c "curl -s http://localhost:8025/api/v1/messages 2>/dev/null | head -1 || echo 'Mailpit not reachable'"`. Check for mail plugins: `bash -c "$WP plugin list --format=table" | grep -i mail`. |
 | "SSL", "https", "mixed content", "certificate" | Check URL options for http vs https: compare `siteurl` and `home` from Step 1. Suggest search-replace if needed: `bash -c "$WP search-replace 'http://' 'https://' --dry-run --report-changed-only"`. Check certificate validity (native): `bash -c "openssl s_client -connect <domain>:443 -servername <domain> </dev/null 2>/dev/null | openssl x509 -noout -dates"`. |
+| "CSS not applying", "my change doesn't show", "stale styles", "old CSS", "have to hard refresh" | **Read the version argument of every `wp_enqueue_style`/`wp_enqueue_script` in `functions.php` before anything else.** A static theme constant there means the URL never changes when the file does, so browsers keep serving the copy they cached. Check it: `bash -c "grep -n 'wp_enqueue_\(style\|script\)' -A4 $(bash -c \"$WP theme path\")/<theme>/functions.php"` — a `_VERSION` constant or a literal string is the bug, `filemtime()` is the fix. Confirm from the other side by comparing the `?ver=` in the served HTML against the file's mtime. Only once the version is dynamic is it worth looking at object cache, a caching plugin, or a CDN. |
 
 Multiple keyword matches are allowed — run all matching extra checks.
+
+### Why the stale-stylesheet row is first in its own chain
+
+That symptom is the most expensive kind of false lead, because every other
+explanation is plausible and none of them is falsifiable by looking at the page. On a
+theme whose `style.css` was enqueued with a hardcoded version constant, a recompile
+changed the file and not the URL, and the same wrong render was diagnosed twice — once
+as "the images are broken", once as "the CSS rule is not specific enough" — before
+anyone read the enqueue. Both times the stylesheet on disk was already correct.
+
+What makes it hard to see: the compiled CSS on disk contains the new rule, so grepping
+the build proves nothing; the browser's DevTools show the *cached* stylesheet and its
+rules look internally consistent; and a hard refresh fixes it for whoever is testing,
+which turns it into an intermittent that follows the person, not the code. The tell is
+the `?ver=` query string not moving between two builds.
+
+`skills/wp-theme-standards/SKILL.md` requires `filemtime()` for exactly this, but that
+rule only reaches themes this plugin generated. `/wp-debug` runs on themes it did not
+write, which is where the assumption fails.
 
 ## Step 3: Analyze & Report
 

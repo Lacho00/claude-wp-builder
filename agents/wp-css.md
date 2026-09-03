@@ -495,3 +495,33 @@ the demo is the SOURCE OF TRUTH, not inspiration. Your job is to COPY, not re-au
 - **Scope everything under the assigned `block`** given in the dispatch (never a bare generic
   name). Shared components use the shared class; per-page tweaks are scoped under the block.
 - (Still applies: never emit an undefined `var(--x)`.)
+
+### Three ways a design frame's numbers do not transfer as written
+
+Everything above is copied verbatim. These three are still design truth, but the frame
+states them in a form the theme cannot use as-is.
+
+**1. A `y` in the frame is not a `y` on the site.** The frame draws the page; the theme
+draws the page *plus its own chrome*. A breadcrumb bar the design never shows pushes
+everything below it down by its own height — a hero whose badge sits at y=275 under a
+104px header lands 52px low the moment the theme inserts a 52px breadcrumb, and every
+section below inherits the offset. **Take vertical positions as distances between
+neighbours, never as page coordinates.** Where a frame value really is measured from the
+page top, subtract the chrome the theme adds before using it.
+
+**2. The gaps between sections are irregular — measure each one.** A frame's vertical
+rhythm is authored, not generated. Measured between the end of one section's content and
+the start of the next, one real design ran 53, 73, 103, 94, 107, 117, 147, 128, 73 — no
+unit those are multiples of, so a single `--space-section` token renders a page that is
+uniformly wrong. Transcribe the gap list, then give each gap to **one** side:
+`padding-top` on the section that opens it, `padding-bottom: 0`. Split it across two
+paddings and the rendered gap is their sum, which is how a page comes out systematically
+too airy — up to 87px per boundary in that case.
+
+**3. A width the frame states in px is a proportion of its track.** `max-width: 364px`
+inside a 390px mobile track means "93.33% of the track", and only the second form
+survives. Frozen as px inside a `max-width: 767.98px` query, the element keeps its
+430-frame width all the way up to 767 and opens a growing empty gutter beside itself.
+Convert any width, inset or overhang that is a fraction of the content track into a
+percentage; keep px only for what genuinely does not scale — a border, an icon the design
+repeats at one size.
