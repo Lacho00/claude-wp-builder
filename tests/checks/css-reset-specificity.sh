@@ -20,19 +20,19 @@ for f in skills/wp-css-system/SKILL.md skills/wp-tailwind-system/SKILL.md; do
 
   # The escape hatch itself. Naming :where() is the whole remedy; without it the
   # section can describe the problem and leave the reader with no way out.
-  printf '%s' "$t" | grep -q ':where(' \
+  grep -q ':where(' <<<"$t" \
     || { echo "FAIL: $f never mentions :where() — a page-scoped reset has no zero-specificity form without it"; exit 1; }
 
   # WHY it works. ":where() is (0,0,0)" is the load-bearing fact; a bare mention of
   # the function invites someone to wrap the override instead of the reset.
-  printf '%s' "$t" | grep -Eq '0,0,0|zero.specificity|no weight|contributes nothing' \
+  grep -Eq '0,0,0|zero.specificity|no weight|contributes nothing' <<<"$t" \
     || { echo "FAIL: $f mentions :where() without saying it carries no specificity — the reader cannot tell which side to wrap"; exit 1; }
 
   # The comparison that makes the bug findable. A section that says "watch your
   # specificity" and never contrasts the two scores does not let anyone recognise it.
-  printf '%s' "$t" | grep -Eq '\(0,2,1\)' \
+  grep -Eq '\(0,2,1\)' <<<"$t" \
     || { echo "FAIL: $f does not score the scoped reset (0,2,1) — the point is that the element selector outranks a class, and only the numbers show it"; exit 1; }
-  printf '%s' "$t" | grep -Eq '\(0,2,0\)' \
+  grep -Eq '\(0,2,0\)' <<<"$t" \
     || { echo "FAIL: $f does not score the losing class (0,2,0) — without both numbers the comparison is an assertion"; exit 1; }
 done
 

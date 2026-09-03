@@ -23,29 +23,29 @@ f=agents/wp-css.md
 t=$(flat < "$f")
 
 # 1. Chrome offset. Requires the RULE (positions are relative), not just the anecdote.
-printf '%s' "$t" | grep -Eqi 'breadcrumb' \
+grep -Eqi 'breadcrumb' <<<"$t" \
   || { echo "FAIL: $f does not name the chrome that shifts a frame's y-coordinates — 'the theme adds things' is not something a reader can check for"; exit 1; }
-printf '%s' "$t" | grep -Eqi 'distances between neighbours|distance between neighbours|never as page coordinates' \
+grep -Eqi 'distances between neighbours|distance between neighbours|never as page coordinates' <<<"$t" \
   || { echo "FAIL: $f warns about chrome without giving the rule — vertical positions must be taken as distances between neighbours, not page coordinates"; exit 1; }
 
 # 2. Irregular gaps. The gap list is the evidence; without numbers this reads as a style
 # preference and a single spacing token survives it.
-printf '%s' "$t" | grep -Eq '53, 73, 103' \
+grep -Eq '53, 73, 103' <<<"$t" \
   || { echo "FAIL: $f asserts the section gaps are irregular without showing the measured list — the numbers are what rule out a single spacing token"; exit 1; }
-printf '%s' "$t" | grep -Eqi 'padding-bottom: 0|padding-bottom:0' \
+grep -Eqi 'padding-bottom: 0|padding-bottom:0' <<<"$t" \
   || { echo "FAIL: $f does not say to give each gap to ONE side — split across two paddings the rendered gap is their sum"; exit 1; }
 
 # 3. px that is really a proportion.
-printf '%s' "$t" | grep -Eq '93\.33%|proportion of its track|fraction of the content track' \
+grep -Eq '93\.33%|proportion of its track|fraction of the content track' <<<"$t" \
   || { echo "FAIL: $f does not cover a frame px width being a proportion of its track — frozen as px it holds the narrow-frame width to the breakpoint"; exit 1; }
 
 # The /wp-debug row for a stale stylesheet.
 d=commands/wp-debug.md
 [ -f "$d" ] || { echo "FAIL: $d missing"; exit 1; }
 td=$(flat < "$d")
-printf '%s' "$td" | grep -q 'filemtime' \
+grep -q 'filemtime' <<<"$td" \
   || { echo "FAIL: $d has no row for a stylesheet edit that does not show up — a static version constant keeps the URL stable while the file changes, and filemtime() is the fix"; exit 1; }
-printf '%s' "$td" | grep -Eqi '\?ver=' \
+grep -Eqi '\?ver=' <<<"$td" \
   || { echo "FAIL: $d does not name the ?ver= query string as the tell — it is the one thing that distinguishes this from every other caching explanation"; exit 1; }
 
 echo PASS

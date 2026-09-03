@@ -68,7 +68,9 @@ case "$ver" in
         echo "Upgrade v3 to v4 first, as its own job with its own blast radius, or convert this theme by hand."
         exit 1 ;;
 esac
-[ -f tailwind.config.js ] && echo "Note: tailwind.config.js is a v3 artifact. Confirm the theme really builds with v4 before continuing."
+if [ -f tailwind.config.js ]; then
+  echo "Note: tailwind.config.js is a v3 artifact. Confirm the theme really builds with v4 before continuing."
+fi
 ```
 
 The same reasoning covers the layout even when the version is right: if
