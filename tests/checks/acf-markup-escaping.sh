@@ -48,7 +48,7 @@ done
 t=$(flat < skills/wp-theme-standards/SKILL.md)
 printf '%s' "$t" | grep -q 'nth-of-type' \
   || { echo "FAIL: wp-theme-standards does not show choosing the break by POSITION — without it the only way to vary a break per width is a class in the field, which the allowlist forbids"; exit 1; }
-printf '%s' "$t" | grep -Eqi 'whitespace|word gap|antesde' \
+printf '%s' "$t" | grep -Eqi 'whitespace|word gap|wordnext' \
   || { echo "FAIL: wp-theme-standards omits the display:none whitespace trap — hiding a <br> glues the words on either side of it"; exit 1; }
 
 echo PASS

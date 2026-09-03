@@ -300,17 +300,17 @@ also the enforcement: **a CSS class inside field content is not a thing that exi
 stylesheet:
 
 ```css
-/* Field value: "Del entendimiento<br> de la<br> operación al <span>despliegue</span>"
-   Three line breaks in the frame at 430, two at 1920 — chosen here, by position. */
+/* Field value: "One line<br> then another<br> and the <span>highlight</span>"
+   Two breaks in the mobile frame, one on desktop — chosen here, by position. */
 .section__title br            { display: none; }
 @media (max-width: 767.98px)  { .section__title br:nth-of-type(1) { display: inline; } }
 @media (min-width: 1024px)    { .section__title br:nth-of-type(2) { display: inline; } }
 ```
 
 One trap comes with it: `display: none` on a `<br>` removes the line break **and the
-whitespace around it**. `antes<br>de` renders as `antesde` the moment the rule hides
-it. Store the value with the space on one side — `antes<br> de` — so hiding the tag
-still leaves a word gap.
+whitespace around it**. `word<br>next` renders as `wordnext` the moment the rule
+hides it. Store the value with the space on one side — `word<br> next` — so hiding
+the tag still leaves a word gap.
 
 ---
 
