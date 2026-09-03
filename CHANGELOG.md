@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`/wp-tailwind-migrate` now gates on the Tailwind major instead of assuming it.** Every
+  step it runs writes the v4 layout and Step 5 deletes the old stylesheet, so pointing it at
+  a v3 theme — `tailwind.config.js`, a PostCSS build, `style.css` at the theme root carrying
+  the `Theme Name:` header — turned a conversion into an unrequested v3→v4 upgrade plus a
+  restructure of every partial, and then removed the stylesheet the unmigrated templates were
+  still styled by. Step 0 reads the installed version and stops with what it found.
+- **`/wp-tailwind-migrate`'s visual comparison no longer presents a differing-pixel count as
+  proof.** `compare -metric AE` is not deterministic where the GPU composites: on a page with
+  `backdrop-blur` cards, two consecutive captures of the *same unchanged page* differed by
+  more than baseline-vs-migrated did. The step now establishes that noise floor first, and
+  adds the numeric contract — geometry measured in the page — as the real oracle, including
+  the on-screen order of every reversible row. A dropped `flex-row-reverse` mirrors a section
+  while every box keeps its size, so a size-only contract reports a perfect match.
+
 ## [1.11.0] - 2026-09-02
 
 ### Added
