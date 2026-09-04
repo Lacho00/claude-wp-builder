@@ -186,6 +186,33 @@ Enumerate the matches in the markup and read each `class` attribute. "Every
 here: one logo link carried no class, so `a { color: var(--color-brand) }` was
 dropped and that anchor rendered in the body colour.
 
+### A kept reset goes in `:where()`, or it outranks the classes it was meant to serve
+
+A reset kept as a scoped rule brings a type selector with it, and a type selector
+is not free. `.page img { max-width: 100%; height: auto }` scores (0,1,1) — one
+class and one element — while a single class **on that same `<img>`**, say
+`.page-step__icon { height: 3.1875rem }`, scores (0,1,0). The reset wins. Every
+image the reset covers silently ignores the height its own class sets and paints
+at its intrinsic size, and nothing about the class looks wrong: it is present,
+spelled correctly, and in the compiled stylesheet.
+
+That is a slow bug to find. `getComputedStyle` reports the reset's value, the
+class sits right there in the DevTools rule list, and the symptom reads as "my CSS
+is not loading" for as long as it takes to compare the two specificities. It cost
+a full debugging detour once — on `height`, on images exported at 3×, so they
+painted at triple the design size.
+
+Write the reset so it contributes nothing:
+
+```css
+/* :where() is always (0,0,0), so any class on the element beats it. */
+:where(.page) img { max-width: 100%; height: auto; }
+```
+
+The rule generalises past resets: **when a rule exists to be overridden, put its
+selector in `:where()`.** Raising the override instead is a race you keep
+re-running; lowering the thing meant to be overridden ends it.
+
 ## Tailwind v4, not v3
 
 The starter installs Tailwind `^4.1`. Four differences bite, and the v3-shaped

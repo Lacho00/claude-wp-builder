@@ -362,6 +362,30 @@ select {
 }
 ```
 
+### Never scope a reset to a page or section class
+
+The reset above is safe because every selector in it is bare: `img { height: auto }`
+scores (0,0,1), so any class on that image beats it. Re-scope the same declarations
+to a page — `.page img { max-width: 100%; height: auto }` — and the score becomes
+(0,1,1), which **outranks a single class on that same `<img>`**: `.page-step__icon
+{ height: 3.1875rem }` is (0,1,0) and loses. The image ignores its own class and
+paints at its intrinsic size while the class sits in the stylesheet looking correct.
+
+The symptom is misleading — `getComputedStyle` returns the reset's value, the class
+is visible in the DevTools rule list, and it reads as "my CSS is not loading". It
+cost a full debugging detour once, on images exported at 3× that therefore painted
+at triple their design size.
+
+If a page really needs its own reset, give the selector no weight:
+
+```css
+/* :where() is always (0,0,0) — every class on the element still wins. */
+:where(.page) img { max-width: 100%; height: auto; }
+```
+
+Generally: **a rule that exists to be overridden belongs in `:where()`.** Raising
+each override to outrank it is a race you keep re-running.
+
 ---
 
 ## Section Comment Delimiters

@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Three ways a design frame's numbers are transcribed correctly and still render wrong**,
+  now in `wp-css`'s transcription contract: a frame `y` is a page coordinate in a page with
+  no site chrome, so a breadcrumb the design never drew shifts everything below it (take
+  vertical positions as distances between neighbours); section gaps are authored and
+  irregular — one real design ran 53, 73, 103, 94, 107, 117, 147, 128, 73, so a single
+  spacing token is uniformly wrong and splitting a gap across two paddings renders their sum;
+  and a px width in the frame is a fraction of that frame's track, which frozen as px inside
+  a `max-width` query holds the narrow-frame width up to the breakpoint.
+- **Four `/wp-debug` commands ran a `bash -c` inside a command substitution and read the
+  wrong path in silence.** Inside `$( … )` bash re-parses the text as a fresh command, so
+  the `\"` written to survive the outer quoting arrives as a literal quote: the inner shell
+  dies on `unexpected EOF while looking for matching \"`, the substitution is empty, and
+  `tail -50 "$( … )/wp-content/debug.log"` reads `/wp-content/debug.log` and still exits 0.
+  The wrapper bought nothing — `$WP` is a command plus its global arguments and word-splits
+  correctly on its own. Dropped in all four, with the expansion quoted at the point of use.
+  New check: `tests/checks/no-nested-bash-c.sh`.
+- **`/wp-debug` can now diagnose "my CSS change doesn't show".** A static version constant in
+  `wp_enqueue_style` keeps the URL stable while the file changes, so browsers serve the copy
+  they cached. The `filemtime()` rule already existed in `wp-theme-standards` but only reaches
+  themes this plugin generated; `/wp-debug` runs on themes it did not write. The same symptom
+  was diagnosed twice as something else — once as broken images, once as a specificity
+  problem — before anyone read the enqueue. New checks:
+  `tests/checks/design-value-transfer.sh`.
+- **A headline field that carries markup now has a correct escaper.** Section headlines
+  routinely hold a `<span>` the CSS paints as a highlight and `<br>` where the design breaks
+  the line, and both usual answers were wrong: `esc_html()` prints the tags, `wp_kses_post()`
+  admits `<iframe>`, `<img>`, inline styles and a class on any tag — the run of the page from
+  a headline field. `wp-theme-standards` and `wp-template` now carry `wp_kses()` with a
+  two-tag allowlist, forbid `the_field()`/`the_sub_field()` by name (they echo unescaped and
+  read as the natural template call), and state the corollary: a CSS class inside field
+  content is not a thing that exists, so which break applies at which width is chosen in the
+  stylesheet by `br:nth-of-type()`, with the `display:none` whitespace trap spelled out.
+  New check: `tests/checks/acf-markup-escaping.sh`.
+- **The CSS skills now say where a reset must live.** A reset scoped to a page —
+  `.page img { max-width:100%; height:auto }` at (0,1,1) — outranks a single class on
+  that same image at (0,1,0), so the image ignores its own class and paints at its
+  intrinsic size. The symptom reads as "my CSS is not loading": `getComputedStyle`
+  returns the reset's value and the class is right there in DevTools. Both
+  `wp-css-system` and `wp-tailwind-system` now carry the rule and its remedy, `:where()`,
+  which contributes no specificity. New check: `tests/checks/css-reset-specificity.sh`.
+- **`/wp-tailwind-migrate` now gates on the Tailwind major instead of assuming it.** Every
+  step it runs writes the v4 layout and Step 5 deletes `assets/css/styles.css`, so pointing it at
+  a v3 theme — `tailwind.config.js`, a PostCSS build, `style.css` at the theme root carrying
+  the `Theme Name:` header — turned a conversion into an unrequested v3→v4 upgrade plus a
+  restructure of every partial, and then removed the stylesheet the unmigrated templates were
+  still styled by. Step 0 reads the installed version and stops with what it found.
+- **`/wp-tailwind-migrate`'s visual comparison no longer presents a differing-pixel count as
+  proof.** `compare -metric AE` is not deterministic where the GPU composites: on a page with
+  `backdrop-blur` cards, two consecutive captures of the *same unchanged page* differed by
+  more than baseline-vs-migrated did. The step now establishes that noise floor first, and
+  adds the numeric contract — geometry measured in the page — as the real oracle, including
+  the on-screen order of every reversible row. A dropped `flex-row-reverse` mirrors a section
+  while every box keeps its size, so a size-only contract reports a perfect match.
 ### Added
 - **`wp-demo-craft` skill and craft mode for `/wp-demo`, `/wp-yolo` and `/wp-polish`**: a
   design floor, page grammars, a scroll-motion device kit and an anti-slop refuse list for

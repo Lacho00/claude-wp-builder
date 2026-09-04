@@ -552,4 +552,50 @@ if ! printf '%s' "$s4flat" | grep -Eqi '3\+?[^.]{0,40}times?[^.]{0,60}2\+?[^.]{0
   echo "FAIL: Step 4 restates the promotion rule without its threshold — SKILL.md promotes a group only at 3+ occurrences or across 2+ distinct pages, and a restatement that omits the counts tells the agent to promote a group it saw twice inside one section"; exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Lessons from a run against a theme this command was never meant to touch.
+# ---------------------------------------------------------------------------
+
+# 1. Step 0 must gate on the Tailwind MAJOR, not assume it. Every later step writes the
+# v4 layout (@import "tailwindcss", @theme, the four src dirs, dist/main.css) and Step 5
+# deletes the old stylesheet. Pointed at a v3 theme — tailwind.config.js, a PostCSS build,
+# style.css at the theme root carrying the Theme Name header — none of that exists, so the
+# command silently restructures a theme nobody asked it to restructure and then removes the
+# stylesheet the unmigrated templates still need. The gate has to READ the installed
+# version and STOP, which is why this is asserted inside a bash fence and not in prose.
+# Reuses the $s0 / $s0bash / $s0flat the Step 0 region above already derived, and the
+# house `bashonly` helper — a second pair of anchors for one region is two answers to
+# one question, which this file has already been bitten by once.
+printf '%s' "$s0bash" | grep -q "tailwindcss/package.json" \
+  || { echo "FAIL: Step 0 never reads the installed Tailwind version — it must resolve tailwindcss/package.json and stop when the major is not 4, or a v3 theme gets restructured around a layout it never had"; exit 1; }
+printf '%s' "$s0bash" | grep -Eq 'exit 1' \
+  || { echo "FAIL: Step 0's version check does not exit — reporting the wrong major and continuing is the failure this gate exists to prevent"; exit 1; }
+s0flat=$(printf '%s' "$s0" | flat)
+printf '%s' "$s0flat" | grep -q 'tailwind.config.js' \
+  || { echo "FAIL: Step 0 does not name tailwind.config.js as the v3 artifact to look for"; exit 1; }
+
+# 2. The pixel diff must carry its noise floor. `compare -metric AE` reads as the objective
+# test this command wants and is not one: backdrop-filter, big gradients and transformed
+# layers do not rasterise identically between runs. Measured — two consecutive captures of
+# the SAME page differed by more than baseline-vs-migrated did, so the real comparison
+# looked cleaner than the page compared against itself. Without the floor, the count is
+# read as proof in whichever direction flatters the run.
+if ! printf '%s' "$flatf" | grep -qi 'noise floor'; then
+  echo "FAIL: Step 6 offers compare -metric AE without a noise floor — a differing-pixel count means nothing until the same page is captured twice and diffed against itself"; exit 1
+fi
+printf '%s' "$flatf" | grep -qi 'backdrop-filter' \
+  || { echo "FAIL: Step 6 does not name backdrop-filter as the reason two captures of one page differ"; exit 1; }
+printf '%s' "$flatf" | grep -Eqi 'same (unchanged )?page' \
+  || { echo "FAIL: Step 6 does not tell the reader to capture the same page twice before trusting any before/after count"; exit 1; }
+
+# 3. The verification contract must include ON-SCREEN ORDER. A rewrite that drops a
+# flex-row-reverse mirrors a section left-to-right while every box keeps its size: page
+# height, section heights, gaps and every element box stay byte-identical and a
+# size-only contract reports a perfect match. It shipped that way once and only the
+# screenshot read caught it.
+printf '%s' "$flatf" | grep -Eqi 'flex-direction' \
+  || { echo "FAIL: Step 6's numeric contract never mentions flex-direction — a dropped row-reverse changes no box and passes every size comparison"; exit 1; }
+printf '%s' "$flatf" | grep -Eqi 'on-screen order|order of every row|element order' \
+  || { echo "FAIL: Step 6's numeric contract does not require checking the on-screen order of reversible rows"; exit 1; }
+
 echo PASS

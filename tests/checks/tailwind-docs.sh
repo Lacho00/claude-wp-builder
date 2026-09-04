@@ -26,7 +26,8 @@ grep -Fq '`wp-tailwind`' README.md \
 # themes", both of which are correct. If you scope the row with a word not
 # listed here, EXTEND this alternation — do not leave the assertion failing on
 # your own correct edit.
-grep -F 'wp-css-system' README.md | grep -Eqi 'basic|plain.css|non.tailwind|without tailwind' \
+row=$(grep -F 'wp-css-system' README.md || true)
+grep -Eqi 'basic|plain.css|non.tailwind|without tailwind' <<<"$row" \
   || { echo "FAIL: README wp-css-system row is not scoped to the basic/plain-CSS path"; exit 1; }
 
 # ---- CHANGELOG: a NEW entry, above the last release -------------------------
@@ -41,12 +42,17 @@ old_head=$(grep -n -m1 '^## \[1\.7\.0\]' CHANGELOG.md | cut -d: -f1)
 [ "$new_head" -lt "$old_head" ] \
   || { echo "FAIL: the tailwind entry is not above [1.7.0] — CHANGELOG is newest-first"; exit 1; }
 
-entry=$(sed -n "${new_head},$((old_head - 1))p" CHANGELOG.md)
-printf '%s\n' "$entry" | grep -Fq 'wp-tailwind-migrate' \
+# End the range at the SECOND heading, not at [1.7.0]. Everything between the two is
+# already-released text, and `assets/css/styles.css` appears there — anchoring on 1.7.0
+# let a bullet from an older release satisfy an assertion written about the newest one.
+next_head=$(awk -v start="$new_head" 'NR > start && /^## \[/{print NR; exit}' CHANGELOG.md)
+[ -n "$next_head" ] || { echo "FAIL: CHANGELOG has no heading after the new entry; the range cannot be closed"; exit 1; }
+entry=$(sed -n "${new_head},$((next_head - 1))p" CHANGELOG.md)
+grep -Fq 'wp-tailwind-migrate' <<<"$entry" \
   || { echo "FAIL: the new CHANGELOG entry does not mention /wp-tailwind-migrate"; exit 1; }
-printf '%s\n' "$entry" | grep -Fq 'wp-tailwind-system' \
+grep -Fq 'wp-tailwind-system' <<<"$entry" \
   || { echo "FAIL: the new CHANGELOG entry does not mention the wp-tailwind-system skill"; exit 1; }
-printf '%s\n' "$entry" | grep -Fq 'assets/css/styles.css' \
+grep -Fq 'assets/css/styles.css' <<<"$entry" \
   || { echo "FAIL: the new CHANGELOG entry does not say what the defect actually was"; exit 1; }
 
 # ---- Manifest: discoverable by keyword --------------------------------------

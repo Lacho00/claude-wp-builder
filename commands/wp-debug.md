@@ -122,7 +122,7 @@ Tail the last 50 lines of the debug log. The approach depends on environment typ
 
 **Native:**
 ```bash
-bash -c "tail -50 $(bash -c \"$WP eval \\\"echo ABSPATH;\\\"\")/wp-content/debug.log 2>/dev/null || echo 'No debug.log found'"
+bash -c "tail -50 \"$($WP eval "echo ABSPATH;")/wp-content/debug.log\" 2>/dev/null || echo 'No debug.log found'"
 ```
 
 **Docker:**
@@ -153,14 +153,34 @@ If the user provided an issue description (the command argument), scan it for ke
 | Keywords | Extra Checks |
 |----------|-------------|
 | "white screen", "WSOD", "blank" | Read the last 100 lines of `debug.log`. Test with default theme: `bash -c "$WP theme activate twentytwentyfour"` (ask user first). Try disabling all plugins: `bash -c "$WP plugin deactivate --all"` (ask user first). |
-| "slow", "performance", "timeout" | Count transients: `bash -c "$WP transient list --format=count"`. Check autoloaded options size: `bash -c "$WP db query \"SELECT SUM(LENGTH(option_value)) as size FROM $(bash -c \"$WP db prefix\")options WHERE autoload='yes';\" --skip-column-names"`. Count active plugins: `bash -c "$WP plugin list --status=active --format=count"`. |
+| "slow", "performance", "timeout" | Count transients: `bash -c "$WP transient list --format=count"`. Check autoloaded options size: `bash -c "$WP db query \"SELECT SUM(LENGTH(option_value)) as size FROM $($WP db prefix)options WHERE autoload='yes';\" --skip-column-names"`. Count active plugins: `bash -c "$WP plugin list --status=active --format=count"`. |
 | "login", "redirect", "cookies" | Check URL mismatch: compare `siteurl` vs `home` from Step 1. Check cookie path: `bash -c "$WP config get COOKIE_DOMAIN 2>/dev/null || echo 'not set'"`. Check for `.htaccess` redirect rules: `bash -c "grep -i redirect .htaccess 2>/dev/null || echo 'No .htaccess redirects'"`. |
-| "media", "upload", "image" | Check upload dir permissions: `bash -c "ls -la $(bash -c \"$WP eval \\\"echo wp_upload_dir()['basedir'];\\\"\")"`. Check max upload size: `bash -c "$WP eval \"echo ini_get('upload_max_filesize');\""`. Check GD/Imagick: `bash -c "$WP eval \"echo extension_loaded('gd') ? 'GD: yes' : 'GD: no'; echo extension_loaded('imagick') ? ' Imagick: yes' : ' Imagick: no';\""`. |
+| "media", "upload", "image" | Check upload dir permissions: `bash -c "ls -la \"$($WP eval "echo wp_upload_dir()['basedir'];")\""`. Check max upload size: `bash -c "$WP eval \"echo ini_get('upload_max_filesize');\""`. Check GD/Imagick: `bash -c "$WP eval \"echo extension_loaded('gd') ? 'GD: yes' : 'GD: no'; echo extension_loaded('imagick') ? ' Imagick: yes' : ' Imagick: no';\""`. |
 | "404", "permalink", "not found" | Flush rewrite rules: `bash -c "$WP rewrite flush"`. Check permalink structure: `bash -c "$WP option get permalink_structure"`. Check server config for rewrite support (Nginx: check for `try_files`; Apache: check `mod_rewrite` and `.htaccess`). |
 | "email", "mail", "smtp" | Test email sending: `bash -c "$WP eval \"var_dump(wp_mail('test@example.com', 'WP Debug Test', 'Testing mail from wp-debug'));\""`. Check if Mailpit is running (Docker): `bash -c "curl -s http://localhost:8025/api/v1/messages 2>/dev/null | head -1 || echo 'Mailpit not reachable'"`. Check for mail plugins: `bash -c "$WP plugin list --format=table" | grep -i mail`. |
 | "SSL", "https", "mixed content", "certificate" | Check URL options for http vs https: compare `siteurl` and `home` from Step 1. Suggest search-replace if needed: `bash -c "$WP search-replace 'http://' 'https://' --dry-run --report-changed-only"`. Check certificate validity (native): `bash -c "openssl s_client -connect <domain>:443 -servername <domain> </dev/null 2>/dev/null | openssl x509 -noout -dates"`. |
+| "CSS not applying", "my change doesn't show", "stale styles", "old CSS", "have to hard refresh" | **Read the version argument of every `wp_enqueue_style`/`wp_enqueue_script` in `functions.php` before anything else.** A static theme constant there means the URL never changes when the file does, so browsers keep serving the copy they cached. Check it: `bash -c "grep -n 'wp_enqueue_\(style\|script\)' -A4 \"$($WP eval "echo get_stylesheet_directory();")/functions.php\""` — a `_VERSION` constant or a literal string is the bug, `filemtime()` is the fix. Confirm from the other side by comparing the `?ver=` in the served HTML against the file's mtime. Only once the version is dynamic is it worth looking at object cache, a caching plugin, or a CDN. |
 
 Multiple keyword matches are allowed — run all matching extra checks.
+
+### Why the stale-stylesheet row is first in its own chain
+
+That symptom is the most expensive kind of false lead, because every other
+explanation is plausible and none of them is falsifiable by looking at the page. On a
+theme whose `style.css` was enqueued with a hardcoded version constant, a recompile
+changed the file and not the URL, and the same wrong render was diagnosed twice — once
+as "the images are broken", once as "the CSS rule is not specific enough" — before
+anyone read the enqueue. Both times the stylesheet on disk was already correct.
+
+What makes it hard to see: the compiled CSS on disk contains the new rule, so grepping
+the build proves nothing; the browser's DevTools show the *cached* stylesheet and its
+rules look internally consistent; and a hard refresh fixes it for whoever is testing,
+which turns it into an intermittent that follows the person, not the code. The tell is
+the `?ver=` query string not moving between two builds.
+
+`skills/wp-theme-standards/SKILL.md` requires `filemtime()` for exactly this, but that
+rule only reaches themes this plugin generated. `/wp-debug` runs on themes it did not
+write, which is where the assumption fails.
 
 ## Step 3: Analyze & Report
 

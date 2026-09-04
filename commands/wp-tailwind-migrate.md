@@ -41,6 +41,44 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 git commit -q --allow-empty -m "chore: baseline before /wp-tailwind-migrate"
 ```
 
+### The theme must already build with Tailwind v4 — check, do not assume
+
+Every step below writes the v4 layout: `@import "tailwindcss"`, a `@theme` block, the
+four `assets/css/src/tailwindcss/` directories, and an `assets/css/dist/main.css` that
+Step 5 makes the theme's only stylesheet. A theme on Tailwind **v3** has none of that.
+It has a `tailwind.config.js`, a PostCSS build, and it compiles its partials into a
+stylesheet WordPress requires to sit at the theme root — `style.css`, the file carrying
+the `Theme Name:` header. Run these steps against it and the "migration" becomes a v3 →
+v4 upgrade plus a restructure of every partial in the theme, on top of the conversion
+that was actually asked for.
+
+Nothing downstream detects the mismatch. The command does not fail: it rebuilds the
+theme around a layout the theme never had, and Step 5 then deletes the stylesheet every
+template it did not migrate is still styled by.
+
+So check first, and **stop with what you found** rather than proceeding:
+
+```bash
+ver=$(node -e "try{console.log(require('tailwindcss/package.json').version)}catch(e){console.log('none')}" 2>/dev/null || true)
+[ -n "$ver" ] || ver=none   # no node at all: same answer as no dependency
+case "$ver" in
+  4.*)  : ;;
+  none) echo "Error: no tailwindcss dependency resolvable from the theme. This command converts a theme that already builds with Tailwind v4."; exit 1 ;;
+  *)    echo "Error: this theme builds with Tailwind $ver. This command targets v4 only."
+        echo "It writes @import \"tailwindcss\", a @theme block, the four src/tailwindcss directories and assets/css/dist/main.css — none of which exist in a v3 layout — and Step 5 deletes the old stylesheet the other templates still need."
+        echo "Upgrade v3 to v4 first, as its own job with its own blast radius, or convert this theme by hand."
+        exit 1 ;;
+esac
+if [ -f tailwind.config.js ]; then
+  echo "Note: tailwind.config.js is a v3 artifact. Confirm the theme really builds with v4 before continuing."
+fi
+```
+
+The same reasoning covers the layout even when the version is right: if
+`assets/css/src/tailwindcss/` does not exist and the theme compiles from somewhere else,
+say where it compiles from and stop. A command that relocates a build nobody asked it to
+relocate is not a migration.
+
 `<theme-path>` is relative to the directory the run started in, so it resolves exactly
 once. That `cd` is the **only** `cd <theme-path>` in this command: every step after it
 already has the theme root as its working directory, and a second one would resolve the
@@ -321,10 +359,39 @@ done
 images and will not tell you the migration changed something. For each page and each
 of the five widths: **Read both PNGs** — `.tailwind-migrate/before/<slug>/responsive-<w>.png`
 and `.tailwind-migrate/after/<slug>/responsive-<w>.png` — and compare them directly,
-naming what differs (spacing, colour, font, wrap point, element order). If ImageMagick
-is available, `compare -metric AE before.png after.png null: 2>&1` gives a differing-pixel
-count that makes a clean match provable rather than asserted; a non-zero count still
-needs the visual read to say *what* moved.
+naming what differs (spacing, colour, font, wrap point, element order).
+
+### A differing-pixel count proves nothing until you know its noise floor
+
+`compare -metric AE before.png after.png null: 2>&1` looks like the objective test this
+step wants, and it is not one on its own. Anything the GPU composites — `backdrop-filter`
+above all, but also large gradients and transformed layers — does not rasterise
+identically between two runs. Measured on a page with six `backdrop-blur` cards: two
+consecutive captures of **the same unchanged page** differed by 135k pixels, while
+baseline against the migrated version differed by 26k. Read in isolation, the real
+comparison looked five times cleaner than the page compared against itself.
+
+So before you compare anything, **capture the same page twice and diff those two**. That
+number is the floor. A before/after count at or under it says nothing; only a count well
+above it is evidence, and it still needs the visual read to say what moved.
+
+### The numeric contract is the actual oracle
+
+Screenshots are the fallback. What survives a migration unchanged is *geometry*, so
+measure it directly in the page, before and after, and diff the numbers:
+
+- page height, section count, every section's height, the gap between consecutive sections
+- for each heading: box, line count, computed font-size, line-height, letter-spacing
+- for each image/art group: rendered box
+- counts of the repeated pieces (cards, list items, tiles)
+- **the on-screen order of every row that can reverse** — for each flex row, whether the
+  art sits left of the text, and each row's computed `flex-direction`
+
+That last one is not padding. A rewrite that drops a `flex-row-reverse` mirrors a whole
+section left-to-right while every box keeps its exact size — page height, section
+heights, gaps and every element box stay byte-identical, and a contract built only from
+sizes reports a perfect match. It happened; the screenshot read is what caught it, which
+is precisely why both halves of this step exist.
 
 Report each page and viewport as match or diverged, with the specific difference.
 **Do not report the migration as successful without this comparison** — a
