@@ -21,20 +21,26 @@ A Claude Code plugin that turns approved demo HTML into a complete WordPress the
 
 ### How It Works
 
-Two setup commands, then one of three build paths, then the same finishing checks:
+You always start from a **demo**: a static HTML page (or folder of pages) that the client
+approves first. The plugin then transcribes that demo into a WordPress theme. It never
+invents design, so there is no path that begins at WordPress.
 
 ```
 SETUP    /wp-create (optional)  →  /wp-init  →  /wp-context (optional, auto when docs/ exists)
                                        │
-BUILD    A. /wp-yolo <demo-folder>     — full multi-page HTML demo → whole theme in one pass
-         B. /wp-demo|/wp-polish → /wp-header → /wp-footer → /wp-section … → /wp-page … → /wp-seed
-         C. /wp-cinematic-init → -demo → -encode → -scene → -seed   (scroll-driven video reel)
+DEMO     have a mockup?   →  /wp-init path/to/mockup.html   (reads it, skips the interview)
+         files in demo/?  →  /wp-polish demo/index.html
+         nothing yet?     →  /wp-demo  |  /wp-cinematic-demo
                                        │
-FINISH   /wp-finalize  →  /wp-responsive-check  →  /wp-audit (optional)
+BUILD    A. /wp-yolo demo/            — whole multi-page demo → theme in one pass (runs B for you)
+         B. /wp-header → /wp-footer → /wp-section … → /wp-page … → /wp-seed   (one piece at a time)
+         C. /wp-cinematic-init → -encode → -scene → -seed         (scroll-driven video reel)
+                                       │
+FINISH   /wp-finalize  →  /wp-demo-verify  →  /wp-audit (optional)
 ```
 
-Path A runs every command in path B for you. Full walkthrough of each path, with what is
-required, optional or automatic: **[docs/workflows.md](docs/workflows.md)**.
+Full walkthrough of each path, with what is required, optional or automatic:
+**[docs/workflows.md](docs/workflows.md)**.
 
 ## Installation
 
@@ -82,36 +88,75 @@ Add to your project's `.claude/settings.json` so all collaborators get it automa
 
 ## Workflow
 
+**Every path builds from a demo.** The demo is not a step in one recipe, it is the source
+of truth the WordPress build transcribes: `/wp-init` reads it to learn the project,
+`/wp-yolo` converts it page by page, `/wp-section --transcribe` copies its declared values,
+and `/wp-seed` turns its files into WP Pages. There is no path that starts at WordPress.
+
 ### Setup (every path)
 
 ```
 /wp-create --path=/var/www/html/my-project   # optional: local WordPress + .wp-create.json (needed later by /wp-seed)
-/wp-init                                     # required: asks template (tailwind|cinematic), fields plugin (scf|acf),
-                                             #           i18n strategy (suffix|polylang) — recorded in .claude/CLAUDE.md
+/wp-init                                     # required: asks template (tailwind, the default | cinematic), fields plugin
+                                             #           (scf, the default | acf), i18n strategy (suffix, the default | polylang).
+                                             #           Press Enter through all three to take the defaults. Recorded in .claude/CLAUDE.md
 /wp-context                                  # optional: reads docs/ (scope sheets, design PDF) → constraints + scope manifest.
                                              #           /wp-init runs it automatically when docs/ exists
 ```
 
-### Path A — full demo folder in one pass
+If you already hold a mockup, pass it straight to `/wp-init` (next section) instead of
+running it bare — it will read the project details out of the file rather than asking you.
+
+### Get a demo (every path, before any WordPress work)
+
+Three ways in. Pick the one that matches what you already have.
 
 ```
-/wp-yolo ./demo-folder            # checkpoint after normalization, then hands-off
-/wp-yolo ./demo-folder --yolo     # no checkpoint
-/wp-yolo ./demo-folder --careful  # confirm each inner page
+# 1. You already have a mockup (client HTML, a Figma export, anything)
+/wp-init path/to/mockup.html    # copies it to demo/index.html, polishes it if it has no
+                                # section delimiters, and reads the project name, industry,
+                                # colours and fonts OUT of the demo instead of asking you
+
+# 2. You have files already sitting in demo/
+/wp-polish demo/index.html      # adds section delimiters, semantic HTML5, BEM classes.
+                                # /wp-init also offers to adopt an existing demo/index.html
+
+# 3. You have nothing yet
+/wp-init                        # answer the project questions first, it writes .claude/CLAUDE.md
+/wp-demo                        # then generate demo/index.html from a brief (needs that file)
+/wp-cinematic-demo              # or the video-reel equivalent on the cinematic path
+```
+
+Order matters in one direction only: `/wp-demo` needs `.claude/CLAUDE.md`, so it runs
+*after* `/wp-init`. Going the other way, when you already hold a mockup, hand it to
+`/wp-init` directly and skip the interview.
+
+A multi-page site is the same thing with more files: put every page in `demo/` and Path A
+converts the folder in one pass.
+
+### Path A — full demo folder in one pass
+
+**Needs:** a `demo/` folder holding every page of the site, from the stage above. This is
+the fastest path when a client sends you a complete multi-page HTML site.
+
+```
+/wp-yolo demo/                    # checkpoint after normalization, then hands-off
+/wp-yolo demo/ --yolo             # no checkpoint
+/wp-yolo demo/ --careful          # confirm each inner page
 ```
 
 Normalizes every page, reconciles it against `docs/.scope-manifest.json` (IDX/plugin pages
 become embed shells, out-of-scope pages are skipped), then drives `/wp-settings` → `/wp-cpt`
 → `/wp-header` → `/wp-footer` → `/wp-section --transcribe` per section → `/wp-seed` →
-`/wp-finalize` → `/wp-polish` → `/wp-responsive-check`, and finishes with a demo-parity
-gate that auto-fixes mechanical drift and blocks on anything it cannot fix. You run nothing
-else.
+`/wp-finalize` → `/wp-polish` → `/wp-demo-verify`, and finishes with a demo-parity gate that
+auto-fixes mechanical drift and blocks on anything it cannot fix. You run nothing else.
 
 ### Path B — step by step
 
+**Needs:** `demo/index.html` from the stage above. Pick this when you want to review each
+piece as it is built, or when the site is one page.
+
 ```
-/wp-demo                          # generate demo/index.html from a brief   ┐ one of the two
-/wp-polish path/to/mockup.html    # or normalize an existing mockup          ┘
 /wp-header                        # required
 /wp-footer                        # required
 /wp-section hero                  # required, once per demo section
@@ -136,16 +181,24 @@ motion contract, for an admin tool, intranet or catalogue.
 
 ```
 /wp-finalize                              # pre-delivery report (never fixes)
-/wp-responsive-check http://localhost/site   # 5 viewports
+/wp-demo-verify http://localhost/site     # scroll-walks the live site, 5 viewports, contact sheet
 /wp-audit [--security --seo --a11y --performance --best-practices] [--report-only]
 /wp-polylang es en                        # only when i18n strategy is polylang
 ```
 
-### Polishing an existing demo
+`/wp-responsive-check` still works: it is an alias that runs `/wp-demo-verify`.
+
+### More on the demo
 
 `/wp-polish` normalizes any HTML into a plugin-compatible demo: detects sections, adds
 section delimiters, semantic HTML5 and BEM classes. It preserves an unpolished copy of the
 source document at `demo/.prepolish/<source-filename>` and never overwrites a copy already there.
+Run it on anything you drop into `demo/` yourself; `/wp-init` and `/wp-yolo` also run it for
+you when a page arrives without delimiters, since nothing downstream can split a page without them.
+
+`/wp-demo-verify demo/index.html` walks the demo by scrolling it and reports dead scroll,
+overflow, cues that never reach full opacity and clipped copy, then hands back a contact
+sheet to read. Worth running before the WordPress build, not only after.
 
 ## Commands Reference
 
@@ -157,8 +210,8 @@ Full arguments, inputs and outputs per command: **[docs/commands.md](docs/comman
 | `/wp-init` | all | required | Scaffold theme, record template / fields plugin / i18n choices |
 | `/wp-context [docs]` | all | auto | Scope + constraints from `docs/` |
 | `/wp-yolo <folder>` | A | required | Whole demo folder → theme, seeded and verified |
-| `/wp-demo [brief\|iterate]` | B | one of two | Generate demo HTML |
-| `/wp-polish [path]` | B | one of two | Normalize existing HTML into a demo |
+| `/wp-demo [brief\|iterate]` | all | demo stage | Generate `demo/index.html` from a brief (after `/wp-init`) |
+| `/wp-polish [path]` | all | demo stage | Normalize any HTML you already have into a demo |
 | `/wp-tailwindify [path]` | A, B | auto | Demo CSS → Tailwind utilities (run by `/wp-init`, `/wp-yolo`) |
 | `/wp-header` / `/wp-footer` | B | required | `header.php` / `footer.php` + settings fields |
 | `/wp-section <name> [--hybrid]` | B, C | required per section | ACF fields + template part + CSS; `--hybrid` = trailing section after a cinematic reel |
@@ -193,8 +246,8 @@ Full arguments, inputs and outputs per command: **[docs/commands.md](docs/comman
 | `wp-theme-standards` | WordPress legacy theme best practices (enqueueing, escaping, hooks, security) |
 | `wp-bilingual` | i18n methodology using ACF `_suffix` pattern with transparent helpers |
 | `wp-polylang` | Polylang multilingual methodology — one post per language, driven through the `pll_*` API. `/wp-init` asks which model a project uses; the answer is recorded as `i18n strategy` in its `.claude/CLAUDE.md` and every downstream command branches on it |
-| `wp-css-system` | CSS design system: custom properties, BEM naming, scales (`template=basic` only) |
-| `wp-tailwind-system` | Tailwind authoring conventions — the utility-first decision ladder and file layout (`template=tailwind` only) |
+| `wp-css-system` | CSS design system: custom properties, BEM naming, scales. Read by the `wp-css` agent, which handles the plain-CSS parts of every section |
+| `wp-tailwind-system` | Tailwind authoring conventions — the utility-first decision ladder and file layout (the default template) |
 | `wp-demo` | Demo HTML creation methodology |
 | `wp-demo-craft` | Design floor, page grammars, a scroll-motion device kit and an anti-slop refuse list for premium demos |
 | `wp-responsive` | Mobile-first responsive patterns, fluid typography, touch targets |
