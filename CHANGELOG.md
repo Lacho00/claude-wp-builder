@@ -11,6 +11,14 @@
   spacing token is uniformly wrong and splitting a gap across two paddings renders their sum;
   and a px width in the frame is a fraction of that frame's track, which frozen as px inside
   a `max-width` query holds the narrow-frame width up to the breakpoint.
+- **`/wp-tailwind-migrate`'s version gate read Tailwind from a parent directory.** Node's
+  `require()` walks up to every ancestor `node_modules`, so a theme with no Tailwind
+  dependency at all resolved a v4 sitting anywhere above it and the gate waved it through —
+  the exact case Step 0 exists to stop. Pinned to the theme's own `node_modules`.
+- **`/wp-debug`'s stale-stylesheet row now reads the parent theme too.** A child theme
+  routinely inherits its enqueues, so grepping only `get_stylesheet_directory()` finds
+  nothing and the check reports the theme is clean. Both directories now, deduplicated when
+  they are the same, each labelled, with a portable `grep -nE` in place of GNU-only `\|`.
 - **Four `/wp-debug` commands ran a `bash -c` inside a command substitution and read the
   wrong path in silence.** Inside `$( … )` bash re-parses the text as a fresh command, so
   the `\"` written to survive the outer quoting arrives as a literal quote: the inner shell

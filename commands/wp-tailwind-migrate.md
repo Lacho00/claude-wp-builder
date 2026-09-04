@@ -59,7 +59,9 @@ template it did not migrate is still styled by.
 So check first, and **stop with what you found** rather than proceeding:
 
 ```bash
-ver=$(node -e "try{console.log(require('tailwindcss/package.json').version)}catch(e){console.log('none')}" 2>/dev/null || true)
+# require() walks up to every ancestor node_modules, so a theme with no Tailwind at all
+# reads a v4 from a parent directory and this gate waves it through. Pin the lookup.
+ver=$(node -e "try{console.log(require(process.cwd()+'/node_modules/tailwindcss/package.json').version)}catch(e){console.log('none')}" 2>/dev/null || true)
 [ -n "$ver" ] || ver=none   # no node at all: same answer as no dependency
 case "$ver" in
   4.*)  : ;;
