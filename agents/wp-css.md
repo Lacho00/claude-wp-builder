@@ -325,6 +325,36 @@ Use a consistent container for max-width and centering:
 }
 ```
 
+### `position: absolute` is for superposition, not for layout
+
+A demo's `position: absolute; left: 600px; top: 116px` is the mockup's coordinate — where
+that element fell in one frame at one width. It is not a layout: an absolute box is out of
+flow, so nothing pushes it and nothing makes room for it. In a WordPress theme every string
+comes from the database, so the first longer title (or the second language) puts the button
+on top of the heading.
+
+Build every section with flex or grid. `absolute` is earned only by a real **superposition**:
+a badge on an image, a floating icon, a dropdown panel, an `inset: 0` veil over a photo,
+`sticky`/`fixed` furniture, `.sr-only`.
+
+**The test:** does this survive if the content changes length or the viewport changes? No →
+flex/grid. Yes, because the overlap IS the point → absolute is correct.
+
+Read the demo's offsets as relationships: 32px between two boxes is `gap: var(--spacing-md)`,
+never `left: 632px`; 64px from the container edge is `padding`, never `top: 64px`. An
+`absolute` inherited from the demo HTML is not a value to preserve — rebuild it unless it
+passes the test. Full rule: `skills/wp-css-system/SKILL.md` § "Layout is flex or grid".
+
+```css
+/* NO — the mockup's coordinates, frozen */
+.hero__title { position: absolute; left: 0; top: 120px; width: 551px; }
+.hero__cta   { position: absolute; left: 600px; top: 116px; }
+
+/* YES — the same geometry, as a relationship */
+.hero__row   { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-xl); }
+.hero__title { max-width: 551px; }
+```
+
 ### Flexbox row with wrapping
 
 ```css
@@ -473,7 +503,8 @@ Enqueue page-specific styles conditionally in `functions.php`.
 9. **Respect `prefers-reduced-motion`** — disable animations/transitions for users who prefer it
 10. **Follow the demo's visual design exactly** — match colors, spacing, layout from the reference
 11. **Each section gets its own commented block** — keep CSS organized and scannable
-12. **Use logical grouping** — within each section block, order properties: layout, box model, typography, visual, misc
+12. **Layout is flex or grid** — `position: absolute` only for a real superposition (badge on an image, floating icon, tooltip, veil, sticky/fixed); never to reproduce a demo's `left`/`top` coordinates
+13. **Use logical grouping** — within each section block, order properties: layout, box model, typography, visual, misc
 
 ## Transcription Mode (when dispatched by /wp-yolo)
 
