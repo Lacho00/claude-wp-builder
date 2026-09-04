@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.12.0] - 2026-09-04
 
 ### Fixed
 - **Three ways a design frame's numbers are transcribed correctly and still render wrong**,
