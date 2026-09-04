@@ -496,6 +496,11 @@ the demo is the SOURCE OF TRUTH, not inspiration. Your job is to COPY, not re-au
   name). Shared components use the shared class; per-page tweaks are scoped under the block.
 - (Still applies: never emit an undefined `var(--x)`.)
 
+Any rule that reads `--motion-p` (or `--motion-mx` / `--motion-my`) is the seam
+between the motion engine and the design. Copy those rules unchanged, including
+their `calc()` expressions. Rewriting one into a static value silently removes the
+effect, and nothing errors.
+
 ### Three ways a design frame's numbers do not transfer as written
 
 Everything above is copied verbatim. These three are still design truth, but the frame

@@ -105,6 +105,25 @@ is what enforces it: `<br class="…">` cannot survive `array('br' => array())`,
 is correct — see `skills/wp-theme-standards/SKILL.md` for why the choice of *which*
 break applies at which width belongs in the stylesheet, and for the `display:none`
 whitespace trap that comes with it.
+### Motion attributes
+
+Every `data-motion-*` attribute on a demo section is copied into the template part
+**verbatim**. They are behaviour, not content: never turn one into an ACF field,
+never make one editable, and never drop one because a section became dynamic.
+
+Attribute values printed from PHP still pass through `esc_attr()`. Static values
+are written as literals:
+
+```php
+<section class="hero" data-motion="pin" data-motion-span="2.4">
+    <h1 class="hero__title" data-motion-cue="0 0.7 0">
+        <?php echo esc_html( prefix_get_field( 'hero_title' ) ); ?>
+    </h1>
+</section>
+```
+
+The signature move lives in `assets/js/signature.js` and reads `--motion-p`. Never
+inline page-specific motion JS into a template part.
 
 ## i18n Helper Functions (CRITICAL)
 
