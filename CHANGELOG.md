@@ -25,6 +25,18 @@
   `/wp-demo-verify`'s dead-scroll check samples the stage `<canvas>` so a cinematic reel whose
   video never actually changes between scenes is caught the same way as a static section with
   no motion.
+- **`position: absolute` is for superposition, not for layout**: a mockup's `x`/`y` is where
+  an element fell in one frame at one width, so an absolute box copied from a demo is out of
+  flow and the first longer ACF value (or the second language) puts it on top of its
+  neighbour. `skills/wp-css-system/SKILL.md` and `skills/wp-tailwind-system/SKILL.md` now own
+  the rule in full — flex/grid for layout, `absolute` only for a real overlap (badge on an
+  image, floating icon, dropdown, `inset:0` veil, `sticky`/`fixed`, `.sr-only`), a
+  survives-a-content-change test before the declaration, and the instruction to read a
+  mockup's offsets as `gap`/`padding` rather than `left`/`top`. `agents/wp-css.md` carries the
+  same section and a new rule in its Rules list; an `absolute` inherited from demo HTML during
+  `/wp-polish`, `/wp-section`, `/wp-yolo`, `/wp-tailwindify` or `/wp-tailwind-migrate` is
+  explicitly not a value to preserve. `tests/checks/wp-layout-flow.sh` fails if the wording
+  disappears from any of the three files.
 
 ## [1.11.0] - 2026-09-02
 

@@ -25,6 +25,7 @@ This skill defines the CSS architecture for `template=basic` themes. The system 
 4. **All values use custom properties** -- never hardcode colors, spacing, font sizes, or other design tokens directly in rules
 5. **BEM naming convention** for all class names
 6. **Consistency between demo HTML and WordPress theme CSS** -- the design system carries over from the demo to the theme unchanged
+7. **Layout is flex or grid** -- `position: absolute` is only for a real superposition (see below)
 
 ---
 
@@ -429,6 +430,63 @@ h1, h2, h3, ... { ... }
 }
 ```
 
+### Layout is flex or grid -- `position: absolute` is for superposition only
+
+A design tool (Figma, XD, a PDF mockup) exports every element with an `x`/`y`. That
+coordinate is **where the element fell in that one frame at that one width** -- it is
+not the layout, and it is the weakest hint in the file. Copied into CSS it produces a
+section that is exact on the designer's screen and broken everywhere else: an absolute
+box is out of flow, so nothing pushes it and nothing makes room for it. The heading
+beside it wraps at 1280 and the button lands on top of it; the client edits the ACF
+field and the text runs under the image. Neither is visible until someone looks.
+
+This matters more in WordPress than in a static demo: **every string in a template part
+comes from the database**. The demo's copy is a placeholder. A layout that only holds at
+the demo's exact text lengths is broken the first time the client saves a longer title.
+
+**The rule.** Build every section with flex or grid. `position: absolute` is earned by a
+real superposition and by nothing else:
+
+- a badge or price tag on top of an image
+- a floating icon that overlaps two boxes
+- a tooltip or dropdown panel
+- an overlay/veil over a photo (`position: absolute; inset: 0`)
+- a sticky header or a fixed back-to-top button (`sticky` / `fixed`)
+- the `.sr-only` clip pattern below
+
+**The test, before writing the declaration:** *does this survive if the content changes
+length or the viewport changes?* If **no**, it is flex/grid. If **yes**, because the
+overlap is the point, absolute is correct.
+
+**Read a mockup's offsets as relationships, not coordinates.** Two elements 32px apart is
+`gap: var(--spacing-md)`, never `left: 632px`. An element 64px from its container's edge
+is `padding`, never `top: 64px`. Elements sharing a row, a column or a spacing are ONE
+flex/grid container, not N placed boxes.
+
+```css
+/* NO -- the mockup's coordinates, frozen */
+.hero__title  { position: absolute; left: 0; top: 120px; width: 551px; }
+.hero__cta    { position: absolute; left: 600px; top: 116px; }
+
+/* YES -- the same geometry, as a relationship */
+.hero__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-xl);
+}
+.hero__title { max-width: 551px; }
+
+/* YES -- absolute earned: the badge really does sit ON the image */
+.card__media { position: relative; }
+.card__badge { position: absolute; top: var(--spacing-sm); left: var(--spacing-sm); }
+```
+
+When converting a demo (`/wp-polish`, `/wp-section`, `/wp-yolo`), an `absolute` inherited
+from the source HTML is **not** a value to preserve -- rebuild it as flex/grid unless it
+passes the test above. Only if the client explicitly asks for an overlap effect does a new
+absolute enter the theme.
+
 ### Screen Reader Only
 
 ```css
@@ -566,6 +624,7 @@ When building the demo HTML first and then converting to WordPress:
 - [ ] Shadow, radius, transition, and container variables defined
 - [ ] All CSS rules reference custom properties (no hardcoded values)
 - [ ] BEM naming used for all classes
+- [ ] Every section laid out with flex/grid -- each `position: absolute` is a real superposition
 - [ ] CSS reset/normalize included at the top
 - [ ] Section comment delimiters used throughout
 - [ ] No CSS frameworks, preprocessors, or build tools

@@ -280,6 +280,31 @@ clips or strands whitespace in the other. In a bilingual theme:
 Check every fixed dimension against the longest string the field can hold before
 the second language exists, not after.
 
+## `absolute` is for superposition, not for layout
+
+A mockup's `x`/`y` is where an element fell in one frame at one width — not the
+layout, and the weakest hint in the file. Converted into
+`absolute left-[600px] top-[116px]`, a section is exact on the designer's screen
+and is not a layout anywhere else: an absolute box is out of flow, so nothing
+pushes it and nothing makes room for it. In a WordPress theme every string comes
+from the database and the second language is longer, so the first client edit
+lands the button on top of the heading.
+
+Build layout with `flex`/`grid` and a `gap`. `absolute` is earned only by a real
+superposition — a badge on an image, a floating icon, a dropdown panel, an
+`absolute inset-0` veil, `sticky`/`fixed` furniture, `sr-only`.
+
+**The test:** does this survive if the content changes length or the viewport
+changes? No → it is `flex`/`grid`. Yes, because the overlap IS the point →
+`absolute` is right.
+
+Read the mockup's offsets as relationships: 32px between two boxes is `gap-8`,
+never `left-[632px]`; 64px from the container's edge is `p-16`, never
+`top-[64px]`. A row of elements sharing a spacing is ONE flex container, not N
+placed boxes. An `absolute` inherited from the source HTML during
+`/wp-tailwindify` or `/wp-tailwind-migrate` is not a value to preserve — rebuild
+it unless it passes the test.
+
 ## `.btn` is already taken
 
 The starter ships `components/buttons.css` with its own `.btn`, and a demo's
@@ -303,6 +328,8 @@ Read `components/buttons.css` before writing any button class.
   values driven by an ACF field — e.g. a background image URL — are the one
   exception.)
 - Hand-written `@media` queries.
+- `absolute` with an arbitrary `left-[…]`/`top-[…]` on an element that overlaps
+  nothing — that is a `flex`/`grid` row written as coordinates (see above).
 
 ## `hidden` is two different things
 
