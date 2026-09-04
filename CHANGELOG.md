@@ -36,7 +36,7 @@
   `wp-css-system` and `wp-tailwind-system` now carry the rule and its remedy, `:where()`,
   which contributes no specificity. New check: `tests/checks/css-reset-specificity.sh`.
 - **`/wp-tailwind-migrate` now gates on the Tailwind major instead of assuming it.** Every
-  step it runs writes the v4 layout and Step 5 deletes the old stylesheet, so pointing it at
+  step it runs writes the v4 layout and Step 5 deletes `assets/css/styles.css`, so pointing it at
   a v3 theme — `tailwind.config.js`, a PostCSS build, `style.css` at the theme root carrying
   the `Theme Name:` header — turned a conversion into an unrequested v3→v4 upgrade plus a
   restructure of every partial, and then removed the stylesheet the unmigrated templates were
