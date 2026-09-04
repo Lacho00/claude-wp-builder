@@ -29,8 +29,8 @@
   stylesheet by `br:nth-of-type()`, with the `display:none` whitespace trap spelled out.
   New check: `tests/checks/acf-markup-escaping.sh`.
 - **The CSS skills now say where a reset must live.** A reset scoped to a page —
-  `.page img { max-width:100%; height:auto }` at (0,2,1) — outranks a single class on
-  that same image at (0,2,0), so the image ignores its own class and paints at its
+  `.page img { max-width:100%; height:auto }` at (0,1,1) — outranks a single class on
+  that same image at (0,1,0), so the image ignores its own class and paints at its
   intrinsic size. The symptom reads as "my CSS is not loading": `getComputedStyle`
   returns the reset's value and the class is right there in DevTools. Both
   `wp-css-system` and `wp-tailwind-system` now carry the rule and its remedy, `:where()`,

@@ -366,8 +366,8 @@ select {
 The reset above is safe because every selector in it is bare: `img { height: auto }`
 scores (0,0,1), so any class on that image beats it. Re-scope the same declarations
 to a page — `.page img { max-width: 100%; height: auto }` — and the score becomes
-(0,2,1), which **outranks a single class on that same `<img>`**: `.page-step__icon
-{ height: 3.1875rem }` is (0,2,0) and loses. The image ignores its own class and
+(0,1,1), which **outranks a single class on that same `<img>`**: `.page-step__icon
+{ height: 3.1875rem }` is (0,1,0) and loses. The image ignores its own class and
 paints at its intrinsic size while the class sits in the stylesheet looking correct.
 
 The symptom is misleading — `getComputedStyle` returns the reset's value, the class

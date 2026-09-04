@@ -35,7 +35,9 @@ for f in skills/wp-theme-standards/SKILL.md agents/wp-template.md; do
   # `inline .?style` case-insensitively and was satisfied by an unrelated "Inline Styles"
   # heading elsewhere in the same file — a gate that passes on prose it was not written
   # for is worse than no gate. `iframe` and `class on any tag` appear nowhere else.
-  grep -Eqi 'iframe|class on any tag' <<<"$t" \
+  # The docs write that phrase with `class` in backticks, so the alternative has to
+  # allow one — without it the branch never matches and the gate rests on `iframe`.
+  grep -Eqi 'iframe|class`? on any tag' <<<"$t" \
     || { echo "FAIL: $f does not say what wp_kses_post() lets through — 'too permissive' is not actionable, and the reader needs the tags to weigh the blast radius"; exit 1; }
 
   # the_field()/the_sub_field() echo unescaped. Both files must forbid them by name;

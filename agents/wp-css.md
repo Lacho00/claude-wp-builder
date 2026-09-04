@@ -521,7 +521,7 @@ too airy — up to 87px per boundary in that case.
 **3. A width the frame states in px is a proportion of its track.** `max-width: 364px`
 inside a 390px mobile track means "93.33% of the track", and only the second form
 survives. Frozen as px inside a `max-width: 767.98px` query, the element keeps its
-430-frame width all the way up to 767 and opens a growing empty gutter beside itself.
+390-frame width all the way up to 767 and opens a growing empty gutter beside itself.
 Convert any width, inset or overhang that is a fraction of the content track into a
 percentage; keep px only for what genuinely does not scale — a border, an icon the design
 repeats at one size.

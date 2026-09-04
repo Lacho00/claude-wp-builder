@@ -278,7 +278,7 @@ add_action('after_setup_theme', 'prefix_content_width', 0);
 - **Rich HTML content** from WYSIWYG/editor fields: `wp_kses_post()`
 - **Never output raw** `get_field()`, `$_GET`, `$_POST`, or any user input without escaping
 - **`the_field()` and `the_sub_field()` echo unescaped.** Neither belongs in a template.
-  Use `echo esc_html( get_field( … ) )` and its siblings, so the escaping is visible at
+  Use `echo esc_html( prefix_get_field( … ) )` and its siblings, so the escaping is visible at
   the point of output. A grep for `the_field(` in the templates should return nothing.
 
 ### A headline that carries markup is neither `esc_html()` nor `wp_kses_post()`

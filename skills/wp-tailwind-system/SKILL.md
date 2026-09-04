@@ -189,9 +189,9 @@ dropped and that anchor rendered in the body colour.
 ### A kept reset goes in `:where()`, or it outranks the classes it was meant to serve
 
 A reset kept as a scoped rule brings a type selector with it, and a type selector
-is not free. `.page img { max-width: 100%; height: auto }` scores (0,2,1) — two
-classes and one element — while a single class **on that same `<img>`**, say
-`.page-step__icon { height: 3.1875rem }`, scores (0,2,0). The reset wins. Every
+is not free. `.page img { max-width: 100%; height: auto }` scores (0,1,1) — one
+class and one element — while a single class **on that same `<img>`**, say
+`.page-step__icon { height: 3.1875rem }`, scores (0,1,0). The reset wins. Every
 image the reset covers silently ignores the height its own class sets and paints
 at its intrinsic size, and nothing about the class looks wrong: it is present,
 spelled correctly, and in the compiled stylesheet.

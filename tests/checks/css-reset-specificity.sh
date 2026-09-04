@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A reset kept as a SCOPED rule outranks the classes it was meant to serve, and the
-# failure is silent: `.page img { height:auto }` is (0,2,1) and beats
-# `.page-step__icon { height:… }` at (0,2,0), so the image ignores its own class and
+# failure is silent: `.page img { height:auto }` is (0,1,1) and beats
+# `.page-step__icon { height:… }` at (0,1,0), so the image ignores its own class and
 # paints at its intrinsic size while the class sits in the stylesheet looking right.
 # getComputedStyle reports the reset's value and the class is visible in DevTools, so
 # it reads as "my CSS is not loading". It cost a full debugging detour once, on images
@@ -30,10 +30,10 @@ for f in skills/wp-css-system/SKILL.md skills/wp-tailwind-system/SKILL.md; do
 
   # The comparison that makes the bug findable. A section that says "watch your
   # specificity" and never contrasts the two scores does not let anyone recognise it.
-  grep -Eq '\(0,2,1\)' <<<"$t" \
-    || { echo "FAIL: $f does not score the scoped reset (0,2,1) — the point is that the element selector outranks a class, and only the numbers show it"; exit 1; }
-  grep -Eq '\(0,2,0\)' <<<"$t" \
-    || { echo "FAIL: $f does not score the losing class (0,2,0) — without both numbers the comparison is an assertion"; exit 1; }
+  grep -Eq '\(0,1,1\)' <<<"$t" \
+    || { echo "FAIL: $f does not score the scoped reset (0,1,1) — the point is that the element selector outranks a class, and only the numbers show it"; exit 1; }
+  grep -Eq '\(0,1,0\)' <<<"$t" \
+    || { echo "FAIL: $f does not score the losing class (0,1,0) — without both numbers the comparison is an assertion"; exit 1; }
 done
 
 echo PASS
