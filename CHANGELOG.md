@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.12.1] - 2026-09-04
+
+### Changed
+- **The demo is documented as every path's input, not a step inside path B.** Every
+  path converts a demo: `/wp-init` reads it to learn the project, `/wp-yolo` converts it
+  page by page, `/wp-section --transcribe` copies its declared values and `/wp-seed` turns
+  its files into WP Pages. Both `README.md` and `docs/workflows.md` now carry a required
+  demo stage between setup and build with the three ways in (hand a mockup to `/wp-init`,
+  polish files dropped into `demo/`, or `/wp-init` then `/wp-demo` from nothing). This also
+  closes an ordering trap: a bare `/wp-init` run before any demo exists can never trigger
+  its demo-first flow, so a reader following the old order answered by hand what the
+  mockup already knew.
+- **The README opening diagram no longer contradicts the corrected section further down**,
+  and three docs stopped naming a `basic` template that `/wp-init` only keeps as a legacy
+  alias for `tailwind`. Both build paths open with a `Needs:` line, `/wp-init`'s three
+  questions state their defaults, `/wp-demo-verify` is the name shown everywhere with
+  `/wp-responsive-check` noted once as its alias, and `docs/commands.md` gains the demo
+  section and the `/wp-demo-verify` table row it was missing.
+
 ## [1.12.0] - 2026-09-04
 
 ### Fixed
