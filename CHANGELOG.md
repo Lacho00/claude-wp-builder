@@ -11,6 +11,14 @@
   spacing token is uniformly wrong and splitting a gap across two paddings renders their sum;
   and a px width in the frame is a fraction of that frame's track, which frozen as px inside
   a `max-width` query holds the narrow-frame width up to the breakpoint.
+- **Four `/wp-debug` commands ran a `bash -c` inside a command substitution and read the
+  wrong path in silence.** Inside `$( … )` bash re-parses the text as a fresh command, so
+  the `\"` written to survive the outer quoting arrives as a literal quote: the inner shell
+  dies on `unexpected EOF while looking for matching \"`, the substitution is empty, and
+  `tail -50 "$( … )/wp-content/debug.log"` reads `/wp-content/debug.log` and still exits 0.
+  The wrapper bought nothing — `$WP` is a command plus its global arguments and word-splits
+  correctly on its own. Dropped in all four, with the expansion quoted at the point of use.
+  New check: `tests/checks/no-nested-bash-c.sh`.
 - **`/wp-debug` can now diagnose "my CSS change doesn't show".** A static version constant in
   `wp_enqueue_style` keeps the URL stable while the file changes, so browsers serve the copy
   they cached. The `filemtime()` rule already existed in `wp-theme-standards` but only reaches
