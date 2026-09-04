@@ -45,8 +45,8 @@ old_head=$(grep -n -m1 '^## \[1\.7\.0\]' CHANGELOG.md | cut -d: -f1)
 # End the range at the SECOND heading, not at [1.7.0]. Everything between the two is
 # already-released text, and `assets/css/styles.css` appears there — anchoring on 1.7.0
 # let a bullet from an older release satisfy an assertion written about the newest one.
-next_head=$(grep -n '^## \[' CHANGELOG.md | sed -n 2p | cut -d: -f1)
-[ -n "$next_head" ] || { echo "FAIL: CHANGELOG has only one version heading; the range cannot be closed"; exit 1; }
+next_head=$(awk -v start="$new_head" 'NR > start && /^## \[/{print NR; exit}' CHANGELOG.md)
+[ -n "$next_head" ] || { echo "FAIL: CHANGELOG has no heading after the new entry; the range cannot be closed"; exit 1; }
 entry=$(sed -n "${new_head},$((next_head - 1))p" CHANGELOG.md)
 grep -Fq 'wp-tailwind-migrate' <<<"$entry" \
   || { echo "FAIL: the new CHANGELOG entry does not mention /wp-tailwind-migrate"; exit 1; }

@@ -303,7 +303,8 @@ stylesheet:
 /* Field value: "One line<br> then another<br> and the <span>highlight</span>"
    Two breaks in the mobile frame, one on desktop — chosen here, by position. */
 .section__title br            { display: none; }
-@media (max-width: 767.98px)  { .section__title br:nth-of-type(1) { display: inline; } }
+@media (max-width: 767.98px)  { .section__title br:nth-of-type(1),
+                                .section__title br:nth-of-type(2) { display: inline; } }
 @media (min-width: 1024px)    { .section__title br:nth-of-type(2) { display: inline; } }
 ```
 
