@@ -42,18 +42,26 @@ old_head=$(grep -n -m1 '^## \[1\.7\.0\]' CHANGELOG.md | cut -d: -f1)
 [ "$new_head" -lt "$old_head" ] \
   || { echo "FAIL: the tailwind entry is not above [1.7.0] — CHANGELOG is newest-first"; exit 1; }
 
-# End the range at the SECOND heading, not at [1.7.0]. Everything between the two is
-# already-released text, and `assets/css/styles.css` appears there — anchoring on 1.7.0
-# let a bullet from an older release satisfy an assertion written about the newest one.
-next_head=$(awk -v start="$new_head" 'NR > start && /^## \[/{print NR; exit}' CHANGELOG.md)
-[ -n "$next_head" ] || { echo "FAIL: CHANGELOG has no heading after the new entry; the range cannot be closed"; exit 1; }
-entry=$(sed -n "${new_head},$((next_head - 1))p" CHANGELOG.md)
+# The three assertions below describe the entry that SHIPPED the Tailwind pipeline
+# ([1.8.0], PR #25): the migrator, the wp-tailwind-system skill, and the styles.css defect
+# it fixed. Slice exactly that entry, from its heading to the heading after it, not "the
+# newest entry". Slicing the newest one hard-coded a single release's contents as the
+# definition of a correct CHANGELOG: it passed on 1.12.0, which happened to mention all
+# three, and failed on the very next release (1.12.1, a docs-only patch), because no later
+# entry has any reason to name the migrator. A check only the release that introduced the
+# feature can satisfy is a check that fails forever afterwards.
+grep -q '^## \[1\.8\.0\]' CHANGELOG.md \
+  || { echo "FAIL: the [1.8.0] heading this check anchors on is gone; re-derive the range"; exit 1; }
+tw_head=$(grep -n -m1 '^## \[1\.8\.0\]' CHANGELOG.md | cut -d: -f1)
+tw_next=$(awk -v start="$tw_head" 'NR > start && /^## \[/{print NR; exit}' CHANGELOG.md)
+[ -n "$tw_next" ] || { echo "FAIL: CHANGELOG has no heading after [1.8.0]; the range cannot be closed"; exit 1; }
+entry=$(sed -n "${tw_head},$((tw_next - 1))p" CHANGELOG.md)
 grep -Fq 'wp-tailwind-migrate' <<<"$entry" \
-  || { echo "FAIL: the new CHANGELOG entry does not mention /wp-tailwind-migrate"; exit 1; }
+  || { echo "FAIL: the [1.8.0] CHANGELOG entry does not mention /wp-tailwind-migrate"; exit 1; }
 grep -Fq 'wp-tailwind-system' <<<"$entry" \
-  || { echo "FAIL: the new CHANGELOG entry does not mention the wp-tailwind-system skill"; exit 1; }
+  || { echo "FAIL: the [1.8.0] CHANGELOG entry does not mention the wp-tailwind-system skill"; exit 1; }
 grep -Fq 'assets/css/styles.css' <<<"$entry" \
-  || { echo "FAIL: the new CHANGELOG entry does not say what the defect actually was"; exit 1; }
+  || { echo "FAIL: the [1.8.0] CHANGELOG entry does not say what the defect actually was"; exit 1; }
 
 # ---- Manifest: discoverable by keyword --------------------------------------
 # Whitespace-stripped so the assertion survives any reformatting of the JSON,
