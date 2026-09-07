@@ -42,7 +42,12 @@ done
 #    it simply never loads, which is how it goes unnoticed.
 # ---------------------------------------------------------------------------
 fm() {  # file, regex — frontmatter only
-  awk -v re="$2" 'NR <= 8 && $0 ~ re { found = 1 } END { exit !found }' "$1"
+  awk -v re="$2" '
+    NR == 1 && $0 !~ /^---[[:space:]]*$/ { exit 1 }
+    NR > 1 && $0 ~ /^---[[:space:]]*$/ { exit !found }
+    $0 ~ re { found = 1 }
+    END { exit !found }
+  ' "$1"
 }
 for f in "$robin_cmd" "$aos_cmd"; do
   for key in '^description:' '^allowed-tools:' '^argument-hint:'; do

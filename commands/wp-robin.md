@@ -75,7 +75,9 @@ With an explicit target root:
 bash -c "WP_ROOT='<wp-root>' bash ${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"
 ```
 
-With auto-detection (no root resolved in Step 0, working directory is at or under the install):
+With auto-detection (no root resolved in Step 0), first confirm the current directory or an
+ancestor contains `wp-config.php` and ask the user to confirm that target. If it cannot be
+confirmed, stop and ask for an explicit root:
 
 ```bash
 bash -c "bash ${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"
