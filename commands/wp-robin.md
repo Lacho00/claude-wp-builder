@@ -32,8 +32,8 @@ so a user cannot reach it by typing its name. Skills inform; commands act. This 
    ```bash
    cat .wp-create.json
    ```
-3. Otherwise leave it unset and let the script walk up from the working directory, which is
-   what it does when `WP_ROOT` is empty.
+3. Otherwise mark the target as auto-detected; Step 3 must confirm a concrete directory
+   containing `wp-config.php` before running, or stop and ask for an explicit root.
 
 If a path was given or resolved, verify it before doing anything else:
 

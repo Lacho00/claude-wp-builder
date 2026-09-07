@@ -35,7 +35,8 @@ ships GSAP-driven motion through its theme bundle, so if `.wp-create.json` recor
 
 ## Step 1: Read Project Context
 
-Read the project's `.claude/CLAUDE.md` for the theme slug, template and `demo mode`. If it is
+Read the project's `.claude/CLAUDE.md` for the theme slug and template, and `.wp-create.json`
+for `demo mode` — the same file the craft check above reads. If `.claude/CLAUDE.md` is
 missing, tell the user to run `/wp-init` first and stop — this command edits a theme this
 plugin generated, and without that file the theme path is a guess.
 
