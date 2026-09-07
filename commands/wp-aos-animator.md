@@ -91,7 +91,7 @@ Run the skill's verification grep and compare against the Phase 1 baseline.
 Then rebuild if the project's template needs it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-rebuild.sh" <theme-path>
+bash "${CLAUDE_PLUGIN_ROOT}/bin/tailwind-rebuild.sh" "<theme-path>"
 ```
 
 Report, one line per template: elements animated, elements deliberately skipped and why —

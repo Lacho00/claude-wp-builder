@@ -23,7 +23,7 @@ fail() { echo "FAIL: $*"; exit 1; }
 # Prose in this repo is hard-wrapped, so a contract sentence routinely straddles a newline and
 # a line-oriented grep misses it. Flatten whitespace first and match a plain substring: an
 # assertion that fails on a rewrap gets muted, which is worse than no assertion.
-flat() { tr '\n' ' ' < "$1" | tr -s ' '; }
+flat() { tr '\n\t\r' ' ' < "$1" | tr -s ' '; }
 # Substring via `case`, not a pipe into `grep -q`: under `set -o pipefail`, grep exits on its
 # match, `tr` takes SIGPIPE and the pipeline reports 141 — a FALSE failure on a correct file.
 has() { case "$(flat "$1")" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
@@ -105,7 +105,7 @@ grep -Fq -- '--report-only' "$aos_cmd" \
   || fail "$aos_cmd has no --report-only mode (the house flag, as in /wp-audit) for an audit-only run"
 has "$aos_cmd" 'one subagent per template' \
   || fail "$aos_cmd does not dispatch Phase 5 per template, which is the parallelism the skill describes"
-grep -Eq '^allowed-tools:.*\bAgent\b' "$aos_cmd" \
+grep -Eq '^allowed-tools:.*[[:space:],]Agent([^A-Za-z0-9_-]|$)' "$aos_cmd" \
   || fail "$aos_cmd dispatches subagents but does not carry Agent in allowed-tools"
 
 # ---------------------------------------------------------------------------
