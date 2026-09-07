@@ -100,7 +100,7 @@ grep -Fq -- '--report-only' "$aos_cmd" \
   || fail "$aos_cmd has no --report-only mode (the house flag, as in /wp-audit) for an audit-only run"
 has "$aos_cmd" 'one subagent per template' \
   || fail "$aos_cmd does not dispatch Phase 5 per template, which is the parallelism the skill describes"
-grep -Fq 'Agent' "$aos_cmd" \
+grep -Eq '^allowed-tools:.*\bAgent\b' "$aos_cmd" \
   || fail "$aos_cmd dispatches subagents but does not carry Agent in allowed-tools"
 
 # ---------------------------------------------------------------------------

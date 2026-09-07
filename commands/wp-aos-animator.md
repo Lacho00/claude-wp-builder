@@ -73,7 +73,7 @@ first failure rather than continuing into Phase 5 with no library loaded.
 
 ## Step 5: Phase 5 — Animate the Templates
 
-Build the file list from the scope in Step 0, then run the skill's Phase 5 over it.
+Build a deduplicated file list from the scope in Step 0, then run the skill's Phase 5 over it.
 
 The skill states that this phase parallelizes per template. Dispatch **one subagent per
 template file** when there is more than one in scope, each given: the single file path it owns,

@@ -58,7 +58,7 @@ one-line message:
 
 ```bash
 bash -c "command -v mariadb || command -v mysql"
-bash -c "command -v convert || command -v cwebp || php -r 'echo function_exists(\"imagewebp\") ? \"gd\" : \"\";'"
+bash -c "command -v convert || command -v cwebp || php -r 'if (function_exists(\"imagewebp\")) { echo \"gd\"; exit 0; } exit 1;'"
 ```
 
 If no database client is found, stop and say so. If no webp converter is found, report the
