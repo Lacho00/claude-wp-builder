@@ -72,15 +72,17 @@ Run the skill's bundled script. It is the implementation — do not inline its l
 With an explicit target root:
 
 ```bash
-bash -c "WP_ROOT='<wp-root>' bash ${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"
+bash -c 'WP_ROOT="$1" bash "${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"' _ "<wp-root>"
 ```
 
 With auto-detection (no root resolved in Step 0), first confirm the current directory or an
 ancestor contains `wp-config.php` and ask the user to confirm that target. If it cannot be
-confirmed, stop and ask for an explicit root:
+confirmed, stop and ask for an explicit root; do not run the script.
+
+After confirmation, pass the confirmed target as `WP_ROOT` and run:
 
 ```bash
-bash -c "bash ${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"
+bash -c 'WP_ROOT="$1" bash "${CLAUDE_PLUGIN_ROOT}/skills/wp-robin/scripts/robin-fix.sh"' _ "<confirmed-root>"
 ```
 
 The script is long-running on a large Media Library. Let it finish and keep its full output —

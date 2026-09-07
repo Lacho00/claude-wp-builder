@@ -60,9 +60,9 @@ done
 #    commands exist to make unnecessary.
 # ---------------------------------------------------------------------------
 for f in "$robin_skill" "$aos_skill"; do
-  grep -Fq 'user-invocable: false' "$f" \
-    || fail "$f no longer declares user-invocable: false — a runner command is the supported way in, not an invocable skill"
-  ! grep -Fq 'user-invocable: true' "$f" \
+  fm "$f" '^user-invocable: false' \
+    || fail "$f no longer declares user-invocable: false in its frontmatter — a runner command is the supported way in, not an invocable skill"
+  ! fm "$f" '^user-invocable: true' \
     || fail "$f declares user-invocable: true, the one state the layer rules forbid"
 done
 
