@@ -324,9 +324,18 @@ stylesheet, take the woff2 URLs out of it, and store them next to the self-hoste
 mkdir -p <theme-dir>/assets/fonts
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 curl -fsS -A "$UA" "<the demo's exact css2 URL>" -o /tmp/gf.css
-grep -oE 'https://fonts\.gstatic\.com/[^)]+\.woff2' /tmp/gf.css | sort -u \
-  | xargs -r -n1 -I{} sh -c 'curl -fsS -o "<theme-dir>/assets/fonts/$(basename {})" "{}"'
+urls=$(grep -oE 'https://fonts\.gstatic\.com/[^)]+\.woff2' /tmp/gf.css | sort -u)
+[ -n "$urls" ] || { echo "no woff2 URLs in the Google Fonts response — carry failed" >&2; exit 1; }
+printf '%s\n' "$urls" \
+  | xargs -r -n1 sh -c 'curl -fsS -o "<theme-dir>/assets/fonts/$(basename "$1")" "$1"' _
 ```
+
+**An empty extraction is a failure, not a quiet no-op.** Without the guard, a response that
+carries no woff2 URLs — the TTF stylesheet from a wrong user agent, an error page, a format
+change at Google — runs the loop zero times and the step reports success with no fonts
+carried, which is the silent fallback this whole step exists to end. The URL is passed to
+`sh -c` as a positional argument rather than interpolated into the command string, so a
+filename with a shell metacharacter cannot alter what runs.
 
 The `-A` is not decoration. Google serves a *different* stylesheet per user agent, and the
 default `curl` UA gets the legacy TTF build — you download fonts that work, in a format two

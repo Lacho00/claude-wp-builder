@@ -45,6 +45,8 @@ fi
 #    wherever it exists, and naming it unloaded is this whole defect. Anything after the
 #    first family is a fallback and never has to be carried, which is the same carve-out
 #    /wp-finalize's font-parity check makes for an intentional system stack.
+[[ $(grep -cE '^[[:space:]]*--font-[a-z]+:' "$main_css") -gt 0 ]] \
+  || fail "$main_css declares no --font-* token at all -- the scan below would pass vacuously"
 while IFS= read -r line; do
   decl=${line#*:}
   first=${decl%%,*}
@@ -57,7 +59,7 @@ while IFS= read -r line; do
   esac
   grep -rqi -- "$first" "$starter/assets/fonts" 2>/dev/null \
     || fail "$main_css leads --font-* with the family '$first', which the starter neither ships in assets/fonts/ nor loads -- it silently renders the next entry in the stack"
-done < <(grep -E '^\s*--font-[a-z]+:' "$main_css")
+done < <(grep -E '^[[:space:]]*--font-[a-z]+:' "$main_css")
 
 # 4. /wp-init emits a preload, and emits it for ONE file. Preloading every unicode-range
 #    subset defeats the lazy loading that makes carrying them all cheap, so the contract is
@@ -76,12 +78,18 @@ if grep -Fq 'curl -sS' "$init"; then
   exit 1
 fi
 
-# 6. font-display is added when Google omits it, not merely kept when present. A css2 URL
+# 6. An extraction that yields nothing is a failure, not a quiet no-op. Without the guard a
+#    TTF stylesheet, an error page or a format change at Google runs the download loop zero
+#    times and the step reports success having carried no fonts -- the silent fallback again.
+grep -Fq 'no woff2 URLs in the Google Fonts response' "$init" \
+  || fail "$init does not fail when the Google Fonts response yields no woff2 URLs -- the carry then reports success with zero fonts"
+
+# 7. font-display is added when Google omits it, not merely kept when present. A css2 URL
 #    without &display=swap yields blocks with no font-display at all, which is FOIT.
 grep -Fq 'add it where it does not' "$init" \
   || fail "$init only keeps font-display when the response has it -- a demo whose css2 URL omits display=swap then ships FOIT"
 
-# 7. A family that could not be carried is dropped from the head of its token, in BOTH
+# 8. A family that could not be carried is dropped from the head of its token, in BOTH
 #    commands. Keeping it leaves the theme naming a font it does not have -- the exact state
 #    /wp-finalize's font-parity check fails on -- and two commands answering this differently
 #    is how the contradiction got in.
@@ -95,7 +103,7 @@ for f in "$init" "$yolo"; do
   fi
 done
 
-# 8. /wp-yolo agrees. It used to permit a Google Fonts preconnect; two commands giving
+# 9. /wp-yolo agrees. It used to permit a Google Fonts preconnect; two commands giving
 #    different answers about the same demo is how the fallback shipped in the first place.
 grep -Fq 'Never emit a `fonts.googleapis.com` request' "$yolo" \
   || fail "$yolo no longer forbids runtime Google Fonts requests -- it contradicts $init's self-hosting rule"
