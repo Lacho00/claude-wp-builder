@@ -570,8 +570,12 @@ Do not skip this because the site already has a name: an adopted site's `blognam
 previous project's, which is exactly the case this step exists for. Verify:
 
 ```bash
+$WP option get blogname
 $WP option get blogdescription
 ```
+
+Read both back, not just the tagline: an adopted site's `blogname` is the one this step is
+most likely to be changing, and a failed update there is the failure it exists to catch.
 
 If `$I18N = polylang`, this writes the primary language only. Polylang keeps `blogname` and
 `blogdescription` as translatable strings under its `WordPress` context, and **an empty option

@@ -24,6 +24,7 @@
   `docs/commands.md` and `docs/workflows.md` each said so, correctly, until now; all three
   now state that the skills are invoked through their runner commands while remaining
   non-invocable themselves, so the layer rule reads as intact rather than abandoned.
+
 ### Fixed
 - **`/wp-init` never wrote the site's name or tagline, so every scaffolded site shipped
   "Just another WordPress site."** The command already asked for a one-sentence description

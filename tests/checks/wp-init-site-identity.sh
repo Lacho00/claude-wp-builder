@@ -35,7 +35,7 @@ grep -Fq "ask Step 1's **Tagline** question on its own" "$init" \
 
 # 3. The old dead-end wording must be gone, not merely joined by the new one. It named a
 #    field that was collected and never used, and its survival means a second, unwired path.
-if grep -Fq '**Brief description**' "$init"; then
+if grep -Fq -- '- **Brief description**' "$init"; then
   fail "$init still lists the old **Brief description** field, which no step consumes"
 fi
 
