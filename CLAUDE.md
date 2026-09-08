@@ -151,6 +151,10 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
 - **Parent structure mirrors the source.** Both parent fixup passes rewrite the counterpart's parent
   on every run, so a post or term an editor deliberately re-parented in the target language is put
   back. Only the ACF reference pass records ownership; parents do not.
+- **The site tagline is written in the primary language only.** `/wp-init` Step 9 sets
+  `blogname` and `blogdescription` from the confirmed tagline; under `i18n strategy: polylang`
+  the secondary language is left to `/wp-polylang`, which exports both as registered strings.
+  Writing them is still the prerequisite — Polylang omits an empty option from its string table.
 - **`/wp-init`'s Polylang path has never been run end-to-end against a fresh project.** Its scripts
   are covered by `tests/checks/wp-polylang-live.sh` against a real site, but the command's own
   branching is prose, verified only by the grep checks in `tests/checks/wp-polylang.sh` and

@@ -24,6 +24,19 @@
   `docs/commands.md` and `docs/workflows.md` each said so, correctly, until now; all three
   now state that the skills are invoked through their runner commands while remaining
   non-invocable themselves, so the layer rule reads as intact rather than abandoned.
+### Fixed
+- **`/wp-init` never wrote the site's name or tagline, so every scaffolded site shipped
+  "Just another WordPress site."** The command already asked for a one-sentence description
+  and then dropped it on the floor: `blogname` was set only by `/wp-create`'s
+  `core install --title` (so an adopted site kept the previous project's name) and
+  `blogdescription` was set by nothing at all. Both are `critical` in `/wp-finalize`'s
+  Layer 2 gate, which therefore failed on every project by construction. `/wp-init` now
+  extracts a tagline from the demo (`<meta name="description">`, then the hero subtitle),
+  shows it among the demo-first defaults for confirmation, prompts for it when there is no
+  demo, and writes both options next to theme activation. Under `i18n strategy: polylang`
+  this writes the primary language only — but that is the point, because Polylang omits an
+  empty option from its string table entirely, so an unset tagline was not even translatable.
+  New check: `tests/checks/wp-init-site-identity.sh`.
 
 ## [1.12.1] - 2026-09-04
 

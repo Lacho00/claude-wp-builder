@@ -92,7 +92,10 @@ Read the manifest and extract:
 - `wp_cli.wrapper` → use for WP-CLI commands instead of bare `wp`
 - `project.domain` → use for site URL references
 
-**Skip Step 1 entirely** — all project details come from the manifest.
+**Skip Step 1 entirely** — all project details come from the manifest, with one exception: the
+manifest carries no tagline. Take it from the demo when the Demo-First Path runs, and otherwise
+ask Step 1's **Tagline** question on its own. Skipping it leaves Step 9 writing an empty site
+description, which is the state `/wp-finalize` fails on.
 
 ### If `.wp-create.json` does NOT exist:
 
@@ -136,6 +139,7 @@ Parse the demo HTML and extract as much as possible:
 | Industry | Analyze headings and body text for industry keywords. Examples: "patients"/"medical" → healthcare, "cases"/"legal" → law, "menu"/"dishes" → restaurant, "portfolio"/"design" → creative. If uncertain, set to "general". |
 | Primary language | Read the `<html lang="">` attribute. Fall back to content language detection. Default: `en`. |
 | Secondary language | Look for `lang=""` attributes on sub-elements, or content in a second language. Default: `es`. |
+| Tagline | `<meta name="description">` content. Fall back to the hero subtitle (the `<p>` next to the hero `<h1>`), then to a one-line summary of the hero copy. Strip the project name if the meta merely repeats it. This becomes the WordPress site description (`blogdescription`) in Step 9. |
 | Sections | List all section names from `<!-- ============ SECTION: Name ============ -->` delimiters (exclude Header and Footer). |
 | Color palette | Read `:root` CSS custom properties for `--color-*` values. If no `:root`, scan for dominant colors in inline styles. |
 | Fonts | Read `font-family` declarations from `:root` or `<style>`. Check for Google Fonts `<link>` tags. |
@@ -148,6 +152,7 @@ Show all extracted values in a summary and ask the user to confirm or adjust:
 === Extracted from Demo ===
   Project name:     Kairo Consulting
   Theme slug:       kairo-consulting
+  Tagline:          Strategy consulting for growing teams
   Industry:         consulting
   Primary lang:     en
   Secondary lang:   es
@@ -223,7 +228,11 @@ If `$ARGUMENTS` is provided, use it as the project name. Then prompt the user fo
 - **Primary language** (default: `en`)
 - **Secondary language(s)** (default: `es`, comma-separated if multiple)
 - **Client industry** (e.g., "consulting", "restaurant", "healthcare")
-- **Brief description** (one sentence describing the site)
+- **Tagline** (one sentence describing the site) — this is both the `Description:` line in
+  `.claude/CLAUDE.md` and the WordPress site description written in Step 9. Never accept an
+  empty answer here: an unset tagline leaves WordPress showing "Just another WordPress site"
+  in the `<title>`, in feeds and in every SEO preview, and `/wp-finalize`'s Layer 2 gate fails
+  on it. If the user has nothing, propose one from the industry and project name and confirm it.
 
 If `$ARGUMENTS` was the project name, still ask for the remaining fields.
 
@@ -541,6 +550,35 @@ wp theme activate <slug> --path=<wordpress-root>
 ```
 
 If WP-CLI is not available, skip this step silently.
+
+### Site Identity
+
+WordPress core install sets `blogname` from `--title` only when `/wp-create` created the site;
+an adopted or hand-installed site keeps whatever it had, and `blogdescription` is never set by
+anything and defaults to **"Just another WordPress site."** Both are `critical` in
+`/wp-finalize`'s Layer 2 gate, so write them here, from the values confirmed in Step 1 / Step D3:
+
+```bash
+$WP option update blogname "<Project Name>"
+$WP option update blogdescription "<Tagline>"
+```
+
+Without a `.wp-create.json` manifest, use `wp option update … --path=<wordpress-root>` the same
+way Theme Activation does, and skip silently when WP-CLI is unavailable.
+
+Do not skip this because the site already has a name: an adopted site's `blogname` is the
+previous project's, which is exactly the case this step exists for. Verify:
+
+```bash
+$WP option get blogdescription
+```
+
+If `$I18N = polylang`, this writes the primary language only. Polylang keeps `blogname` and
+`blogdescription` as translatable strings under its `WordPress` context, and **an empty option
+is absent from that string table entirely** — so writing them here is what makes them
+translatable at all. `/wp-polylang` picks them up in its export/translate/import pass; this
+step does not translate them. Say so in the summary rather than leaving the user to discover
+the second language's tagline is empty.
 
 ### Tailwind Build Dependencies
 

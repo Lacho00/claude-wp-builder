@@ -79,8 +79,8 @@ Improving how content is created, organized, and populated.
 - [ ] **Blog language field** `NEW`
   Add an SCF field to blog posts for selecting the post language. Archive/listing templates should filter posts by the active language.
 
-- [ ] **Generate site tagline** `NEW`
-  During `/wp-init` or `/wp-demo`, generate a tagline from the demo content or ask the user if unclear. Set it via `$WP option update blogdescription`.
+- [x] **Generate site tagline** — done in `/wp-init` Step 9 (Site Identity), which writes
+  `blogname` and `blogdescription` from the demo-extracted or prompted tagline.
 
 - [ ] **Placeholder content for empty elements** `NEW`
   When demo sections have placeholder-like content (social network icons without real URLs, phone numbers), seed with obvious placeholder values and flag them in the finalize report.
