@@ -45,6 +45,20 @@ fi
 #    wherever it exists, and naming it unloaded is this whole defect. Anything after the
 #    first family is a fallback and never has to be carried, which is the same carve-out
 #    /wp-finalize's font-parity check makes for an intentional system stack.
+#
+#    Scoped deliberately to the invariant that holds here: the starter ships NO font files,
+#    so every token must lead with a system or generic family. Do not try to match a family
+#    name against a carried file -- it is unreliable in both directions. A woff2's name table
+#    lives inside the compressed stream so grepping its bytes finds nothing, and Google's
+#    filenames are opaque hashes, so a correctly carried family would fail either test while
+#    any stray file in the directory would satisfy the first. Per-project parity -- family,
+#    @font-face and file together -- is /wp-finalize's job; it can see all three.
+shopt -s nullglob
+carried=("$starter"/assets/fonts/*.woff2 "$starter"/assets/fonts/*.woff "$starter"/assets/fonts/*.ttf "$starter"/assets/fonts/*.otf)
+shopt -u nullglob
+[[ ${#carried[@]} -eq 0 ]] \
+  || fail "$starter now ships font files (${carried[0]}) -- this check assumes it ships none, so extend it or move the per-family parity assertion to /wp-finalize rather than letting it pass silently"
+
 [[ $(grep -cE '^[[:space:]]*--font-[a-z]+:' "$main_css") -gt 0 ]] \
   || fail "$main_css declares no --font-* token at all -- the scan below would pass vacuously"
 while IFS= read -r line; do
@@ -57,8 +71,7 @@ while IFS= read -r line; do
     sans-serif|serif|monospace|cursive|fantasy|inherit|initial|unset|revert) continue ;;
     var\(*) continue ;;
   esac
-  grep -rqi -- "$first" "$starter/assets/fonts" 2>/dev/null \
-    || fail "$main_css leads --font-* with the family '$first', which the starter neither ships in assets/fonts/ nor loads -- it silently renders the next entry in the stack"
+  fail "$main_css leads --font-* with the family '$first', which the starter does not ship -- it silently renders the next entry in the stack"
 done < <(grep -E '^[[:space:]]*--font-[a-z]+:' "$main_css")
 
 # 4. /wp-init emits a preload, and emits it for ONE file. Preloading every unicode-range
