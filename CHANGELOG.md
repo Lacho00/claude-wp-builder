@@ -48,7 +48,10 @@
   dead hint on every page; and the demo's families were never fetched at all. New `/wp-init`
   **Step 4.5: Font carry** self-hosts every family the theme names, including Google Fonts
   (downloading the woff2 with a browser user-agent — the default `curl` UA silently gets the
-  legacy TTF build), preloads the one file that pays for itself (the primary family's regular
+  legacy TTF build, and every fetch uses -f so an error page is never written into a .woff2),
+  guarantees `font-display: swap` on every carried block rather than only keeping it where
+  Google emitted it, drops a family that could not be carried from the head of its token
+  instead of leaving the theme naming a font it does not have, preloads the one file that pays for itself (the primary family's regular
   latin subset — preloading every unicode-range subset would defeat the lazy loading that
   makes carrying them all cheap), and the starter's default tokens are now a system stack,
   which is the only value that renders as written when there is no demo. `/wp-yolo` Step 4.5 stops

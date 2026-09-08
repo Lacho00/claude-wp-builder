@@ -325,7 +325,7 @@ mkdir -p <theme-dir>/assets/fonts
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 curl -fsS -A "$UA" "<the demo's exact css2 URL>" -o /tmp/gf.css
 grep -oE 'https://fonts\.gstatic\.com/[^)]+\.woff2' /tmp/gf.css | sort -u \
-  | xargs -r -n1 -I{} sh -c 'curl -sS -o "<theme-dir>/assets/fonts/$(basename {})" "{}"'
+  | xargs -r -n1 -I{} sh -c 'curl -fsS -o "<theme-dir>/assets/fonts/$(basename {})" "{}"'
 ```
 
 The `-A` is not decoration. Google serves a *different* stylesheet per user agent, and the
@@ -339,8 +339,11 @@ to `assets/fonts/<basename>`, keeping every `@font-face` block the response cont
   many blocks cheap — the browser fetches a subset's file only when the page renders a
   character in that range — so carrying all of them costs one HTTP request in practice and
   removes the judgment call about which subsets this site will ever need.
-- Keep `font-display: swap` (Google emits it when the URL asks for it). `wp-audit-performance`
-  PERF-020 flags its absence.
+- **Every carried block ends up with `font-display: swap`.** Google emits it only when the
+  URL asked for `&display=swap`, and a demo whose link omits it hands you blocks with no
+  `font-display` at all — which is FOIT: the browser hides the text for up to three seconds
+  rather than showing it in the fallback. Keep the descriptor where the response has it and
+  add it where it does not. `wp-audit-performance` PERF-020 flags the absence.
 - Carry only the weights and styles the demo's `css2` URL asked for. It already names them;
   do not widen the request.
 
@@ -374,13 +377,20 @@ add_action( 'wp_head', function() {
 without it downloads the file twice.
 
 **No network, or a font that will not download.** Do not emit a `@font-face` pointing at a
-file the theme does not have — `/wp-yolo` Step 4.5 states why. Leave the family at the head of
-its token so the demo's own fallback stack applies, and report it in the Step 10 summary as
-`font <family>: not carried — theme renders the fallback stack`.
+file the theme does not have — `/wp-yolo` Step 4.5 states why. Then **drop that family from
+the head of its `--font-*` token** and let the rest of the demo's stack stand (the starter's
+system stack, if the demo declared no fallback), and report it in the Step 10 summary as
+`font <family>: not carried — token falls back to <next family>`.
 
-Finally, confirm the tokens Step D4 wrote name a family this step actually carried. A
-`--font-primary` naming a family with no `@font-face` in the theme is the exact state
-`/wp-finalize`'s font-parity check fails on.
+Dropping it changes nothing at render time — a family with no `@font-face` and no local
+install was never going to render, and the browser was already falling through to the next
+entry. What it changes is that the theme stops *naming* a font it does not have, which is the
+whole defect this step removes, and it is the difference between a stack `/wp-finalize`'s
+font-parity check passes (an intentional fallback) and one it fails (a family with no face).
+
+Finally, confirm every `--font-*` token either leads with a family this step carried or is a
+plain fallback stack. Those are the only two states; a token leading with an uncarried family
+is the one `/wp-finalize` fails on.
 
 ## Step 5: Configure i18n
 

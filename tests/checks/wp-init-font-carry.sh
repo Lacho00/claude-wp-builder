@@ -67,7 +67,35 @@ grep -Fq 'rel="preload"' "$init" \
 grep -Fq 'never every subset' "$init" \
   || fail "$init no longer scopes the preload to one file -- preloading every unicode-range subset downloads faces the page never renders"
 
-# 5. /wp-yolo agrees. It used to permit a Google Fonts preconnect; two commands giving
+# 5. Every fetch fails loudly. Without -f, curl writes a 404 or a rate-limit page into the
+#    target and exits 0 -- an @font-face built from an error document, or a .woff2 that is
+#    HTML. The stylesheet and the font files both need it, so assert no bare `curl -sS`.
+if grep -Fq 'curl -sS' "$init"; then
+  echo "FAIL: $init has a curl without -f in the font carry -- an HTTP error body gets written to the target file and the step reports success"
+  grep -n 'curl -sS' "$init"
+  exit 1
+fi
+
+# 6. font-display is added when Google omits it, not merely kept when present. A css2 URL
+#    without &display=swap yields blocks with no font-display at all, which is FOIT.
+grep -Fq 'add it where it does not' "$init" \
+  || fail "$init only keeps font-display when the response has it -- a demo whose css2 URL omits display=swap then ships FOIT"
+
+# 7. A family that could not be carried is dropped from the head of its token, in BOTH
+#    commands. Keeping it leaves the theme naming a font it does not have -- the exact state
+#    /wp-finalize's font-parity check fails on -- and two commands answering this differently
+#    is how the contradiction got in.
+grep -Fq 'drop that family from' "$init" \
+  || fail "$init keeps an uncarried family at the head of its token, contradicting its own closing confirmation and /wp-finalize"
+grep -Fq 'drop the family' "$yolo" \
+  || fail "$yolo keeps an uncarried family at the head of its token -- it disagrees with $init about the same demo"
+for f in "$init" "$yolo"; do
+  if grep -Fq 'keep the family' "$f"; then
+    fail "$f still says to keep an uncarried family at the head of its font token"
+  fi
+done
+
+# 8. /wp-yolo agrees. It used to permit a Google Fonts preconnect; two commands giving
 #    different answers about the same demo is how the fallback shipped in the first place.
 grep -Fq 'Never emit a `fonts.googleapis.com` request' "$yolo" \
   || fail "$yolo no longer forbids runtime Google Fonts requests -- it contradicts $init's self-hosting rule"
