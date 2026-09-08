@@ -22,12 +22,16 @@ grep -Fq 'option update blogdescription' "$init" \
 grep -Fq 'option update blogname' "$init" \
   || fail "$init never sets blogname -- an adopted site keeps the previous project's name"
 
-# 2. The value it writes is actually gathered. Both entry paths must ask for it:
-#    the interactive prompt list, and the demo extraction table.
-grep -Fq '**Tagline**' "$init" \
-  || fail "$init no longer prompts for a Tagline -- Step 9 would write an empty blogdescription"
+# 2. The value it writes is actually gathered. All three entry paths must reach it, and
+#    each is asserted on wording only that path can satisfy -- a bare `**Tagline**` grep
+#    is answered by the manifest exception below and would go green with Step 1's prompt
+#    list deleted.
+grep -Fq -- '- **Tagline** (one sentence describing the site)' "$init" \
+  || fail "$init's Step 1 prompt list no longer asks for a Tagline -- Step 9 would write an empty blogdescription"
 grep -Fq '| Tagline |' "$init" \
   || fail "$init's demo-extraction table lost its Tagline row -- the demo-first path skips Step 1's prompt"
+grep -Fq "ask Step 1's **Tagline** question on its own" "$init" \
+  || fail "$init's .wp-create.json Pre-Step drops back to 'Skip Step 1 entirely' -- the manifest carries no tagline, so that path writes an empty one"
 
 # 3. The old dead-end wording must be gone, not merely joined by the new one. It named a
 #    field that was collected and never used, and its survival means a second, unwired path.
