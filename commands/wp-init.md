@@ -323,7 +323,7 @@ stylesheet, take the woff2 URLs out of it, and store them next to the self-hoste
 ```bash
 mkdir -p <theme-dir>/assets/fonts
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
-curl -sS -A "$UA" '<the demo's exact css2 URL>' -o /tmp/gf.css
+curl -fsS -A "$UA" "<the demo's exact css2 URL>" -o /tmp/gf.css
 grep -oE 'https://fonts\.gstatic\.com/[^)]+\.woff2' /tmp/gf.css | sort -u \
   | xargs -r -n1 -I{} sh -c 'curl -sS -o "<theme-dir>/assets/fonts/$(basename {})" "{}"'
 ```

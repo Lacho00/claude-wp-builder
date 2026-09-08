@@ -48,7 +48,7 @@ fi
 while IFS= read -r line; do
   decl=${line#*:}
   first=${decl%%,*}
-  first=$(printf '%s' "$first" | tr -d '";' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  first=$(printf '%s' "$first" | tr -d "\";'" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
   [[ -z "$first" ]] && continue
   case "$(printf '%s' "$first" | tr '[:upper:]' '[:lower:]')" in
     ui-sans-serif|ui-serif|ui-monospace|ui-rounded|system-ui|-apple-system|blinkmacsystemfont) continue ;;
