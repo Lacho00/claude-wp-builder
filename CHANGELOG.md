@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.13.0] - 2026-09-09
 
 ### Added
 - **`/wp-yolo` now runs `/wp-audit --all` as part of its finish phase.** A yolo build
@@ -109,9 +109,26 @@
 - **PERF-016 and PERF-048 contradicted each other** — one asked for `fetchpriority="high"`
   on the hero image, the other flagged it. They are two halves of one decision (is the LCP
   an image or text?) and are now cross-referenced as such.
-- The Rank Math sitemap validation reported that noindex pages "may still be in" a sitemap
-  it had already fetched, and counted drafts site-wide without looking at it at all. Both
-  now match permalinks against the sitemap body.
+- **Two audit checks passed by never looking at anything.** The Rank Math sitemap
+  validation reported that noindex pages "may still be in" a sitemap it had already
+  fetched, and counted drafts site-wide without looking at it at all. It now walks
+  `sitemap_index.xml` into its child sitemaps — the index lists children, not URLs, so a
+  permalink search against the index alone could never match — and compares whole `<loc>`
+  values, because a permalink is a prefix of its own paginated children and `/blog/page/`
+  was reported as listed whenever `/blog/page/2/` was. The walk is gated on
+  `<sitemapindex>`: in a flat `<urlset>` the `<loc>` entries are the post URLs, and
+  following them would refetch every published post.
+- **The rendered-head checks (SEO-038 to SEO-043) read `canonical`, `og:locale` and
+  `hreflang` out of the markup with regexes** that assumed double-quoted attributes and
+  `rel` before `href`. Both are optional in valid HTML, and on the other order the regex
+  returns an empty string — which reads as "no finding", so the checks passed a broken
+  site. Now parsed with `DOMDocument` + `DOMXPath`. The snapshot issues one request per
+  post against the site itself, so it is capped at 50 with the reason stated; SEO-041
+  gains the caveat that a counterpart missing from the sample is not a broken pair.
+- **PERF-047's deferral recipe unhid the theme's real print stylesheet.** It documented a
+  footer script sweeping every `link[media="print"]` to `media="all"` — a genuine print
+  stylesheet is such a link too. Replaced with a `style_loader_tag` filter that defers
+  only the handles it names.
 
 ## [1.12.1] - 2026-09-04
 
