@@ -1,6 +1,6 @@
 ---
 description: Full-site builder — convert a complete multi-page HTML demo folder into a WordPress theme in one pass
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion
 argument-hint: "<demo-folder> [--yolo] [--careful]"
 ---
 
@@ -24,7 +24,12 @@ Parse `$ARGUMENTS`:
 - **`--yolo`** = no checkpoint at all (ingest → build → seed → finalize → report, hands-off).
 - **`--careful`** = checkpoint after normalization AND a per-page confirm before each inner
   page's build in Phase 2.
-- **default** (neither flag) = a single checkpoint after normalization, then hands-off.
+- **default** (neither flag) = a single checkpoint after normalization (Step 3), then
+  hands-off from Step 4 onward.
+
+The command is named `/wp-yolo`; that name is NOT the `--yolo` flag. A bare
+`/wp-yolo <folder>` with no flags runs the Step 3 checkpoint and waits for the
+user. Only the literal `--yolo` token in `$ARGUMENTS` skips it.
 
 Read `.claude/CLAUDE.md` at the project root. If it does not exist, refuse:
 ```
@@ -285,7 +290,22 @@ Under `--careful`, confirm the conversion result with the user before continuing
 
 ## Step 3: Checkpoint (skipped under --yolo)
 
-Unless `--yolo` is set, print the detected map from the manifest:
+Unless the literal `--yolo` flag is set, this step is a **hard stop**. Print the build
+plan below, ask, and END YOUR TURN. Do not answer on the user's behalf, do not assume
+approval, and do not start Step 4 in the same turn. The build resumes only after the
+user replies.
+
+Print the detected map from the manifest as a build plan:
+```
+Build plan for <demo-folder>
+Pages to build:   <slug> (<role>) — <n> sections: <name:kind>, ...
+CPTs to register: <name> (archive: yes/no, <n> seed items) | none
+Content types:    <name>: <field list>
+Shared header/footer: <ok | divergent on <slugs>>
+Skipped:          <out-of-scope pages, missing-HTML pages> | none
+Review:           <review[] items> | none
+```
+Cover, at minimum:
 - Pages (slug, role: home / inner / cpt-archive / blog) and their sections (name, kind,
   confidence where < 1.0)
 - Shared header/footer flags and any divergent pages
@@ -295,7 +315,7 @@ Unless `--yolo` is set, print the detected map from the manifest:
   pages awaiting a demo
 - The full `review[]` list of low-confidence decisions
 
-Ask the user to **approve / edit / abort**:
+Ask the user to **approve / edit / abort** with AskUserQuestion, then stop and wait:
 - Edit = rename/merge/split a section, drop a page, flip a `kind` between `static` and
   `cpt-teaser`, etc. Apply edits directly to `demo/.yolo-manifest.json` before continuing.
 - Abort = stop here, leaving the manifest and `demo/*.html` on disk. On the `tailwind`
@@ -534,13 +554,31 @@ Run, in order:
    gate in Step 5.5 — looks at the live site, so without this they would judge an
    unstyled page. No-op on `basic`; skipped when a `tailwindwatch` process already
    owns `dist/`.
-4. **`/wp-finalize`**
-5. **`/wp-polish`**
-6. **`/wp-responsive-check`**
+4. **`/wp-finalize`** — MANDATORY. Run the command exactly as a user would (read
+   `${CLAUDE_PLUGIN_ROOT}/commands/wp-finalize.md` and execute every step in this same
+   run). It runs the 3-layer demo-parity gate (Layers 1-3) that signs off delivery;
+   Step 5.5 consumes its findings. Without it there is no gate result and no delivery.
+5. **`/wp-polish`** — MANDATORY. Same dispatch. Cleans the seeded site and theme
+   (menus, placeholders, leftovers) after seeding, so it runs after item 1, never before.
+6. **`/wp-responsive-check`** — MANDATORY. Same dispatch; it forwards to
+   `/wp-demo-verify` against the built site. Fold every finding it reports into Step 6.
+7. **`/wp-audit --all --security-level recommended`** — MANDATORY. Same dispatch. This
+   is the only step that measures SEO, Core Web Vitals/performance, accessibility,
+   security and coding standards; nothing earlier does. Its Step 9 fix prompt is
+   pre-answered **yes** in a `/wp-yolo` run — do not stop to ask. Fold every finding it
+   leaves unfixed into Step 6's Review list.
+   If its fixes touched theme CSS, templates or enqueues, re-run `/wp-finalize`'s
+   Layers 2-3 before Step 5.5 signs off — a perf or SEO fix can break demo parity.
+
+**Completion rule.** Items 4 through 7 are part of the build, not follow-ups for the
+user. A run that reaches Step 6 without having executed all four is **incomplete**:
+never print "site works" or hand the user a list of commands to run next. If one of
+them cannot run (site unreachable, tool missing), say which, why, and mark the run
+incomplete in the Step 6 report. This holds under `--yolo` as well.
 
 ## Step 5.5: Demo-parity gate — auto-fix, re-verify, and block
 
-`/wp-finalize` (Step 5, item 3 above) already ran the 3-layer demo-parity gate (Layers 1-3).
+`/wp-finalize` (Step 5, item 4 above) already ran the 3-layer demo-parity gate (Layers 1-3); if `/wp-audit` fixes required a re-run, treat the latest Layers 2-3 findings as the gate result.
 Before this run can report success, walk every **critical** finding from that gate:
 
 1. **Auto-fix mechanical findings** — no judgment required, apply directly.
