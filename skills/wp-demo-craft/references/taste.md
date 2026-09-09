@@ -58,6 +58,14 @@ render, not the number.
   six lines. `--font-t-2xl` on the hero inside a phone media query fixes it.
   The portrait crop of the image is covered in devices.md; the portrait crop
   of the type is missed more often.
+- **Hero density, decided while authoring.** Headline at most two lines at
+  1440 and three at 390 — the same limit `verify.md`'s mobile-headline line
+  grades and every hero composition's README states — subtext at most about 25 words,
+  at most four text elements in the hero, and the
+  CTA visible without scrolling. These are copy limits, not layout ones: a
+  hero written past them cannot be rescued by type scale, and discovering it
+  from a render costs a whole verify round. Trust logos, pricing teasers and
+  micro-taglines belong in a section of their own below the fold.
 
 **Font choice.** Inter is a discouraged default: it is the most-used face in
 AI-generated pages and reads as a non-decision. Reach first for Geist,
@@ -243,6 +251,11 @@ fast.
   numbers.
 - **No invented statistics.** Fake precision (`4.1×`, `92%`, `48k`) is a
   legal and credibility liability, not a design element.
+- **Hero headlines never use the kinetic split.** A hero section is `reveal`,
+  which fades its direct children in on entry — at the top of a page that is
+  first paint. `kinetic` masks every word until a scroll trigger fires, and a
+  visitor who never scrolls sees a headline clipped mid-word. That is what the
+  first shipped craft build did.
 
 ---
 
@@ -262,54 +275,6 @@ gets skipped most reliably.
 
 Selection colour, caret colour, focus ring, scrollbar, underline offset and
 thickness, tabular numerals in anything that counts or tabulates.
-
----
-
-## The refuse list
-
-Category defaults, not bans on principle. The brief's own words can earn
-back any of them; reaching for one when the axis is free means you did not
-decide.
-
-**Structure**
-- Identical cards as page structure. Nested cards. Three equal feature
-  columns.
-- The hero-metric template: big number, small label, supporting stats,
-  accent.
-- More than two consecutive image-left / text-right zigzag sections.
-- The same layout family twice on one page.
-- The split header: giant headline left, small explainer paragraph floating
-  right.
-
-**Labels**
-- An eyebrow above a section heading. At most one per three sections.
-- Section numbers (`01 / 06`, `002 · Capabilities`) unless the sequence
-  itself is information the reader needs.
-- Scroll cues: "scroll", "↓ scroll", "scroll to explore", animated mouse
-  icons. Looking at the hero, they know.
-- Decoration text strips (`BRAND. MOTION. SPATIAL.`) across the hero bottom.
-- Locale, time and weather strips unless the brand is genuinely about place.
-- Pills or tags overlaid on photos. Version stamps on a marketing page.
-
-**Surface**
-- Gradient text. Neon and outer glows. Hard offset zero-blur shadows outside
-  a world that is actually neobrutalist.
-- Glass blur as decoration rather than a specific effect.
-- Coloured `border-left` above 1px on cards, callouts or list items.
-- Monospace as a costume for "technical" rather than for code, data, labels.
-- Emoji standing in for an icon system. Use a real icon library.
-- Custom cursors.
-
-**Content**
-- Em dash anywhere visible. Period, comma, colon, parentheses.
-- Div-built fake screenshots, fake dashboards, fake terminals.
-- Text baked into a generated image. Real markup, always.
-- Filler verbs: elevate, seamless, unleash, next-gen, revolutionize,
-  supercharge.
-- A hero that overflows the viewport. Headline max two lines, subtext max 20
-  words, CTA visible without scrolling.
-- More than four text elements in the hero. Trust logos, pricing teasers and
-  micro-taglines move to their own section below it.
 
 ---
 
