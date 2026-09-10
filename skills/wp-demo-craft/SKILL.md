@@ -50,9 +50,13 @@ plain: an unverified craft page is the one that reaches the client.
    `references/grammars.md` — it decides what a section is, what the chrome is
    for and what the ending does, and compositions are chosen inside it, not
    instead of it. Then one row per section — section, role, composition, why,
-   motion cost — from the role table in `compositions/README.md`
-   (`references/compositions.md`). Sum the motion cost before building and hold
-   it under the budget in `devices.md`.
+   motion cost, and the domain signal that justified it, citing the brief
+   constraint from domain classification, or writing "no domain signal" when
+   none applies (this is what makes the classification bind on the plan instead
+   of sitting unread) — from the role table in `compositions/README.md`
+   (`references/compositions.md`). That row format is stated in these same terms
+   `/wp-demo` Step 2.6 uses on purpose — do not restate it a third way. Sum the
+   motion cost before building and hold it under the budget in `devices.md`.
 4. **Build** from the compositions, the tokens and the real copy.
 5. **Loop** until the rubric passes or three rounds are spent
    (`references/verify.md`).

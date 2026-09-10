@@ -60,6 +60,23 @@ export function initMotion(gsap, ScrollTrigger) {
   const reduced = REDUCED();
   const fine = FINE() && !reduced;
 
+  // The CSS half of the engine owns `reveal` only when the feature is
+  // supported AND the user has not asked for reduced motion — the stylesheet's
+  // own rule is nested under `@media (prefers-reduced-motion: no-preference)`,
+  // so cssReveal has to test the same reduced-motion term the CSS does. When
+  // cssReveal is true, this branch does not wire the reveal device at all:
+  // it is handled by CSS. Without the reduced-motion term, a reduced-motion
+  // reader on a supporting browser fell between both paths: the CSS media
+  // query did not match and this branch also yielded, so neither engine ever
+  // set the arrived state. The feature-query string is the same one the
+  // stylesheet gates on; if they ever disagree, an element is either driven
+  // twice or not at all.
+  const cssReveal =
+    !reduced &&
+    typeof CSS !== 'undefined' &&
+    CSS.supports &&
+    CSS.supports('animation-timeline', 'view()');
+
   document.querySelectorAll('[data-motion]').forEach((el) => {
     // One section's failure must not take the page's motion with it. A throw
     // inside forEach aborts the whole loop, so every later section would stay
@@ -143,7 +160,7 @@ export function initMotion(gsap, ScrollTrigger) {
       }
     }
 
-    if (kind === 'reveal') {
+    if (kind === 'reveal' && !cssReveal) {
       const stagger = (parseFloat(el.getAttribute('data-motion-stagger')) || 70) / 1000;
       const kids = el.children.length ? el.children : [el];
       if (reduced) {

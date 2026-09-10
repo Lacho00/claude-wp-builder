@@ -120,7 +120,7 @@ falls back to plain. A craft build writes two files: `demo/BRIEF.md` (the story)
 `demo/DESIGN.md` before scraping `:root`, and copies it into the theme. Sections are
 built from `skills/wp-demo-craft/compositions/` (previews rendered against the
 neutral `references/design-md/_preview.md`), and verified by `npx impeccable detect`
-plus the six-line rubric in `references/verify.md`, at most three rounds.
+plus the seven-line rubric in `references/verify.md`, at most three rounds.
 
 **The two token vocabularies are joined by aliases, not by a rename.** The
 compositions' CSS speaks `--color-canvas` / `--color-ink` / `--font-display`; the
@@ -209,6 +209,21 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   so nothing in the markup marks a translatable string. The bilingual pipeline reads
   the recorded `i18n strategy` instead — which it should anyway; markers in a demo were
   never the source of truth.
+- **A composition's breakpoints size to its own container; its fluid ramps do not.**
+  Every composition's size-based breakpoints are `@container` queries against the
+  block's own `container-type: inline-size`, so a section dropped into a narrow column
+  lays out for the column. The `vw` in `clamp()` gaps and type scales still keys off the
+  viewport, though — 40 occurrences across 12 of the 13 compositions — so a section in a
+  narrow column still takes desktop-maximum spacing. `compositions/README.md` states the
+  gap; converting those ramps to container-relative units is open work, not done in this
+  pass.
+- **The two `reveal` paths differ above the fold.** The CSS path's range is
+  `entry 0% entry 40%`, so an element already fully in the viewport at load is past
+  its entry range and `animation-fill-mode: both` lands it on the end state with no
+  animation; the JS path animates it in. A hero fades in on a browser without
+  scroll-driven animation and is already there on one that has it. Deliberate — the
+  CSS behaviour is the better one for the "First paint complete" rubric line — and
+  recorded in `references/devices.md` rather than reconciled.
 - **Composition previews need the network to regenerate.** They render against the
   neutral `references/design-md/_preview.md` and their fill copy lives in
   `compositions/fills.json`, which points at remote placeholder images. The committed

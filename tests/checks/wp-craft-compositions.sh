@@ -14,6 +14,17 @@ grep -Fq '_preview.md' "$r" || fail "$r does not render against _preview.md"
 grep -Fq 'preview-1440.png' "$r" || fail "$r does not write preview-1440.png"
 grep -Fq 'preview-390.png' "$r" || fail "$r does not write preview-390.png"
 grep -Fq 'motion.js' "$r" || fail "$r does not load the plugin's motion engine"
+# The CSS half of reveal lives in utilities/motion.css; motion.js yields that device
+# to it wherever the browser supports scroll-driven animation (ten of the thirteen
+# compositions use data-motion="reveal"), so a preview inlining motion.js without it
+# renders reveal driven by neither engine. Anchored on the quoted path, not the bare
+# substring 'motion.css' — that also appears unquoted in this file's own comment,
+# which would still match after the real readFileSync call was deleted.
+grep -Fq "utilities/motion.css'" "$r" \
+  || fail "$r does not read utilities/motion.css, the CSS half of the reveal device"
+# And it has to land inside the <style> block, not just be read and discarded.
+grep -Fq '${motionCss}' "$r" \
+  || fail "$r reads utilities/motion.css but never inlines it into the page's <style> block"
 grep -Fq 'process.exit(2)' "$r" || fail "$r does not exit 2 with no browser"
 
 c=skills/wp-demo-craft/compositions
@@ -39,6 +50,34 @@ for d in "$c"/*/; do
   # '-' is a word boundary, so a bare \bease-in\b also matches inside the
   # different keyword ease-in-out and would fail a file that never used ease-in.
   grep -Eq '\bease-in\b($|[^-])' "$d/section.css" && fail "$name/section.css uses ease-in; never ease-in on UI"
+  # A composition is a section dropped into an arbitrary page context, so its
+  # breakpoints key on its own container and never on the screen. Every root
+  # declares the containment context, including the ones with no size query, so
+  # all thirteen behave the same way in a narrow column. @media stays only for
+  # (hover:hover)/(pointer:fine) and (prefers-reduced-motion) — user and device
+  # conditions a container query cannot express.
+  # Anchored to the root block (.$name { ... }), not the bare substring — moving
+  # the declaration onto __inner, the exact mistake this task is about, would
+  # still contain the substring but no longer sit inside the root's own braces.
+  grep -Fq 'container-type: inline-size' <(sed -n "/^\.$name {\$/,/^}\$/p" "$d/section.css") \
+    || fail "$name/section.css does not declare container-type: inline-size on its root selector (.$name), so it sizes to the viewport"
+  # Catches every size-based form, not just the bare "@media (min-width"/"(max-width"
+  # this used to require: "@media screen and (min-width…)", "@media only screen
+  # and …", and range syntax "@media (width >= 900px)" all contain the word
+  # "width" between @media and the block's opening brace, same as the plain form.
+  # Neither protected query — (hover: hover) and (pointer: fine), prefers-reduced-motion —
+  # contains "width", so both keep passing.
+  grep -Eq '@media[^{]*\bwidth\b' "$d/section.css" \
+    && fail "$name/section.css still uses a size-based media query; a section sizes to its container, not the screen"
+  # The two checks above prove "no viewport query" but not "the breakpoint
+  # survived" — deleting an @container block outright satisfies both. These nine
+  # compositions carried a size breakpoint before the conversion; each must
+  # still carry at least one.
+  case "$name" in
+    faq-list|feature-zigzag|footer-columns|footer-line|hero-split|hero-type|offer-table|proof-row|testimonial-pair)
+      grep -Fq '@container' "$d/section.css" \
+        || fail "$name/section.css lost its @container breakpoint; the conversion must keep it, not delete it" ;;
+  esac
   # Every img declares its box, or the page reflows when the photograph lands.
   while IFS= read -r img; do
     [[ "$img" == *width=* && "$img" == *height=* ]] \

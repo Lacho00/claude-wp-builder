@@ -33,6 +33,43 @@ Opacity from 0 plus a 14px rise over 620ms ease-out, children staggered 30 to
 80ms, trigger 12% inside the viewport, fires once. A fade with no rise reads
 as a loading glitch; a rise past 24px reads as a slide.
 
+**Two paths, one device.** Where the browser supports `animation-timeline: view()`
+**and** the user has not asked for reduced motion, this device runs from
+`utilities/motion.css` and `motion.js` does not wire it; everywhere else —
+including a reduced-motion reader on a browser that does support the feature —
+`motion.js` runs it as before, and its own reduced-motion fallback sets the
+arrived state explicitly rather than animating. The feature-query string is
+identical in both places on purpose, and the JS guard tests the same
+reduced-motion term the stylesheet's `@media (prefers-reduced-motion:
+no-preference)` nesting uses, so the two paths cannot both decline the same
+element. Three rules in the stylesheet fail silently if broken: the ruleset
+never uses the `animation` shorthand (only longhands), because the shorthand
+would reset `animation-timeline` back to `auto`; no `animation-duration` is
+set; and `animation-fill-mode: both` is required.
+
+**The two paths differ above the fold, and the CSS one is the intended behaviour.**
+The CSS range is `entry 0% entry 40%`, so an element already fully inside the
+viewport when the page loads is past its entry range: `animation-fill-mode: both`
+lands it on the end state with no animation. The JS path has no such notion and
+animates it in. A hero therefore fades in on a browser without scroll-driven
+animation and is simply *there* on one that has it. Not a bug to fix — the rubric
+line "First paint complete" grades the first screen as it lands, and a first screen
+that lands finished scores better than one still assembling itself. Do not add a
+`cover`-range rule or a JS above-the-fold check to make them match; make the JS path
+the one that is odd.
+
+**Stagger ceiling on the CSS path.** A per-child delay needs a per-child value and
+composition markup forbids inline styles, so the CSS path carries the offset on
+`nth-child` for the first eight children and shares the last offset beyond that.
+A section relying on more than eight visibly ordered children should stay on a
+scrubbed device.
+
+**Maintaining the engine.** If the `gsap-scrolltrigger` and `gsap-performance`
+skills are installed, read them before changing `motion.js`; they document the
+scrub and refresh semantics this kit depends on. They are not required, and
+nothing in the demo-authoring path should reference them: a demo author writes
+`data-motion` attributes, never GSAP.
+
 ### `pin`
 
 Minimum useful span is 1.2, because a pinned section's travel is
