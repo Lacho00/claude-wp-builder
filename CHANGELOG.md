@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.14.0] - 2026-09-09
 
 ### Added
 - **A vendored 192-row domain table constrains the composition plan, never the tokens.**
