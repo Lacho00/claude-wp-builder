@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.15.0] - 2026-09-10
 
 ### Added
 - **A repeat client can no longer be handed back the structure they rejected.** The
