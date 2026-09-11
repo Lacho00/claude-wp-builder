@@ -51,10 +51,18 @@ for k in '"selector"' '"count"' '"distinct"' '"exemplar"' '"variants"'; do
 done
 grep -Fq 'most' <<<"$cap" \
   || fail "wp-normalize does not say which sibling to pick as the exemplar"
-grep -Fq 'Omit `repetition` when a list' <<<"$cap" \
+grep -Fq 'Omit the entry when a list' <<<"$cap" \
   || fail "wp-normalize never says when NOT to collapse a list"
-grep -Fq '"repetition": {' "$n" \
-  || fail "the per-section schema does not carry the repetition block"
+grep -Fq '"repetition": [' "$n" \
+  || fail "the per-section schema does not carry repetition as an array"
+grep -Fq 'ONE ENTRY PER REPEATED LIST' "$n" \
+  || fail "the schema does not say repetition holds one entry per repeated list"
+grep -Fq 'one entry per repeated list' <<<"$cap" \
+  || fail "wp-normalize treats a section as having at most one repeated list"
+grep -Fq 'must not' <<<"$cap" \
+  || fail "wp-normalize does not forbid picking a variant as the exemplar"
+grep -Fq 'never in variants[]' "$n" \
+  || fail "the schema does not record that the exemplar is never a variant"
 
 y=commands/wp-yolo.md
 s26=$(awk '/^## Step 2\.6:/,/^## Step 3:/' "$y")
@@ -68,6 +76,10 @@ for a in href src alt 'data-*'; do
 done
 grep -Fq 'variant' <<<"$s26" \
   || fail "Step 2.6 has no escape hatch for a sibling that is really a variant"
+grep -Fq 'one entry per repeated list' <<<"$s26" \
+  || fail "Step 2.6 handles only the first repeated list in a section"
+grep -Fq 'A variant never donates its classes' <<<"$s26" \
+  || fail "Step 2.6 may stamp a variant's classes onto plain siblings"
 
 # --- 4. one @apply promotion pass, not one per section --------------------
 # The ladder promotes a group seen "3+ times, or on 2+ distinct pages" — a
@@ -106,9 +118,11 @@ grep -Fq 'Hand-invoked `/wp-section` keeps promoting inline' <<<"$s44" \
 
 # every /wp-section dispatch in the walk must actually carry the flag
 walk=$(awk '/^## Step 4: Phase 2/,/^## Step 4\.4:/' "$y")
+# Count per LINE, not two independent totals: a dispatch missing the flag could
+# otherwise be offset by an unrelated line that carries it.
 disp=$(grep -c '/wp-section .*--transcribe' <<<"$walk" || true)
-defer=$(grep -c '/wp-section .*--defer-promotion' <<<"$walk" || true)
 [ "$disp" -gt 0 ] || fail "no /wp-section transcribe dispatches found in the Step 4 walk"
-[ "$disp" = "$defer" ] || fail "$((disp-defer)) of $disp /wp-section dispatches still promote per section"
+bare=$(grep '/wp-section .*--transcribe' <<<"$walk" | grep -cv -e '--defer-promotion' || true)
+[ "$bare" = "0" ] || fail "$bare of $disp /wp-section dispatches still promote per section"
 
 echo PASS

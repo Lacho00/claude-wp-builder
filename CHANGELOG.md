@@ -22,8 +22,9 @@
   repetition — sixteen profile cards cut from four records, eighteen board members from
   three, twelve branch cards from two — and those pages were the most expensive
   conversions in the run while collapsing hardest in the theme, where all N become one
-  template part inside a loop. `wp-normalize` now records `section.repetition`
-  (`selector`, `count`, `distinct`, `exemplar`, `variants`) and Step 2.6 converts the
+  template part inside a loop. `wp-normalize` now records `section.repetition` as an array with
+  one entry per repeated list (`selector`, `count`, `distinct`, `exemplar`, `variants`;
+  the exemplar is never one of the variants) and Step 2.6 converts the
   exemplar plus any real variants, applying the exemplar's `class` attributes to its
   siblings position-for-position and leaving each sibling's own text, `href`, `src`, `alt`
   and `data-*` untouched. Lists whose children genuinely differ are not collapsed.

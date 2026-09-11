@@ -308,17 +308,26 @@ collide on a class name. Do this per section/page, in addition to everything abo
    N times and paying for it N times. It is the single largest avoidable cost in the
    whole flow, and it lands hardest on exactly the pages that are already the largest.
 
-   For every list whose children share one markup shape, record `section.repetition` as
+   `section.repetition` is an **array, one entry per repeated list** — a section routinely
+   holds more than one (a card grid and a logo strip, a leadership row above a member
+   grid), and a single object would silently describe only the first, leaving every copy
+   in the second list to be transcribed one by one. Each entry is
    `{ "selector": "<the repeated child's selector>", "count": <N>, "distinct": <M>,
-   "exemplar": <0-based index of the child a builder should transcribe> }`. Pick the
-   exemplar that carries the **most** optional parts filled in — a card with a photo, a
-   badge and two action buttons teaches the component; the one that happens to have an
-   empty image slot does not. Where children differ in more than their content (a
-   "featured" first card, a wider last row) that is a variant, not repetition: record the
-   variant's own index in `section.repetition.variants[]` so it is transcribed too.
+   "exemplar": <0-based index>, "variants": [ <0-based index>, ... ] }`.
 
-   Omit `repetition` when a list's children genuinely differ in structure. A list of four
-   unlike sections is not repetition and collapsing it loses real markup.
+   **`variants` first, then `exemplar`.** Where children differ in more than their content
+   — a "featured" first card, a wider last row, one hidden at a breakpoint — that is a
+   variant, not a copy: record its index in `variants[]` so it is transcribed in full.
+   Then pick `exemplar` from what is left. It **must not** be an index listed in
+   `variants[]`: the exemplar's classes get stamped onto every plain sibling, so choosing
+   a featured card would push that card's own geometry across the whole list. Among the
+   non-variant children, pick the one carrying the **most** optional parts filled in — a
+   card with a photo, a badge and two action buttons teaches the component; the one that
+   happens to have an empty image slot does not.
+
+   Omit the entry when a list's children genuinely differ in structure, and omit
+   `repetition` altogether when no list in the section repeats. A list of four unlike
+   sections is not repetition and collapsing it loses real markup.
 
 ### Extended per-section schema
 
@@ -328,13 +337,13 @@ collide on a class name. Do this per section/page, in addition to everything abo
   "kind": "static" | "contact" | "cpt-teaser",
   "block": "<string>",                 // unique BEM block, assigned here
   "cssRules": "<string>|null",         // verbatim declared CSS; ALWAYS null on `tailwind`
-  "repetition": {                       // omit when the list's children really differ
-    "selector": "<string>",             // the repeated child, e.g. "li.lcard"
-    "count": <number>,                  // how many the demo draws
-    "distinct": <number>,               // how many real records back them
-    "exemplar": <number>,               // 0-based index to transcribe
-    "variants": [ <number> ]            // indices that are a real variant, not a copy
-  },
+  "repetition": [                       // ONE ENTRY PER REPEATED LIST; omit if none repeat
+    { "selector": "<string>",           // the repeated child, e.g. "li.lcard"
+      "count": <number>,                // how many the demo draws
+      "distinct": <number>,             // how many real records back them
+      "exemplar": <number>,             // 0-based index to transcribe; never in variants[]
+      "variants": [ <number> ] }        // indices that are a real variant, not a copy
+  ],
   "backgrounds": [ "<image-url>" ],    // from background:url() in the resolved CSS
   "fonts": [                            // from @font-face blocks touching this section
     { "family": "<string>", "weight": "<string|number>", "style": "normal|italic",

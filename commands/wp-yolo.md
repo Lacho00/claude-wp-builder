@@ -306,14 +306,20 @@ not just `index`. For each page, in this order:
    demo page itself, so the converted markup lands on the same path the original
    occupied.
 
-   **Convert a repeated card once, not once per copy.** Where the manifest gives a section
-   a `repetition` block, pass its `selector`, `exemplar` and `variants` through to
-   `/wp-tailwindify` and tell it to convert the exemplar (plus each variant) and to apply
-   that exemplar's resulting `class` attributes to its siblings position-for-position,
-   leaving every sibling's own text, `href`, `src`, `alt` and `data-*` untouched. The
-   siblings are the same component with different content — that is what the `repetition`
-   block asserts — so their utility strings are identical by construction and re-deriving
-   each one from the same CSS is pure repetition of work.
+   **Convert a repeated card once, not once per copy.** `section.repetition` is an array
+   with one entry per repeated list, so a section holding two lists carries two entries and
+   **both** are handled — treating it as a single object collapses the first list and leaves
+   every copy in the second to be converted one by one. For each entry, pass its `selector`,
+   `exemplar` and `variants` through to `/wp-tailwindify` and tell it to convert the
+   exemplar plus each variant, then apply that exemplar's resulting `class` attributes to
+   its non-variant siblings position-for-position, leaving every sibling's own text, `href`,
+   `src`, `alt` and `data-*` untouched. The siblings are the same component with different
+   content — that is what the entry asserts — so their utility strings are identical by
+   construction and re-deriving each one from the same CSS is pure repetition of work.
+
+   A variant never donates its classes. `exemplar` is guaranteed not to appear in
+   `variants[]`, so stamping is always from a plain copy; if a manifest violates that, treat
+   the entry as unusable, convert the list in full and say so in the report.
 
    This matters more than it looks. A directory page drawing sixteen cards from four
    records, or a board page drawing eighteen from three, is the most expensive page in the
