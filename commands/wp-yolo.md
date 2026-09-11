@@ -313,11 +313,14 @@ not just `index`. For each page, in this order:
    `exemplar` and `variants` through to `/wp-tailwindify` and tell it to convert the
    exemplar plus each variant, then apply that exemplar's resulting `class` attributes to
    its non-variant siblings position-for-position, leaving every sibling's own text, `href`,
-   `src`, `alt` and `data-*` untouched. The siblings are the same component with different
-   content — that is what the entry asserts — so their utility strings are identical by
-   construction and re-deriving each one from the same CSS is pure repetition of work.
+   `src`, `alt` and `data-*` untouched. Each index listed in `variants[]` **keeps its own
+   converted `class` attributes** — it was converted precisely because it differs, so
+   stamping the exemplar's string over it would flatten away the difference that made it a
+   variant. The remaining siblings are the same component with different content — that is
+   what the entry asserts — so their utility strings are identical by construction and
+   re-deriving each one from the same CSS is pure repetition of work.
 
-   A variant never donates its classes. `exemplar` is guaranteed not to appear in
+   A variant never donates its classes either. `exemplar` is guaranteed not to appear in
    `variants[]`, so stamping is always from a plain copy; if a manifest violates that, treat
    the entry as unusable, convert the list in full and say so in the report.
 
@@ -329,9 +332,9 @@ not just `index`. For each page, in this order:
 
    If the conversion of a sibling would differ from the exemplar's — a card that is
    genuinely wider, ordered differently, or hidden at a breakpoint — then it is a variant
-   and the manifest should have listed it in `variants[]`. Convert it in full and add a
-   `review[]` note so the next run's classification is corrected rather than silently
-   worked around.
+   and the manifest should have listed it in `variants[]`. Do not apply the exemplar's
+   classes to it: convert it in full and add a `review[]` note so the next run's
+   classification is corrected rather than silently worked around.
 4. **Verify, or restore.** Read `/wp-tailwindify`'s Step 4 verification result for this
    page: section delimiters preserved, no `<style>` blocks remaining, and no project-local
    stylesheet `<link>` remaining. The third item is what makes item 1's skip terminate: a

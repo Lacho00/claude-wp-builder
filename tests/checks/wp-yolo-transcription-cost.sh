@@ -80,6 +80,10 @@ grep -Fq 'one entry per repeated list' <<<"$s26" \
   || fail "Step 2.6 handles only the first repeated list in a section"
 grep -Fq 'A variant never donates its classes' <<<"$s26" \
   || fail "Step 2.6 may stamp a variant's classes onto plain siblings"
+grep -Fq 'keeps its own' <<<"$s26" \
+  || fail "Step 2.6 does not say a variant keeps its own converted classes"
+grep -Fq "Do not apply the exemplar's" <<<"$s26" \
+  || fail "Step 2.6 lets a differing sibling be stamped with the exemplar's classes anyway"
 
 # --- 4. one @apply promotion pass, not one per section --------------------
 # The ladder promotes a group seen "3+ times, or on 2+ distinct pages" — a
