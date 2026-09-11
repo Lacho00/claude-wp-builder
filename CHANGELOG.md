@@ -18,7 +18,9 @@
 - **The responsive walk sampled 1024 and 1440 and nothing in between.** A layout is free to be
   wrong across that whole range: `lg:` utilities apply from 1024 with no `xl:` override until
   1280, so a row that reads correctly at both sampled widths can be broken for 256px nobody
-  looked at. `/wp-demo-verify` now also shoots 1280, and the responsive skill states that a
+  looked at. The five legacy widths sample breakpoint EDGES only, and an edge is where the rules
+  change, not where they do damage. `/wp-demo-verify` now also shoots 1152, which sits inside that
+  band, and 1280, the first width where `xl:` applies; the responsive skill states that a
   breakpoint is a range to be checked through, not a line to be checked at.
 
 ## [1.16.0] - 2026-09-11
