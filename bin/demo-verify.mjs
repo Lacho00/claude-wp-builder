@@ -225,9 +225,12 @@ if (PROBE) {
   process.exit(0);
 }
 
-// The five legacy /wp-responsive-check viewports. One full-page shot each, at the
+// The five legacy /wp-responsive-check viewports plus 1280. One full-page shot each, at the
 // top of the page, no scroll-walk: this is layout coverage, not motion coverage.
-const RESPONSIVE_WIDTHS = [375, 576, 768, 1024, 1440];
+// 1280 is here because a layout that passes at 1024 AND at 1440 can still be broken between
+// them: Tailwind's lg: utilities apply from 1024 with no xl: override until 1280, so the band
+// that reads correctly at both sampled widths spends 256px in a layout nobody looked at.
+const RESPONSIVE_WIDTHS = [375, 576, 768, 1024, 1280, 1440];
 
 /** One full-page screenshot per legacy viewport, filenames responsive-<width>.png,
  *  restoring the convention /wp-tailwind-migrate's visual-golden workflow depends on. */
