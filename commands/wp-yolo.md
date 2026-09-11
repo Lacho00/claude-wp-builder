@@ -456,7 +456,7 @@ Drive the existing commands/agents in this exact order, reading everything from 
    section walk: walk its `sections[]` in order and run the `/wp-section` procedure per
    section (defaults: `--page index`, `--target front-page.php`, so no flags are needed
    for home):
-   - `kind: "static"` → `/wp-section <name> --transcribe --block <block> --css <css-source>`
+   - `kind: "static"` → `/wp-section <name> --transcribe --block <block> --css <css-source> --defer-promotion`
      (three-agent parallel dispatch). The `--transcribe` flag activates `/wp-section`'s
      transcription overlay; `--block` is the section's assigned unique BEM name (every
      selector is scoped under it). What `<css-source>` is depends on the project's
@@ -477,7 +477,7 @@ Drive the existing commands/agents in this exact order, reading everything from 
      teaser `template-parts/section-<cpt>.php` was already built and injected into
      `front-page.php` by that CPT's `/wp-cpt` run in step 2. Note it in the report as
      "teaser for `<cpt>`, built by /wp-cpt".
-   - `kind: "contact"` → `/wp-section <name> --cf7 --transcribe --block <block> --css <css-source>`,
+   - `kind: "contact"` → `/wp-section <name> --cf7 --transcribe --block <block> --css <css-source> --defer-promotion`,
      same transcribe dispatch as `static`, including the same per-`Template:` choice of
      `<css-source>`.
 
@@ -495,13 +495,13 @@ Drive the existing commands/agents in this exact order, reading everything from 
    Otherwise, run `/wp-page custom <slug>`, then build its `sections[]` — but each inner
    section must read from its OWN demo page and inject into its OWN page template, so pass
    `--page <slug> --target page-<slug>.php` on every dispatch:
-   - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source>`,
+   - `kind: "static"` → `/wp-section <name> --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source> --defer-promotion`,
      passing the section's unique `block` via the transcribe flags and resolving
      `<css-source>` by `Template:` exactly as in step 5: on `basic`, the manifest's
      verbatim `cssRules`; on `tailwind`, this page's converted demo file
      `demo/<slug>.html` (converted in place by Step 2.6), never the stale manifest
      `cssRules` and never the backup at `demo/.original/<slug>.html`.
-   - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source>`,
+   - `kind: "contact"` → `/wp-section <name> --cf7 --page <slug> --target page-<slug>.php --transcribe --block <block> --css <css-source> --defer-promotion`,
      same transcribe dispatch.
    - `kind: "cpt-teaser"` on an inner page → same skip rule as step 5 (owned by `/wp-cpt`).
 
@@ -526,6 +526,44 @@ Drive the existing commands/agents in this exact order, reading everything from 
    styling) so they read as native to the site. When the demo has no 404/search page,
    they are still built as fully styled theme templates — the `/wp-page` runs overwrite
    any starter/underscores boilerplate `404.php`/`search.php`, never leaving it in place.
+
+## Step 4.4: One `@apply` promotion pass (tailwind template only)
+
+Skip this step entirely when `template == basic`.
+
+Pass **`--defer-promotion`** on every `/wp-section` dispatch in items 5, 6 and 9 above,
+then run the promotion once here, after the whole section walk has finished.
+
+The reason is the ladder's own criterion. `skills/wp-tailwind-system/SKILL.md` promotes a
+utility group to an `@apply` class when it appears "3+ times, or on 2+ distinct pages" —
+a judgment about the theme as a whole, which no agent looking at one section can make.
+Run per section, `wp-tailwind` in author mode is told to grep what earlier sections
+already wrote, and that turns the promotion into a function of dispatch order: the first
+section runs with nothing to grep and ships raw utilities; by the time the fourteenth
+sighting of a group crosses the threshold, the thirteen template parts that also carry it
+have been written and are never revisited. The result is the same group living as a
+semantic class in the sections built late and as raw utilities in the ones built early —
+worse than either extreme, because the `@apply` file now exists without covering the
+repetition it was created for. The cost sits on top: one serialized agent per section,
+each re-reading a template part `wp-template` has just written and each appending to the
+same `main.css`.
+
+So dispatch `wp-tailwind` in **author** mode exactly once, over every
+`template-parts/section-*.php` the walk produced, with:
+
+- the full list of template parts, and the pages each belongs to (a group on two parts
+  that both render on one page has NOT crossed the 2-page test — the ladder counts
+  distinct pages, not files)
+- the same file-layout rules it follows per section: `utilities/site.css` for a group
+  that spans pages, `components/<page-slug>.css` for one local to a page, `@import`
+  registered in `main.css` in the same step, never an empty file
+- the standing prohibition: it edits **class names only**. Every `prefix_get_field()`
+  call, every `esc_*()` wrapper, every `?:` fallback and every PHP control structure in
+  those files belongs to `wp-template` and is left exactly as found.
+
+Hand-invoked `/wp-section` keeps promoting inline, and should: a single section added to
+a finished theme has the whole theme to grep and nothing to aggregate. `--defer-promotion`
+exists for the walk, where the theme does not exist yet.
 
 ## Step 4.5: Font carry
 

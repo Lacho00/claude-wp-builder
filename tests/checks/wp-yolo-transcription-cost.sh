@@ -69,4 +69,46 @@ done
 grep -Fq 'variant' <<<"$s26" \
   || fail "Step 2.6 has no escape hatch for a sibling that is really a variant"
 
+# --- 4. one @apply promotion pass, not one per section --------------------
+# The ladder promotes a group seen "3+ times, or on 2+ distinct pages" — a
+# whole-theme judgment. Run per section, wp-tailwind author mode could only grep
+# what earlier sections had already written, so promotion became a function of
+# dispatch order: the first section shipped raw utilities and was never revisited
+# once a later sighting crossed the threshold. 26 serialized agents, each
+# re-reading a template part wp-template had just written, for a split result.
+grep -Fq '3+ times, or on 2+ distinct pages' skills/wp-tailwind-system/SKILL.md \
+  || fail "the ladder's cross-section criterion moved; this check's premise needs rechecking"
+
+s=commands/wp-section.md
+grep -Fq '**`--defer-promotion` flag**' "$s" \
+  || fail "wp-section has no --defer-promotion flag"
+grep -Fq -e '--defer-promotion` suppresses Agent 3 on the `tailwind` path only' "$s" \
+  || fail "wp-section does not scope --defer-promotion to the tailwind path"
+grep -Fq 'skipping it would ship an unstyled section' "$s" \
+  || fail "wp-section does not say why the flag must never suppress wp-css on basic"
+grep -Fq 'promotion deferred' "$s" \
+  || fail "wp-section does not report a deferred promotion, so it reads as a missed dispatch"
+
+s44=$(awk '/^## Step 4\.4:/,/^## Step 4\.5:/' "$y")
+[ -n "$s44" ] || fail "wp-yolo has no Step 4.4 promotion pass"
+grep -Fq 'Skip this step entirely when `template == basic`' <<<"$s44" \
+  || fail "Step 4.4 is not gated to the tailwind template"
+grep -Fq 'after the whole section walk has finished' <<<"$s44" \
+  || fail "Step 4.4 does not run after the walk"
+grep -Fq 'exactly once' <<<"$s44" \
+  || fail "Step 4.4 does not dispatch the promotion exactly once"
+grep -Fq 'distinct pages, not files' <<<"$s44" \
+  || fail "Step 4.4 does not tell the pass to count distinct pages rather than template parts"
+grep -Fq 'class names only' <<<"$s44" \
+  || fail "Step 4.4 does not keep wp-template's ACF wiring and escaping out of reach"
+grep -Fq 'Hand-invoked `/wp-section` keeps promoting inline' <<<"$s44" \
+  || fail "Step 4.4 does not preserve the hand-invoked single-section behaviour"
+
+# every /wp-section dispatch in the walk must actually carry the flag
+walk=$(awk '/^## Step 4: Phase 2/,/^## Step 4\.4:/' "$y")
+disp=$(grep -c '/wp-section .*--transcribe' <<<"$walk" || true)
+defer=$(grep -c '/wp-section .*--defer-promotion' <<<"$walk" || true)
+[ "$disp" -gt 0 ] || fail "no /wp-section transcribe dispatches found in the Step 4 walk"
+[ "$disp" = "$defer" ] || fail "$((disp-defer)) of $disp /wp-section dispatches still promote per section"
+
 echo PASS

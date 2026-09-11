@@ -36,6 +36,25 @@
 
   New check: `tests/checks/wp-yolo-transcription-cost.sh`.
 
+- **The `@apply` promotion ran once per section, so it depended on dispatch order.** The
+  `wp-tailwind-system` ladder promotes a utility group seen "3+ times, or on 2+ distinct
+  pages" — a judgment about the whole theme. On the `tailwind` path `/wp-section` dispatches
+  `wp-tailwind` in author mode after `wp-template` returns, per section, and tells it to grep
+  what earlier sections already wrote. The first section therefore runs with nothing to grep
+  and ships raw utilities; when a later sighting finally crosses the threshold, the template
+  parts already written that carry the same group are never revisited. The group ends up a
+  semantic class in the sections built late and raw utilities in the ones built early, so the
+  `@apply` file exists without covering the repetition it was created for. On top of that it
+  is one serialized agent per section, each re-reading a template part `wp-template` has just
+  written and each appending to the same `main.css`.
+
+  `/wp-section` gains `--defer-promotion` (tailwind only — on `basic` it would ship an
+  unstyled section, since `wp-css` writes the section's only stylesheet). `/wp-yolo` sets it
+  on every section-walk dispatch and runs the promotion once in a new Step 4.4, over every
+  template part the walk produced, counting distinct pages rather than files and touching
+  class names only. Hand-invoked `/wp-section` is unchanged: a section added to a finished
+  theme has the whole theme to grep and nothing to aggregate.
+
 ## [1.15.0] - 2026-09-10
 
 ### Added
