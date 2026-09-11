@@ -150,6 +150,12 @@ well above 0.12, a gradient far below. Downscale flat art to 1x with
 with `magick compare -metric RMSE` that the difference is negligible before replacing the file.
 Mobile pays this bill twice, on a slower link, so weigh the mobile variant of an asset first.
 
+Check the frame count before touching any file: `magick identify <file> | wc -l`. Above 1 the
+asset is animated (a GIF, or an animated WebP/AVIF), and the commands above would flatten it to
+its first frame while the RMSE comparison — which reads that same frame — reported no difference.
+Report the weight, mark it `Auto-fix: No`, and leave the remedy to a human: an animated file that
+is too heavy wants an animated WebP or a muted looping video, not a still.
+
 **PERF-010 — where the group actually comes from.** A handle's group is set by whichever call
 passes `in_footer => true`, registration or enqueue: `wp_enqueue_script()` forwards its `$args`
 to `_wp_scripts_add_args_data()` whenever they are non-empty, so
