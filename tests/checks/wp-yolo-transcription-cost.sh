@@ -84,6 +84,11 @@ grep -Fq 'keeps its own' <<<"$s26" \
   || fail "Step 2.6 does not say a variant keeps its own converted classes"
 grep -Fq "Do not apply the exemplar's" <<<"$s26" \
   || fail "Step 2.6 lets a differing sibling be stamped with the exemplar's classes anyway"
+grep -Fq 'Only the `class` attribute is written' <<<"$s26" \
+  || fail "Step 2.6 does not restrict the stamp to the class attribute"
+for a in id 'aria-*' title; do
+  grep -Fq "$a" <<<"$s26" || fail "Step 2.6's untouched-attribute list omits $a"
+done
 
 # --- 4. one @apply promotion pass, not one per section --------------------
 # The ladder promotes a group seen "3+ times, or on 2+ distinct pages" — a
@@ -109,6 +114,8 @@ s44=$(awk '/^## Step 4\.4:/,/^## Step 4\.5:/' "$y")
 [ -n "$s44" ] || fail "wp-yolo has no Step 4.4 promotion pass"
 grep -Fq 'Skip this step entirely when `template == basic`' <<<"$s44" \
   || fail "Step 4.4 is not gated to the tailwind template"
+grep -Fq 'template-parts/section-*.php` files' <<<"$s44" \
+  || fail "Step 4.4 dispatches the promotion even when the walk produced no template parts"
 grep -Fq 'after the whole section walk has finished' <<<"$s44" \
   || fail "Step 4.4 does not run after the walk"
 grep -Fq 'exactly once' <<<"$s44" \

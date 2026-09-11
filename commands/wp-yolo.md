@@ -216,7 +216,9 @@ rule always wins over the no-demo-HTML rule.
 
 ## Step 2.6: Phase 1.6 — Demo conversion (tailwind template only)
 
-Skip this step entirely when `template == basic`.
+Skip this step entirely when `template == basic`, and skip it when the walk produced no
+`template-parts/section-*.php` files — an author-mode agent handed an empty file list has
+nothing to promote and reports as though it did.
 
 Skip it entirely when `demo mode` is **craft**, too, and say so in one line. A craft
 demo is built from `skills/wp-demo-craft/compositions/`, whose CSS is already
@@ -312,8 +314,11 @@ not just `index`. For each page, in this order:
    every copy in the second to be converted one by one. For each entry, pass its `selector`,
    `exemplar` and `variants` through to `/wp-tailwindify` and tell it to convert the
    exemplar plus each variant, then apply that exemplar's resulting `class` attributes to
-   its non-variant siblings position-for-position, leaving every sibling's own text, `href`,
-   `src`, `alt` and `data-*` untouched. Each index listed in `variants[]` **keeps its own
+   its non-variant siblings position-for-position. **Only the `class` attribute is written.**
+   Every other attribute and all text stay exactly as the demo had them — not just the
+   obvious `href`, `src`, `alt` and `data-*`, but `id`, `aria-*`, `title`, `role` and
+   anything else on the element; the list is illustrative, not a licence to drop what it
+   omits. Each index listed in `variants[]` **keeps its own
    converted `class` attributes** — it was converted precisely because it differs, so
    stamping the exemplar's string over it would flatten away the difference that made it a
    variant. The remaining siblings are the same component with different content — that is
@@ -538,7 +543,9 @@ Drive the existing commands/agents in this exact order, reading everything from 
 
 ## Step 4.4: One `@apply` promotion pass (tailwind template only)
 
-Skip this step entirely when `template == basic`.
+Skip this step entirely when `template == basic`, and skip it when the walk produced no
+`template-parts/section-*.php` files — an author-mode agent handed an empty file list has
+nothing to promote and reports as though it did.
 
 Pass **`--defer-promotion`** on every `/wp-section` dispatch in items 5, 6 and 9 above,
 then run the promotion once here, after the whole section walk has finished.
