@@ -7,8 +7,8 @@
   `wp_enqueue_script` only, so a theme that re-registered a core handle — the usual way a
   bundled jQuery replaces the WordPress copy — kept loading it in `<head>` and blocking the
   first render with no finding raised. The rule now covers `wp_register_script` and the 5th
-  positional argument as well as the array form, and says why: the registration decides the
-  group, whatever the later enqueue looks like.
+  positional argument as well as the array form, and flags a handle only when NEITHER call sets
+  the group — either one can, so checking a single call gives false positives in both directions.
 - **Nothing weighed a theme's own image assets.** PERF-001 caps the CSS bundle and PERF-018
   looks for `srcset`, but a decorative export sitting in `assets/` was never measured. Design
   tools export at 2x the CSS slot, which is right for photographs and wasteful for flat art —

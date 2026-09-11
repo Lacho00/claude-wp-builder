@@ -41,7 +41,7 @@ Before running ANY checks, read the following project files:
 
 | Code | Check | How to Detect | Severity | Auto-fix |
 |------|-------|---------------|----------|----------|
-| PERF-010 | Scripts not deferred | Grep `wp_enqueue_script` AND `wp_register_script` calls for missing `in_footer => true` / 5th positional arg `true`, or `strategy => 'defer'`. A handle registered without the flag loads in `<head>` no matter how the later enqueue is written | WARNING | Yes |
+| PERF-010 | Scripts not deferred | Grep `wp_enqueue_script` AND `wp_register_script` for the handle. Flag it when NEITHER call sets `in_footer => true` (array form or 5th positional `true`) nor `strategy => 'defer'` — either call can set the group, so check both before reporting | WARNING | Yes |
 | PERF-011 | Hardcoded script tags | Grep templates for `<script src=` | WARNING | No |
 | PERF-012 | jQuery when vanilla suffices | Grep JS files for `jQuery\|\$\(` when vanilla would work | INFO | No |
 | PERF-013 | Render-blocking in head | Grep header.php for `<script` without `defer\|async` | WARNING | Yes |
@@ -149,6 +149,16 @@ well above 0.12, a gradient far below. Downscale flat art to 1x with
 `magick <file> -resize <1x width>x -quality 82 -define webp:alpha-quality=90 <out>`, then confirm
 with `magick compare -metric RMSE` that the difference is negligible before replacing the file.
 Mobile pays this bill twice, on a slower link, so weigh the mobile variant of an asset first.
+
+**PERF-010 — where the group actually comes from.** A handle's group is set by whichever call
+passes `in_footer => true`, registration or enqueue: `wp_enqueue_script()` forwards its `$args`
+to `_wp_scripts_add_args_data()` whenever they are non-empty, so
+`wp_register_script($h, $src, [], $v)` followed by `wp_enqueue_script($h, '', [], false, true)`
+does load in the footer. Report the handle only when neither call sets it. Two asymmetries worth
+knowing: passing `false` at enqueue is a no-op, so it cannot undo a `true` at registration; and a
+re-registration with no flag followed by a bare `wp_enqueue_script($h)` — the usual shape when a
+theme swaps a bundled library for a core handle — stays in `<head>`, which is the case this check
+exists for.
 
 **PERF-052 — site-wide libraries.** For each third-party handle, find the template that uses
 it. If exactly one does, either move the enqueue into that template behind a conditional, or
