@@ -244,10 +244,26 @@ Beyond classification, the manifest must carry enough raw material that downstre
 `wp-css` agents **transcribe** rather than guess, and that parallel agents can never
 collide on a class name. Do this per section/page, in addition to everything above:
 
-1. **Verbatim CSS.** For every section, collect the exact declared CSS rules that match
-   it (by selector, following the same resolution used in Analysis Procedure step 3) and
-   record them verbatim into `section.cssRules` — a raw CSS string, not a paraphrase.
-   `wp-css` transcribes this string; it must not need to reinvent values.
+1. **Verbatim CSS — `basic` template only.** For every section, collect the exact declared
+   CSS rules that match it (by selector, following the same resolution used in Analysis
+   Procedure step 3) and record them verbatim into `section.cssRules` — a raw CSS string,
+   not a paraphrase. `wp-css` transcribes this string; it must not need to reinvent values.
+
+   **Skip this capture entirely when the project's `Template:` is `tailwind`.** Read that
+   line from the project's `.claude/CLAUDE.md` before you begin collecting. On the tailwind
+   path `/wp-yolo` converts every demo page to Tailwind-native markup in its Step 2.6 and
+   then forbids the section walk from reading `cssRules` at all — the command states the
+   field is stale by then and names the converted demo page as the only source. Collecting
+   it anyway costs a full read of every stylesheet plus a full write of every matched rule
+   into the manifest, to produce a field the flow is contractually required to ignore.
+   Write `"cssRules": null` instead, and add one `review[]` entry recording that the
+   tailwind path skipped CSS capture by design, so a reader does not mistake the null for a
+   failed scan.
+
+   `backgrounds`, `fonts` and `computed` below are still captured on **both** paths. The
+   font carry (`/wp-yolo` Step 4.5) and the demo-parity gate (`/wp-finalize` Layer 1) read
+   them whatever the template, and `fonts` in particular cannot be recovered from converted
+   markup at all, because conversion strips the `@font-face` rules it absorbed.
 2. **Backgrounds.** Scan each section's resolved CSS for `background` / `background-image:
    url(...)` and record every referenced image path into `section.backgrounds[]`.
 3. **Fonts.** Scan the stylesheet(s) for `@font-face` blocks and record each into
@@ -284,6 +300,25 @@ collide on a class name. Do this per section/page, in addition to everything abo
    shared class for the base structure. Per-page visual differences still get scoped
    overrides under that page's own `block` (e.g. `.home-services .card` background tweak)
    rather than a second copy of the component.
+8. **Repeated cards collapse to one exemplar.** A demo draws a list by copying its card
+   markup once per visible item, and it pads that list with mock repetition — sixteen
+   profile cards cut from four real people, eighteen board members from three, twelve
+   branch cards from two offices. In WordPress every one of those becomes a single
+   template part inside a loop, so transcribing all N is transcribing the same component
+   N times and paying for it N times. It is the single largest avoidable cost in the
+   whole flow, and it lands hardest on exactly the pages that are already the largest.
+
+   For every list whose children share one markup shape, record `section.repetition` as
+   `{ "selector": "<the repeated child's selector>", "count": <N>, "distinct": <M>,
+   "exemplar": <0-based index of the child a builder should transcribe> }`. Pick the
+   exemplar that carries the **most** optional parts filled in — a card with a photo, a
+   badge and two action buttons teaches the component; the one that happens to have an
+   empty image slot does not. Where children differ in more than their content (a
+   "featured" first card, a wider last row) that is a variant, not repetition: record the
+   variant's own index in `section.repetition.variants[]` so it is transcribed too.
+
+   Omit `repetition` when a list's children genuinely differ in structure. A list of four
+   unlike sections is not repetition and collapsing it loses real markup.
 
 ### Extended per-section schema
 
@@ -292,8 +327,15 @@ collide on a class name. Do this per section/page, in addition to everything abo
   "name": "<string>",
   "kind": "static" | "contact" | "cpt-teaser",
   "block": "<string>",                 // unique BEM block, assigned here
-  "cssRules": "<string>",              // verbatim declared CSS for this section
-  "backgrounds": [ "<image-url>" ],    // from background:url() in cssRules
+  "cssRules": "<string>|null",         // verbatim declared CSS; ALWAYS null on `tailwind`
+  "repetition": {                       // omit when the list's children really differ
+    "selector": "<string>",             // the repeated child, e.g. "li.lcard"
+    "count": <number>,                  // how many the demo draws
+    "distinct": <number>,               // how many real records back them
+    "exemplar": <number>,               // 0-based index to transcribe
+    "variants": [ <number> ]            // indices that are a real variant, not a copy
+  },
+  "backgrounds": [ "<image-url>" ],    // from background:url() in the resolved CSS
   "fonts": [                            // from @font-face blocks touching this section
     { "family": "<string>", "weight": "<string|number>", "style": "normal|italic",
       "src": [ "<woff2-path>" ] }

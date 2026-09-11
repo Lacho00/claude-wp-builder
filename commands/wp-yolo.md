@@ -305,6 +305,27 @@ not just `index`. For each page, in this order:
    `/wp-tailwindify demo/<slug>.html --out demo/<slug>.html` — the output path is the
    demo page itself, so the converted markup lands on the same path the original
    occupied.
+
+   **Convert a repeated card once, not once per copy.** Where the manifest gives a section
+   a `repetition` block, pass its `selector`, `exemplar` and `variants` through to
+   `/wp-tailwindify` and tell it to convert the exemplar (plus each variant) and to apply
+   that exemplar's resulting `class` attributes to its siblings position-for-position,
+   leaving every sibling's own text, `href`, `src`, `alt` and `data-*` untouched. The
+   siblings are the same component with different content — that is what the `repetition`
+   block asserts — so their utility strings are identical by construction and re-deriving
+   each one from the same CSS is pure repetition of work.
+
+   This matters more than it looks. A directory page drawing sixteen cards from four
+   records, or a board page drawing eighteen from three, is the most expensive page in the
+   demo *and* the one whose markup collapses hardest: in the theme all N become a single
+   template part inside a loop, so the N-1 extra conversions are paid for and then thrown
+   away. Skipping them does not reduce fidelity, because the copies were never independent.
+
+   If the conversion of a sibling would differ from the exemplar's — a card that is
+   genuinely wider, ordered differently, or hidden at a breakpoint — then it is a variant
+   and the manifest should have listed it in `variants[]`. Convert it in full and add a
+   `review[]` note so the next run's classification is corrected rather than silently
+   worked around.
 4. **Verify, or restore.** Read `/wp-tailwindify`'s Step 4 verification result for this
    page: section delimiters preserved, no `<style>` blocks remaining, and no project-local
    stylesheet `<link>` remaining. The third item is what makes item 1's skip terminate: a

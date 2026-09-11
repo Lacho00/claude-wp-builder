@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **A full-site build paid three times over for work the flow then discarded.** Measured
+  on a real twelve-page bilingual Tailwind build: roughly 1.9M subagent tokens before a
+  single template part existed, ~90% of it spent reading and rewriting demo HTML. Three
+  causes, all contract holes rather than model error.
+
+  `wp-normalize` captured verbatim `section.cssRules` for every section on **both**
+  template paths, which costs a full read of every stylesheet and a full write of every
+  matched rule. On the `tailwind` path `/wp-yolo` Step 2.6 converts each demo page and
+  then forbids the section walk from reading that field at all — so the capture produced
+  something the flow is contractually required to ignore. It is now skipped on that path
+  and written as `null`, with a `review[]` entry so the null is not read as a failed scan.
+  `backgrounds`, `fonts` and `computed` are still captured on both paths: the font carry
+  and the demo-parity gate read them regardless, and `fonts` cannot be recovered from
+  converted markup at all, because conversion strips the `@font-face` rules it absorbed.
+
+  Step 2.6 converted **every copy** of a repeated card. A demo pads a list with mock
+  repetition — sixteen profile cards cut from four records, eighteen board members from
+  three, twelve branch cards from two — and those pages were the most expensive
+  conversions in the run while collapsing hardest in the theme, where all N become one
+  template part inside a loop. `wp-normalize` now records `section.repetition`
+  (`selector`, `count`, `distinct`, `exemplar`, `variants`) and Step 2.6 converts the
+  exemplar plus any real variants, applying the exemplar's `class` attributes to its
+  siblings position-for-position and leaving each sibling's own text, `href`, `src`, `alt`
+  and `data-*` untouched. Lists whose children genuinely differ are not collapsed.
+
+  `wp-acf` and `wp-template` each ship a "WP-CLI Integration" section instructing the
+  agent to run `$WP …`, while their frontmatter granted `Read, Write, Edit, Grep, Glob`
+  and no `Bash`. Both reported verification they had no way to perform, and the
+  orchestrator had to re-run it. Both now grant `Bash`; the check also refuses the reverse
+  drift — an agent gaining `Bash` by copy-paste with no shell step in its instructions.
+
+  New check: `tests/checks/wp-yolo-transcription-cost.sh`.
+
 ## [1.15.0] - 2026-09-10
 
 ### Added
