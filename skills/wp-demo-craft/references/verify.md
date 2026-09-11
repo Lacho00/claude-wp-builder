@@ -110,11 +110,15 @@ written down first.
 - `no-engine` — the page carries no `data-motion` at all. Fails the round. A
   motionless page used to walk clean, because an empty frame signature could
   never accumulate a stall.
-- **`unobserved` and `no-engine` are page-wide judgments, printed per section.**
-  Both counters come from a document-wide `querySelectorAll` in the probe, so the
-  `section` field on those rows records which section the walk was on when the
-  stall accumulated, not a fact about that section's own markup. Read them as
-  "this page has no readable devices", and expect one row per section.
+- **`unobserved` is a per-section judgment; `no-engine` keeps a document-wide count.**
+  The probe walks `[data-motion]` inside the walked section's own subtree, so an
+  `unobserved` row is a fact about that section: it carries devices this harness
+  cannot read. Pointer devices — `tilt`, `magnet`, `spotlight` — publish nothing a
+  scroll walk can sample, so a section carrying only those is unreadable, not dead.
+  `no-engine` is still the page's fact ("this demo carries no `data-motion` at
+  all") and still prints one row per section. A section carrying no device of its
+  own, on a page that does move, is reported as nothing at all — a plain
+  `<section>` is not a defect.
 - A section carrying no `pin`/`pan`/`kinetic`/`wipe`/`drift` is not judged by the
   walk at all. `reveal` is a one-shot entry transition a few pixels long — it
   runs on the child's own `view()` progress, around `scrollY = top - viewport` —
@@ -162,12 +166,13 @@ because `motion.js` drives reveal in GSAP there and a GSAP tween is invisible to
 `getAnimations()` — a working section would otherwise read `none` at both
 samples and be reported dead.
 
-One more, in the `@container` lint itself, and it is not a bug: it walks only
-each sheet's **top-level** `cssRules`, so an `@container` block nested inside
-`@media`, `@supports` or `@layer` is never linted at all — `proof-row`'s own CSS
-already nests `@media` inside `@supports`, so generated demos plausibly nest
-container queries too. That makes the lint under-report; it does not make it
-fire falsely.
+It used to walk only each sheet's **top-level** `cssRules`, so an `@container`
+block nested inside `@media`, `@supports` or `@layer` was never linted at all —
+`proof-row`'s own CSS already nests `@media` inside `@supports`, so generated
+demos plausibly nest container queries too. The lint now recurses into
+`CSSMediaRule`, `CSSSupportsRule` and `CSSLayerBlockRule` bodies and collects
+every `@container` rule it finds at any depth, so a nested block is linted the
+same as a top-level one.
 
 It used to judge a selector by `document.querySelector(sel)`, its **first**
 match only, which was a false positive and not an under-report: a selector

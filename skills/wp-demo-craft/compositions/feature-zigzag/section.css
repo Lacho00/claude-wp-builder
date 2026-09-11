@@ -5,6 +5,12 @@
   padding-block: var(--space-section);
   padding-inline: max(var(--space-gutter), calc((100% - var(--container-max, 1280px)) / 2));
   display: grid;
+  /* This rule IS the element that declares container-type, and an element never
+     matches a container query against the container it establishes itself, so a
+     cqi here resolves against the small-viewport fallback — it would track the
+     screen while reading as if it tracked the block. Measured in a fixed 480px
+     box: 96px at a 1920 viewport, 48px at 800. The child ramps below are cqi and
+     do track the block. So: vw, not cqi, and deliberately. */
   gap: clamp(3rem, 6vw, 6rem);
   background: var(--color-canvas);
 }
@@ -18,7 +24,7 @@
 }
 .feature-zigzag__title {
   font-family: var(--font-display);
-  font-size: clamp(1.9rem, 3.4vw, 3.1rem);
+  font-size: clamp(1.9rem, 3.4cqi, 3.1rem);
   line-height: 1.06;
   letter-spacing: -0.02em;
   text-wrap: balance;
@@ -27,7 +33,7 @@
 }
 .feature-zigzag__item {
   display: grid;
-  gap: clamp(1.5rem, 3vw, 3.5rem);
+  gap: clamp(1.5rem, 3cqi, 3.5rem);
   align-items: center;
 }
 .feature-zigzag__media {
@@ -45,7 +51,7 @@
 }
 .feature-zigzag__heading {
   font-family: var(--font-display);
-  font-size: clamp(1.4rem, 2.1vw, 2rem);
+  font-size: clamp(1.4rem, 2.1cqi, 2rem);
   line-height: 1.12;
   letter-spacing: -0.015em;
   text-wrap: balance;

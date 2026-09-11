@@ -136,6 +136,136 @@ grep -Fq -- '--fill' "$c/README.md" || fail "$c/README.md documents a regenerate
 # Interior page head never pins.
 grep -Eq 'data-motion="pin"' "$c/page-head/section.html" && fail "page-head pins; interior pages have no pin"
 
+# Every viewport-width ramp left in a composition is a deliberate choice
+# (a full-bleed hero's display type) and must say so on its own line or the line
+# directly above, because a per-FILE check lets one justified vw green-light every
+# other vw in that file — process-rail alone carried 7 on 7 separate lines, and a
+# per-file grep would let one comment excuse six forgotten conversions. The marker
+# is one of two literal phrases, "viewport on purpose" or "not cqi"; reword
+# either on one side only (this comment or the CSS) and the check silently
+# stops meaning anything. The second phrase exists because one ramp CANNOT be
+# cqi: a rule that itself declares container-type never matches a container
+# query against the container it establishes, so cqi there resolves against
+# the viewport while reading as if it tracked the block.
+#
+# The pattern covers the whole family, not the one spelling `vw`: `dvw`, `svw`
+# and `lvw` are the same unit with a viewport-sizing variant, `vi` is its
+# logical alias in horizontal writing modes, and `vmin`/`vmax` resolve to the
+# width on one orientation or the other. Pinned to the literal `vw` this loop
+# passed a `6dvw` / `6vmin` ramp dropped into a composition with no comment at
+# all — measured, rc=0 — which is the exact defect it was written to stop, and
+# `dvw` is the spelling a mobile-aware author reaches for first. The trailing
+# class stops `vi` matching inside a longer identifier.
+#
+# Viewport HEIGHT (`vh`, `dvh`, `svh`, `lvh`, `vb`) is deliberately not gated:
+# `container-type: inline-size` gives a block-axis query nothing to resolve
+# against, so there is no container-relative unit to convert those to, and the
+# library's sixteen of them are structural (a pinned frame is one screen tall
+# by definition). Requiring a justification comment on each would be noise, not
+# an assertion.
+# Unit detection runs over a copy whose comment BODIES are blanked out with the
+# line structure preserved, so a unit named in prose ("min-height: 100dvh" in a
+# note explaining why the reset exists) is not mistaken for a declaration. The
+# marker lookup still reads the real file, because the justification markers
+# live in comments by design.
+blank_comments() { perl -0pe 's{/\*.*?\*/}{ my $c = $&; $c =~ s/[^\n]/ /g; $c }gse' "$1"; }
+
+VW_FAMILY='[0-9.](d|s|l)?(vw|vi|vmin|vmax)([^a-zA-Z]|$)'
+for cssf in skills/wp-demo-craft/compositions/*/section.css; do
+  while IFS=: read -r lineno _; do
+    prevno=$((lineno - 1))
+    prev=""
+    [ "$prevno" -ge 1 ] && prev=$(sed -n "${prevno}p" "$cssf")
+    cur=$(sed -n "${lineno}p" "$cssf")
+    case "$cur$prev" in
+      *"viewport on purpose"*) ;;
+      *"not cqi"*) ;;
+      *) fail "$cssf:$lineno keeps a viewport-width ramp (vw/dvw/svw/lvw/vi/vmin/vmax) without recording why it is viewport-relative (marker must be on this line or the line above)" ;;
+    esac
+  done < <(blank_comments "$cssf" | grep -nE "$VW_FAMILY")
+done
+
+# The height family is gated too, but by AXIS rather than by spelling. Excluding
+# `vh`/`dvh`/`svh`/`lvh`/`vb` outright is right for the block-axis declarations
+# the note above describes — a pinned frame is one screen tall by definition and
+# `container-type: inline-size` gives it nothing to convert to — but it also let
+# a height unit be smuggled into an INLINE ramp, where it is every bit as
+# viewport-relative as `vw` and just as convertible. So: a height unit on a
+# block-axis property is structural and exempt; the same unit on a width, gap,
+# font-size or inline padding is a viewport ramp and must justify itself like
+# any other.
+VH_FAMILY='[0-9.](d|s|l)?(vh|vb)([^a-zA-Z]|$)'
+BLOCK_AXIS='^[[:space:]]*(min-|max-)?(height|block-size)|^[[:space:]]*(inset-block|padding-block|margin-block|top|bottom|translate|aspect-ratio)'
+for cssf in skills/wp-demo-craft/compositions/*/section.css; do
+  while IFS=: read -r lineno _; do
+    cur=$(sed -n "${lineno}p" "$cssf")
+    # EVERY matching declaration on the line, not the first. A rule written on
+    # one line carries several, and judging only the first lets a block-axis one
+    # shield an inline one behind it: `.x { height: 100vh; width: 50vh }` exempted
+    # the `width` because the `height` came first. Same class as the per-file vs
+    # per-occurrence bug fixed above, reintroduced one scope down.
+    inline_hit=""
+    while IFS= read -r decl; do
+      [ -n "$decl" ] || continue
+      printf '%s' "$decl" | grep -qE "$BLOCK_AXIS" && continue
+      inline_hit="$decl"
+      break
+    done <<EOF_DECLS
+$(blank_comments "$cssf" | sed -n "${lineno}p" | tr ';{}' '\n\n\n' | grep -E "$VH_FAMILY")
+EOF_DECLS
+    [ -n "$inline_hit" ] || continue
+    prevno=$((lineno - 1))
+    prev=""
+    [ "$prevno" -ge 1 ] && prev=$(sed -n "${prevno}p" "$cssf")
+    case "$cur$prev" in
+      *"viewport on purpose"*) ;;
+      *"not cqi"*) ;;
+      *) fail "$cssf:$lineno uses a viewport-height unit (vh/dvh/svh/lvh/vb) on an inline-axis declaration ($(printf '%s' "$inline_hit" | tr -s ' ')) without recording why it is viewport-relative" ;;
+    esac
+  done < <(blank_comments "$cssf" | grep -nE "$VH_FAMILY")
+done
+
+# An element NEVER matches a container query against the container it establishes
+# itself, and the same is true of `cqi`: in a rule that declares container-type,
+# cqi resolves against the small-viewport fallback, so it tracks the SCREEN while
+# reading as if it tracked the block. Measured in a fixed 480px box, a root
+# `gap: clamp(3rem, 6cqi, 6rem)` computed 96px at a 1920 viewport and 48px at 800
+# — viewport-relative behaviour wearing a container-relative unit, which is worse
+# than the `vw` it replaced because it no longer looks like a bug. This is the
+# assertion the vw-justification loop above cannot make: that loop only sees vw,
+# and this defect has no vw in it. Comments are stripped first, because the one
+# legitimate case documents itself by naming cqi in prose.
+#
+# Every container-query unit, not the one spelling `cqi`: `cqw`, `cqb`, `cqh`,
+# `cqmin` and `cqmax` resolve against the same small-viewport fallback in that
+# rule and reintroduce the identical defect. Pinned to `cqi` this loop passed a
+# `6cqw` ramp inside the rule declaring `container-type` — measured, rc=0 — and
+# `cqw` is already in the library's active vocabulary (process-rail uses
+# `100cqw`), so it is the spelling a copy-paste lands on.
+# Parsed as DECLARATION BLOCKS, not as lines. Line-based brace tracking made the
+# verdict depend on formatting: `@supports (display: grid) { .a { container-type:
+# inline-size; } .b { gap: 1cqi; } }` written on one line was flagged, and the
+# byte-identical CSS written across four lines passed — measured both ways. Two
+# separate rules are not one rule, whatever the whitespace, and a check that
+# blocks valid CSS on formatting is the false-positive class this branch spent
+# its whole final review removing. An innermost block — a `{...}` whose body
+# contains no further brace — is exactly a declaration block, so matching those
+# ignores the at-rule wrapper without needing to understand at-rules.
+for cssf in skills/wp-demo-craft/compositions/*/section.css; do
+  perl -0ne '
+    s{/\*.*?\*/}{}gs;
+    my $bad = 0;
+    while (/\{([^{}]*)\}/g) {
+      my $body = $1;
+      $bad = 1 if $body =~ /container-type/ && $body =~ /[0-9.]cq(i|b|w|h|min|max)(?![a-zA-Z])/;
+    }
+    print "SELFCQI\n" if $bad;
+  ' "$cssf" \
+    | while read -r _; do
+        fail "$cssf puts a container-query ramp (cqi/cqb/cqw/cqh/cqmin/cqmax) in the same rule that declares container-type, so it resolves against the viewport rather than the block it appears to measure"
+      done
+done
+
 # Without a content-width token every composition pads by the gutter alone, so on
 # a wide monitor content spans edge to edge. The token has to exist and the
 # compositions have to use it; either alone is half a fix.
@@ -177,5 +307,103 @@ for f in skills/wp-demo-craft/compositions/*/section.css; do
 done
 [ "$n" -ge 13 ] \
   || fail "only $n compositions constrain content width against var(--container-max, 1280px) on the rule that carries their inline gutter, expected 13"
+
+# process-rail's own comment calls the reduced-motion rail "a native scroll
+# region", but under prefers-reduced-motion the frame was width: auto,
+# overflow: visible, with no overflow-x anywhere — so the row overflowed the
+# whole DOCUMENT (measured 2496 at a 1920 viewport) instead of scrolling inside
+# the frame. Anchored to the media block AND the __frame rule specifically: a
+# file-wide `grep -F 'overflow-x: auto'` would pass with the declaration
+# sitting anywhere in the file, including outside prefers-reduced-motion (where
+# it does nothing under normal motion) or on __rail/__step (which do not have
+# the frame's constrained width, so overflow-x there clips nothing).
+PR_CSS=skills/wp-demo-craft/compositions/process-rail/section.css
+pr_media=$(sed -n '/^@media (prefers-reduced-motion: reduce) {$/,/^}$/p' "$PR_CSS")
+[ -n "$pr_media" ] || fail "process-rail/section.css has no prefers-reduced-motion media block"
+pr_frame_rule=$(printf '%s\n' "$pr_media" | grep -F '.process-rail__frame {')
+[ -n "$pr_frame_rule" ] || fail "process-rail/section.css has no .process-rail__frame rule inside prefers-reduced-motion"
+printf '%s\n' "$pr_frame_rule" | grep -Eq 'overflow-x:[[:space:]]*auto' \
+  || fail "process-rail__frame has no overflow-x: auto inside prefers-reduced-motion, so the rail overflows the whole document instead of scrolling"
+# overflow: visible is a shorthand for BOTH axes, so it resets overflow-x too.
+# If overflow-x: auto is declared before that shorthand in the same rule, the
+# shorthand wins by source order and silently undoes the fix while the grep
+# above stays green — require the longhand strictly after the shorthand.
+pr_shorthand_at=$(printf '%s' "$pr_frame_rule" | grep -boE 'overflow:[[:space:]]*visible' | head -1 | cut -d: -f1)
+pr_longhand_at=$(printf '%s' "$pr_frame_rule" | grep -boE 'overflow-x:[[:space:]]*auto' | head -1 | cut -d: -f1)
+if [ -n "$pr_shorthand_at" ] && [ -n "$pr_longhand_at" ]; then
+  [ "$pr_longhand_at" -gt "$pr_shorthand_at" ] \
+    || fail "process-rail__frame declares overflow-x: auto before the overflow: visible shorthand, so the shorthand resets it back to visible"
+fi
+
+# CSS corrects a `visible` axis to `auto` when the other axis is not visible, so
+# `overflow: visible; overflow-x: auto` leaves overflow-y computing to `auto`,
+# not the `visible` the shorthand appears to declare. Measured: overflow-y read
+# back as `auto` at 390/768/1280/1920 before this was stated explicitly. Nothing
+# overflows the frame vertically today, so it is inert — but a shadow, a badge or
+# a focus ring that later grew past the frame would get a second, vertical
+# scrollbar on a horizontal scroller, and the declaration that caused it would
+# not be in the file. `hidden` clips that overflow instead, which is the wanted
+# behaviour here and the reason the axis is stated at all.
+printf '%s' "$pr_frame_rule" | grep -qE 'overflow-y:[[:space:]]*hidden' \
+  || fail "process-rail__frame does not state overflow-y explicitly inside prefers-reduced-motion, so it computes to auto and puts a second vertical scrollbar on a horizontal scroller as soon as anything grows past the frame"
+
+# A scroll container no keyboard can reach is not a fix, it is a different bug
+# (WCAG 2.1.1) — but the scroll container only exists under reduced motion. At
+# default motion the frame is overflow-x: hidden and pinned, so a tabindex/role
+# in the MARKUP ships a dead tab stop and a named landmark on every craft build.
+# The affordance therefore belongs to motion.js's reduced branch, which is the
+# only place that knows which mode is live. Measured on the real composition
+# with motion.js running: reduce -> Tab lands on the rail, role=region, name
+# from the section's own <h2>, ArrowRight moves scrollLeft 0 -> 40; default ->
+# no tabindex, no role, no name, Tab skips past the section entirely.
+PR_HTML=skills/wp-demo-craft/compositions/process-rail/section.html
+pr_frame_tag=$(grep -F 'class="process-rail__frame"' "$PR_HTML")
+[ -n "$pr_frame_tag" ] || fail "$PR_HTML has no .process-rail__frame element"
+printf '%s' "$pr_frame_tag" | grep -Eq 'tabindex=|role=|aria-label=' \
+  && fail "$PR_HTML's .process-rail__frame carries a static tabindex/role/aria-label, which at default motion is a dead tab stop and a landmark on a region that cannot be scrolled"
+M=starter-theme/__tailwind__/assets/js/src/motion.js
+# Scoped to the reduced branch of the pan device, by its own brace range: the
+# same three lines sitting in the else branch (or outside the if) would satisfy
+# a whole-file grep while restoring exactly the defect above.
+pan_reduced="$(awk '/if \(kind === .pan.\)/,/^    if \(kind === .reveal./' "$M" | awk '/if \(reduced\) \{/,/^        \} else \{/' | grep -v '^[[:space:]]*//' || true)"
+[ -n "$pan_reduced" ] || fail "$M has no reduced-motion branch in the pan device, so the rail's keyboard affordance cannot be checked"
+printf '%s' "$pan_reduced" | grep -Fq 'const scroller = ' \
+  || fail "$M's pan/reduced branch no longer picks the box that actually scrolls, so the affordance lands on an element the arrow keys do not move"
+# The affordance is attached only when a box ACTUALLY overflows. Without the
+# null arm, a rail below process-rail's own documented three-step minimum falls
+# through to the container, which does not scroll either — shipping a focusable,
+# named region that scrolls nothing, which is the same dead tab stop this whole
+# block was written to remove. Measured: short rail picks `container` unguarded
+# (scrolls=false) and `null` guarded.
+printf '%s' "$pan_reduced" | grep -Fq ': null;' \
+  || fail "motion.js's reduced-motion pan branch attaches the keyboard affordance without a no-overflow arm, so a rail too short to scroll still ships a focusable named region that scrolls nothing"
+# Anchored on the NAMING branch's own condition, not the bare `if (scroller && `
+# prefix: that prefix also opens the tabindex line, so a grep for it is satisfied
+# by the wrong occurrence and stays green while the naming branch loses its guard.
+printf '%s' "$pan_reduced" | grep -Fq 'if (scroller && heading && ' \
+  || fail "motion.js sets the rail's accessible name without checking that a scroller was found, so a section with no overflow can still be given role=region"
+printf '%s' "$pan_reduced" | grep -Fq 'tabIndex = 0' \
+  || fail "$M's pan/reduced branch does not make the scroll region focusable, so a keyboard-only user cannot reach the steps past the fold under reduced motion"
+printf '%s' "$pan_reduced" | grep -Fq "setAttribute('role', 'region')" \
+  || fail "$M's pan/reduced branch does not expose the scroll region as a landmark"
+# aria-labelledby onto the section's own heading, never a literal: a label
+# written in the markup ships one language on a bilingual site, and an
+# unsubstituted {{slot}} would be read out verbatim as the region's name.
+printf '%s' "$pan_reduced" | grep -Fq "setAttribute('aria-labelledby', heading.id)" \
+  || fail "$M's pan/reduced branch names the region with something other than the section's own heading"
+
+# Nothing that becomes an accessible name may reach a reader as a raw {{slot}}.
+# applyFills() leaves an unknown key in place (it warns on stderr and returns the
+# match), so a slot with no fill renders literally in the committed previews and
+# reads out as "open brace open brace nav label" in a screen reader.
+fills=skills/wp-demo-craft/compositions/fills.json
+for h in skills/wp-demo-craft/compositions/*/section.html; do
+  comp="$(basename "$(dirname "$h")")"
+  for slot in $(grep -oE '(aria-label|alt|title)="\{\{[A-Za-z0-9_]+\}\}"' "$h" | grep -oE '\{\{[A-Za-z0-9_]+\}\}' | tr -d '{}' | sort -u); do
+    node -e 'const f=require("./"+process.argv[1]);const m=Object.assign({},f._shared,f[process.argv[2]]);process.exit(process.argv[3] in m?0:1)' \
+      "$fills" "$comp" "$slot" \
+      || fail "$h uses {{$slot}} as an accessible name and $fills has no value for it, so the preview and any half-filled build read the raw slot text out to a screen reader"
+  done
+done
 
 echo PASS

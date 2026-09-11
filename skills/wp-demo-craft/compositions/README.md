@@ -11,9 +11,20 @@ Every composition's size-based breakpoints size to their own container, never
 to the screen: the root declares `container-type: inline-size` and every
 size-based breakpoint is an `@container` query, so a section dropped into a
 narrow column lays out for the column at those breakpoints. Its fluid ramps —
-the `vw` in `clamp()` gaps and type scales — still key off the viewport, not
-the container; converting them to container-relative units is open work, not
-done in this pass. Only `(hover: hover) and (pointer: fine)` and
+the gaps, padding and type scales inside `clamp()` — key off the container
+too, in `cqi`, so a section in a narrow column takes the space it actually
+has instead of desktop-maximum spacing. Three occurrences stay `vw`, each
+carrying a comment saying why. Two are the display headline of a full-bleed
+hero (`hero-bleed`, `hero-type`), sized against the
+viewport on purpose — a full-bleed hero fills the screen by definition, and a
+hero in a narrow column is not a scenario this library serves. `hero-split` is
+not one of them: its title sits in a split column, not the bleed, and its
+nearest container is the section root, so `cqi` is the same ramp at full width
+and the right one in a column. The third,
+`feature-zigzag`'s root `gap`, cannot be `cqi` at all: that rule is the
+element declaring `container-type`, and an element never matches a container
+query against the container it establishes itself, so `cqi` there resolves
+against the viewport while reading as if it tracked the block. Only `(hover: hover) and (pointer: fine)` and
 `(prefers-reduced-motion)` stay on `@media` — they are user and device
 conditions a container query cannot express. An element never matches a query
 against the container it establishes itself, so where the breakpoint changes

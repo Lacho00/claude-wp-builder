@@ -200,17 +200,6 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   contract; the React libraries are never dependencies. A feeling curve that needs an
   eleventh role builds it by hand under the same contract with a reason in
   `demo/BRIEF.md`.
-- **The `@container` lint under-reports in one known way.** `containerAudit()`
-  in `bin/demo-verify.mjs` iterates only each stylesheet's top-level `cssRules`,
-  so an `@container` block nested inside `@media`, `@supports` or `@layer` is
-  never linted — and `proof-row` already nests `@media` inside `@supports`, so
-  generated demos plausibly will nest container queries too. That direction is
-  under-reporting, never a false positive; widening the lint's scope is open
-  work, recorded in `references/verify.md` rather than done. The other limit
-  once recorded here — judging a selector by `document.querySelector(sel)`, its
-  first match only — is retired: it was a *false positive*, since a selector
-  matching several elements applies as soon as one of them sits inside a
-  container, and `container-noop` blocks. The lint reads every match now.
 - **The evaluator reads headless sheets.** Real-device feel is still unproven, and
   Landing Gallery screenshots are inspiration only.
 - **`designlang` extracts what a site declares.** A site built on inline styles or
@@ -220,14 +209,24 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   so nothing in the markup marks a translatable string. The bilingual pipeline reads
   the recorded `i18n strategy` instead — which it should anyway; markers in a demo were
   never the source of truth.
-- **A composition's breakpoints size to its own container; its fluid ramps do not.**
-  Every composition's size-based breakpoints are `@container` queries against the
-  block's own `container-type: inline-size`, so a section dropped into a narrow column
-  lays out for the column. The `vw` in `clamp()` gaps and type scales still keys off the
-  viewport, though — 40 occurrences across 12 of the 13 compositions — so a section in a
-  narrow column still takes desktop-maximum spacing. `compositions/README.md` states the
-  gap; converting those ramps to container-relative units is open work, not done in this
-  pass.
+- **A composition's breakpoints and its fluid ramps both size to its own container now,
+  except where the screen is the point.** Every composition's size-based breakpoints are
+  `@container` queries against the block's own `container-type: inline-size`, so a section
+  dropped into a narrow column lays out for the column. The `vw` in `clamp()` gaps and type
+  scales was the one exception — 40 occurrences across 12 of the 13 compositions still keyed
+  off the viewport — and is converted: 37 now read `cqi` and track the container. Three
+  stay `vw`, each with a comment. Two are the display headline of a full-bleed hero
+  (`hero-bleed`, `hero-type`), sized against the viewport on purpose because
+  a hero in a narrow column is not a scenario those compositions serve. `hero-split`
+  used to be counted a third: its title sits in a `1.1fr 0.9fr` split column, so the
+  borrowed "full-bleed" justification was false for it, and since its nearest container
+  is the section root the conversion is identical at full bleed (86.4px at 1440,
+  measured) and correct in a narrow column (38.4px at 420px) — so it converted. The third is
+  `feature-zigzag`'s root `gap`, which *cannot* be `cqi`: that rule is the element
+  declaring `container-type`, and an element never matches a container query against the
+  container it establishes itself, so `cqi` there would resolve against the viewport while
+  reading as if it tracked the block. `compositions/README.md` states the rule; `tests/checks/wp-craft-compositions.sh`
+  asserts every remaining `vw` carries its justification on that line or the line above it.
 - **The two `reveal` paths differ above the fold.** The CSS path's range is
   `entry 0% entry 40%`, so an element already fully in the viewport at load is past
   its entry range and `animation-fill-mode: both` lands it on the end state with no
@@ -240,15 +239,41 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   `compositions/fills.json`, which points at remote placeholder images. The committed
   `preview-1440.png` / `preview-390.png` are the artifact; treat them as such rather
   than assuming a rebuild is always available.
-- **`var(--container-max, 1280px)` only guards an absent token, not a malformed one.**
-  The fallback covers a project whose `:root` never defines the variable. It does not
-  cover a project that defines it badly — `wide`, an empty string: `calc()` treats the
-  whole expression as invalid at computed-value time and `padding-inline` resets to its
-  initial `0`, gutter and all, the same failure the fallback exists to prevent. Measured,
-  not theoretical.
-- **`unobserved` is a confession, not a measurement.** A section that genuinely
-  does not move and a section the harness cannot read are still not distinguished
-  by the harness — only by which finding it emits and what the operator does next.
+- **`@property --container-max` needs Chrome/Edge 85+, Safari 16.4+, Firefox 128+.**
+  A malformed value (`wide`, an empty string) used to make `calc()` invalid at
+  computed-value time and unset `padding-inline` to `0` at every viewport, the same
+  failure the `var(--container-max, 1280px)` fallback only ever guarded against for
+  an *absent* token. `commands/wp-demo.md` and `bin/composition-preview.mjs` now emit
+  `@property --container-max { syntax: "<length>"; inherits: true; initial-value:
+  1280px; }` alongside `:root`, so an invalid value falls back to `initial-value`
+  instead. Where `@property` is unsupported, the `1280px` `var()` fallback remains
+  the only guard, and it still covers only the absent case.
+- **`unobserved` is a confession, not a measurement.** It is now a per-section
+  judgment — `probe()` counts devices inside the section's own subtree, so a section
+  carrying only pointer devices (`tilt`, `magnet`, `spotlight`) reports it instead of
+  falling to a blocking `dead-scroll` — but a section that genuinely does not move and
+  a section the harness cannot read are still not distinguished by the harness, only
+  by which finding it emits and what the operator does next. `no-engine` stays
+  document-wide on purpose: scoping it too would fire on every ordinary static section.
+- **The harness changes were measured on a composition corpus, not on a client
+  build.** The v1.15.0 baseline demo named in the plan no longer exists on disk — that
+  project is now a WordPress install and its demo was consumed into the theme — so the
+  before/after walk was run on a five-page corpus assembled from the thirteen in-repo
+  compositions instead, with the release commit's `demo-verify.mjs` and with HEAD's.
+  That proves the harness changed behaviour as intended; it does not prove what a
+  messy real build now scores, and a composition corpus is cleaner than one.
+- **Two verification paths are still not covered.** Item F's last preview-token bypass
+  — a reassignment at `composition-preview.mjs`'s render call site, which happens after
+  `--tokens` has exited and which no assertion on that output can see — needs the render
+  itself to close. And `motion.js`'s GSAP `reveal` branch is never walked, because
+  nothing in the suite runs a browser without `animation-timeline`.
+- **`motion.js` sets `overflowX` on the rail, not on the frame — and it is not inert.**
+  Under reduced motion the stylesheet resets the rail to `width: auto`, and a scroll
+  container is sized by its box rather than by its content, so the assignment makes the
+  *rail* the scroller and the frame stops overflowing: measured at 1280, rail 2042/1280,
+  frame 1280/1280. The frame's own `overflow-x: auto` is then only the no-JS fallback.
+  Which box scrolls therefore depends on whether the engine ran, which is why the
+  keyboard affordance in the pan device picks the scroller by measurement, not by name.
 - **Verification serves over HTTP; the delivered demo is a `file://` artifact.**
   A defect that only appears when the file is double-clicked can pass a green walk.
   `external-module` findings name the one case known to matter.

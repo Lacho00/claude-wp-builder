@@ -62,6 +62,60 @@ grep -Fq "kind: 'no-engine'" "$vs" \
 # green — the exact file://-blocked-module failure this branch exists to fix.
 grep -Fq 'frame.samplable === 0 && !b.scrub' "$vs" \
   || fail "$v routes a scrubbed section with nothing samplable to advisory, so a page whose motion engine never ran exits 0"
+# The probe's device walk is scoped to one section, not to the document. A
+# document-wide samplable count meant `samplable === 0` required EVERY device on
+# the page to be unreadable, so `unobserved` could only fire where `no-engine`
+# already did — and a section carrying only pointer devices (tilt, magnet,
+# spotlight, which publish nothing a scroll walk can sample) was judged by
+# whether some OTHER section happened to be readable, and fell to blocking
+# dead-scroll. Three pins, because each alone is inert: the parameter without the
+# argument passes `undefined` and scopes to document.body; both without the
+# scoped query re-reads the whole document anyway.
+grep -Fq 'const probe = (idx) =>' "$vs" \
+  || fail "$v's probe is not scoped to a section index, so samplable is counted document-wide and unobserved can only fire where no-engine already does"
+grep -Fq 'const frame = await page.evaluate(probe, b.idx);' "$vs" \
+  || fail "$v does not pass the section index to probe, so idx is undefined, the scope falls back to document.body and the scoping never takes effect"
+grep -Fq "root.querySelectorAll('[data-motion]').forEach((el) => scope.push(el));" "$vs" \
+  || fail "$v does not build the device scope from the section root, so the walk is document-wide again with the index still threaded through"
+# The root itself. A section that IS the device (<section data-motion="pin">) is
+# the common case, and querySelectorAll never returns the element it was called
+# on: without this line that section counts zero devices of its own and, with
+# the branch below, is silently skipped instead of judged.
+grep -Fq "if (root.matches && root.matches('[data-motion]')) scope.push(root);" "$vs" \
+  || fail "$v does not include the section root in its own device scope, so a section that is itself the device counts no devices and is never judged"
+# no-engine is the one judgment that must NOT be scoped: it means "this demo
+# carries no motion at all". Counting it per section turned every ordinary
+# static <section> on a moving page into a blocking no-engine — the false
+# positive this gate exists to avoid. Pinned on the page-wide counter and on
+# the branch that consumes it.
+grep -Fq "pageDevices: document.querySelectorAll('[data-motion]').length," "$vs" \
+  || fail "$v does not count devices document-wide for no-engine, so a plain <section> on a moving page reports a blocking no-engine"
+grep -Fq 'if (frame.pageDevices === 0) {' "$vs" \
+  || fail "$v judges no-engine on the scoped device count, so every section with no device of its own fails the round"
+# And the silent branch under it. Deleting it, or reordering it above the
+# pageDevices test, sends a device-free section to unobserved (noise) or to
+# no-engine (blocking). Anchored on the branch and its position.
+grep -A1 -F 'if (frame.pageDevices === 0) {' "$vs" | grep -Fq "kind: 'no-engine'" \
+  || fail "$v does not push no-engine directly under the page-wide device test, so the two were decoupled and no-engine no longer means what it says"
+grep -Fq '} else if (frame.devices === 0) {' "$vs" \
+  || fail "$v does not silently skip a section that carries no device of its own on a page that does move, so a plain <section> is reported as a defect"
+# The other side of the same boundary: only the [data-motion] walk is scoped.
+# The cue sweep, the canvas sample, the clipped-copy sweep and the overflow read
+# are facts about the document, and the probe now runs once per walked section —
+# so scoping any of them to `root` hides every instance that lives outside a
+# <section> (a clipped <p> in a <footer>, a cue in the header) and, for the three
+# that feed `sig`, quietly changes what every finding kind samples. Measured: a
+# clipped <p> in a <footer> goes from a blocking clipped-copy report to a clean
+# exit-0 walk on a one-word change. Documented in the probe by comment; pinned
+# here, because a comment is not a check.
+grep -Fq "document.querySelectorAll('p, h1, h2, h3, li').forEach" "$vs" \
+  || fail "$v scopes the clipped-copy sweep to the walked section, so clipped copy outside every <section> is never reported and a demo with unreadable text walks clean"
+grep -Fq "document.querySelectorAll('[data-motion-cue]').forEach" "$vs" \
+  || fail "$v scopes the cue sweep to the walked section, so a cue outside every <section> is never graded and cue-never-peaks cannot fire on it"
+grep -Fq "document.querySelectorAll('canvas').forEach" "$vs" \
+  || fail "$v scopes the canvas sample to the walked section, so a cinematic stage painted outside one contributes no signature and its page reports dead scroll"
+grep -Fq 'overflow: document.documentElement.scrollWidth > window.innerWidth + 1,' "$vs" \
+  || fail "$v does not read horizontal overflow from the document element, so overflow caused outside the walked section goes unreported"
 grep -Fq "data-motion') === 'reveal'" "$vs" \
   || fail "$v does not sample the reveal device, so every reveal-only section reports dead scroll"
 for f in skills/wp-demo-craft/references/verify.md commands/wp-demo-verify.md; do
@@ -151,8 +205,10 @@ for f in skills/wp-demo-craft/references/verify.md commands/wp-demo-verify.md; d
   # copy of the kind list and that copy goes stale when a kind joins ADVISORY.
   grep -Fq '"advisory": true' "$f" \
     || fail "$f does not document the advisory flag on findings.json rows, so a consumer has to match on the kind instead"
-  grep -Fq 'page-wide judgments, printed per section' "$f" \
-    || fail "$f still reads as if unobserved/no-engine were per-section facts; both counters come from a document-wide query"
+  grep -Fq '`unobserved` is a per-section judgment' "$f" \
+    || fail "$f does not record that unobserved is a fact about the walked section, so a reader takes it for a page-wide statement and dismisses it"
+  grep -Fq '`no-engine` is still the page' "$f" \
+    || fail "$f does not record that no-engine alone stayed document-wide, so a reader expects it per section and reads a plain <section> as a defect"
 done
 grep -Fq 'f.advisory = true' "$vs" \
   || fail "$v writes findings.json without the advisory flag, so the label exists only on stdout"
@@ -176,10 +232,46 @@ grep -Fq "kind: 'container-noop'" "$vs" \
 # never matches the container the queried element establishes itself, so
 # starting at the element instead of its parent misses that case silently.
 # The rule filter itself. Renaming the class it matches ('CSSContainerRuleX') makes
-# the loop `continue` on every rule in every sheet: the lint is permanently silent,
-# every line of it still present, and the run exits 0.
-grep -Fq "if (rule.constructor.name !== 'CSSContainerRule') continue;" "$vs" \
+# the recursive collector skip every rule in every sheet: the lint is permanently
+# silent, every line of it still present, and the run exits 0.
+grep -Fq "if (n === 'CSSContainerRule') containerRules.push(rule);" "$vs" \
   || fail "$v does not filter styleSheet rules on exactly CSSContainerRule, so a renamed or altered comparison skips every rule and the container lint is permanently silent"
+# An @container nested inside @media, @supports or @layer was never linted at
+# all — a silent false negative in a lint whose whole job is finding rules
+# that silently do nothing. proof-row's own CSS nests @media inside @supports,
+# so generated demos plausibly nest container queries too. Each grouping type
+# is pinned on its own: deleting just the @media branch (or just @layer) still
+# leaves the other two present and this loop green, so a partial regression
+# needs its own line to be caught. Anchored on the quoted literal, closing
+# quote included ('CSSMediaRule'), not the bare word: a bare 'CSSMediaRule'
+# grep is satisfied by the substring inside a typo like 'CSSMediaRuleX', which
+# breaks the comparison (constructor.name is never that string) while leaving
+# the check green — caught by hand while writing this suite, not by the brief.
+grep -Fq "'CSSMediaRule'" "$vs" \
+  || fail "$v does not recurse into @media, so a nested @container rule is never linted"
+grep -Fq "'CSSSupportsRule'" "$vs" \
+  || fail "$v does not recurse into @supports, so a nested @container rule is never linted"
+grep -Fq "'CSSLayerBlockRule'" "$vs" \
+  || fail "$v does not recurse into @layer, so a nested @container rule is never linted"
+# The three constructor-name pins above stay green even with the recursive
+# call itself commented out: the type names live on the `else if` line, not
+# inside the `try` block that actually descends. Pin the call too, so deleting
+# it (rather than the branch that names the types) is caught.
+grep -Fq 'collect([...rule.cssRules]);' "$vs" \
+  || fail "$v declares which grouping rules to recurse into but never calls collect() on their nested cssRules, so a nested @container is still never visited"
+# The three names above are pinned individually but the OPERATOR joining them
+# is not. `||` -> `&&` is one character and makes the branch unsatisfiable —
+# constructor.name is a single string and can never equal all three — so
+# recursion dies for every grouping type while all three name pins stay green.
+# Pin the whole clause, operators included.
+grep -Fq "n === 'CSSMediaRule' || n === 'CSSSupportsRule' || n === 'CSSLayerBlockRule'" "$vs" \
+  || fail "$v's grouping-rule branch is no longer the three names joined by ||, so it may be unsatisfiable and recursion dead for every nested @container"
+# The recursive call is pinned above; the per-sheet call that STARTS the walk is
+# a different line. `collect(rules)` -> `collect(containerRules)` walks the empty
+# accumulator instead of the stylesheet, so containerAudit returns nothing at all
+# — top-level rules included, which is worse than the bug this task fixed.
+grep -Fq 'collect(rules);' "$vs" \
+  || fail "$v never starts the rule walk from each sheet's own cssRules, so containerAudit collects nothing and reports no dead @container rule at any depth"
 # EVERY match, not the first. `querySelectorAll` -> `querySelector` reinstates a
 # blocking false positive on valid CSS: a selector matching several elements
 # applies the moment ONE of them sits inside a container, and judging it by the
@@ -304,11 +396,19 @@ grep -Fq '131px/129px' skills/wp-demo-craft/references/verify.md \
 grep -Fq 'a measured padding under roughly 16px' skills/wp-demo-craft/references/verify.md \
   || fail "verify.md dismisses cramped-padding with no lower bound, so a 0px padding from a collapsed token is dismissed alongside the 131px false positives"
 
-# The @container lint's own scope, recorded rather than fixed: a limit nobody
-# wrote down is indistinguishable from a bug, and this branch's whole thesis is
-# that an untrustworthy gate gets dismissed wholesale.
-grep -Fq "each sheet's **top-level** \`cssRules\`" skills/wp-demo-craft/references/verify.md \
-  || fail "verify.md does not record that the @container lint reads only top-level cssRules, so an @container nested in @media/@supports/@layer is silently unlinted"
+# The @container lint's scope limit is retired, not recorded: it now recurses
+# into @media/@supports/@layer, so a stale "top-level only" line would teach a
+# build to keep dismissing a nested @container as unlinted when it is not.
+grep -Fq 'The lint now recurses into' skills/wp-demo-craft/references/verify.md \
+  || fail "verify.md does not record that the @container lint now recurses into @media/@supports/@layer bodies"
+grep -Fq '`CSSMediaRule`, `CSSSupportsRule` and `CSSLayerBlockRule` bodies' skills/wp-demo-craft/references/verify.md \
+  || fail "verify.md does not name all three grouping rule types the @container lint now recurses into"
+if grep -Fq 'it walks only each sheet' skills/wp-demo-craft/references/verify.md; then
+  fail "verify.md still records the retired top-level-only limit as current behaviour"
+fi
+if grep -Fq 'The `@container` lint under-reports in one known way' CLAUDE.md; then
+  fail "CLAUDE.md still lists the retired @container top-level-only limit as a known ceiling"
+fi
 # The first-match limit is retired, not recorded: it was a blocking false
 # positive, not an under-report, so the file must say the lint reads every match
 # — a stale "first match only" line teaches a build to dismiss a finding that is

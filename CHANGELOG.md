@@ -3,6 +3,180 @@
 ## [Unreleased]
 
 ### Fixed
+
+- **The `@property --container-max` guard stopped at the demo; the delivered
+  theme reproduced the bug it closed.** `/wp-section` copies thirteen
+  `padding-inline: max(var(--space-gutter), calc((100% - var(--container-max,
+  1280px)) / 2))` rules into the theme, but `/wp-init` Step D4 wrote neither the
+  token nor its registration into the Tailwind `@theme` block, so a malformed
+  value there unset `padding-inline` to `0` at every viewport in the artifact the
+  client actually receives. Step D4 now writes `--container-max` from
+  `demo/DESIGN.md`'s `spacing.container` and emits the same `@property` rule at
+  the top level of `main.css`. Measured at a 1920 viewport on that exact gutter
+  rule: `1440px` → 232px either way, `wide` → 312px with the rule and 0px
+  without, empty → 312px with and 0px without.
+- **`/wp-demo` Step 6 told the build to emit the `@property` rule "in the same
+  `<style>`", inside a step that writes one file per page.** A builder could
+  satisfy that on `index.html` alone and leave every interior page with the
+  unguarded token. The instruction now says every page this step writes, and the
+  suite pins the wording.
+- **Three records had the `overflow-y` rationale backwards.** The composition
+  comment, the check beside it and the CHANGELOG all said the implicit `auto`
+  would "silently clip". `auto` scrolls — it would add a second, vertical
+  scrollbar to a horizontal scroller; `hidden`, the value actually chosen, is the
+  one that clips, and clipping is what is wanted there. All three now say what
+  each value does.
+- **Both composition unit gates pinned one spelling and let the whole family
+  past.** The `vw` justification loop fed on a literal `[0-9.]vw`, so a `6dvw`
+  or `6vmin` ramp dropped into a composition with no comment passed (rc=0,
+  sha-verified), and `svw`/`lvw`/`vi`/`vmax` are the same shape — all of them
+  the viewport-relative sizing the conversion removed, and `dvw` the spelling a
+  mobile-aware author reaches for first. The self-container loop matched
+  `[0-9.]cqi` only, so a `6cqw` inside the rule declaring `container-type` also
+  passed, reintroducing the identical resolve-against-the-viewport defect with
+  a unit the library already uses elsewhere. Both patterns now cover their
+  families — `(d|s|l)?(vw|vi|vmin|vmax)` and `cq(i|b|w|h|min|max)`, each with a
+  trailing class so a unit cannot match inside a longer identifier. Viewport
+  *height* is deliberately excluded and the check says why: `container-type:
+  inline-size` offers no block-axis container unit to convert to.
+- **`demo-verify` failed a round on correct CSS whenever a container query was
+  scoped to a breakpoint.** `containerAudit()` decides whether an `@container`
+  rule can ever match by reading `container-type` off the subject's ancestors,
+  and it was sampled once per page at the first width. That was harmless while
+  the audit only saw top-level `@container` rules; once it also collected the
+  ones nested in `@media` — which is exactly where breakpoint-scoped
+  `container-type` lives — liveness became width-dependent. Measured on the new
+  `tests/fixtures/container-audit/index.html`: the single-width audit reported
+  `.bp-max__child`, whose container is declared inside `@media (max-width:
+  700px)` and is live at 390, as dead from its 1440 sample. `container-noop` is
+  blocking, so a demo written the ordinary way failed all three rounds and
+  `/wp-demo` wrote `demo/FAILED.md`, which `/wp-init`, `/wp-section` and
+  `/wp-yolo` then refuse to build on. The audit now runs at every width walked
+  and reports only the selectors dead at all of them; `external-module`, which
+  genuinely is width-independent, stays a once-per-page read. The fixture
+  carries both halves — two breakpoint-scoped pairs that must not be reported
+  and one genuinely dead rule that must be — and `tests/checks/wp-demo-verify.sh`
+  runs the real script over it and requires exactly `.dead__child`, so a fix
+  that reports nothing fails it too.
+- **`process-rail` shipped a dead tab stop and a phantom landmark on every craft
+  build at default motion.** The `tabindex="0" role="region" aria-label="{{title}}"`
+  added with the reduced-motion scroll fix was unconditional, but the scroll
+  region only exists under `prefers-reduced-motion`: at default motion the frame
+  is `overflow-x: hidden` and pinned, so Tab landed on a box that could not be
+  scrolled and every AT landmark list gained a region named after the `<h2>`
+  sitting inside it. The markup carries no a11y attributes now; `motion.js`
+  creates the affordance in the pan device's reduced-motion branch, on whichever
+  box actually scrolls (with the engine running that is the rail, whose own
+  `overflow-x: auto` makes it the scroll container; with the stylesheet alone it
+  is the frame), and names it with `aria-labelledby` pointing at the section's
+  own heading — so no unsubstituted `{{slot}}` and no hand-written, one-language
+  label can reach a screen reader. Measured in both modes on the real
+  composition with `motion.js` running: reduce → Tab lands on the rail,
+  `role=region`, name taken from the heading, ArrowRight moves `scrollLeft`
+  0 → 40; default → no `tabindex`, no `role`, no name, Tab skips the section.
+  `tests/checks/wp-craft-compositions.sh` asserts the markup is clean, that the
+  three lines live inside the pan device's reduced branch (extracted by its own
+  brace range, comments stripped), and that every `{{slot}}` used as an
+  accessible name anywhere in the library has a value in `fills.json`.
+- **`process-rail`'s reduced-motion rail overflowed the whole document instead
+  of scrolling inside its own frame.** Under `prefers-reduced-motion` the
+  section's own comment calls the rail "a native scroll region", but nothing
+  made it one: the frame was `overflow: visible` with no `overflow-x`
+  anywhere, so the row overflowed `documentElement` itself — measured
+  `scrollWidth` 2496 at a 1920 viewport, i.e. a horizontally scrolling page.
+  `.process-rail__frame` now carries `overflow-x: auto` inside that media
+  query, placed after the `overflow: visible` shorthand (which resets both
+  axes and would otherwise win by source order and silently undo the fix).
+  Measured before/after with a headless-Chrome probe with
+  `prefers-reduced-motion: reduce` forced, at four viewports:
+  `documentElement.scrollWidth` 1587 → 390, 1981 → 768, 2074 → 1280 and
+  2496 → 1920, with the frame itself still scrollable at each
+  (`scrollWidth` > `clientWidth`). `overflow-y: hidden` is then stated
+  explicitly, because CSS corrects a `visible` axis to `auto` when the other
+  axis is not visible — left implicit it computed to `auto`, which would give
+  anything that later grew vertically out of the frame a second, vertical
+  scrollbar on a horizontal scroller. `hidden` clips that overflow instead,
+  which is the intended behaviour here and the reason the value is stated at
+  all. And the scroll region takes `tabindex="0"` with `role="region"`, added
+  by `motion.js` under reduced motion rather than written into the markup: a
+  scroll container no keyboard can reach is a different bug, not a fix, and
+  before this change the overflowing row at least scrolled with the page.
+  Verified with real key events — without the affordance, ArrowRight left
+  `scrollLeft` at 0; with it, `scrollLeft` moved 0 → 80 at both 390 and 1920.
+  `tests/checks/wp-craft-compositions.sh` asserts
+  `overflow-x: auto` on the `__frame` rule specifically inside the
+  reduced-motion block, and after the `overflow: visible` shorthand, not
+  merely present anywhere in the file.
+- **A composition's fluid ramps ignored the container its breakpoints already
+  respected.** `@container` sizing (Task 3) covered layout, but the `vw` inside
+  `clamp()` gaps, padding and type scales still keyed off the viewport, so a
+  section dropped into a narrow column laid out for the column and then took
+  desktop-maximum spacing anyway — 40 occurrences across 12 of the 13
+  compositions. 37 now read `cqi`, tracking the block's own inline size. The
+  remaining 3 stay `vw`, each with a comment recording why. Two are the display
+  headline of a full-bleed hero (`hero-bleed`, `hero-type`),
+  sized against the viewport on purpose: a hero in a narrow column is not a
+  scenario those compositions serve. `hero-split` was counted a third until its
+  justification was checked against the composition it defends: that title sits
+  in a `1.1fr 0.9fr` split column, not the bleed. Its nearest container is the
+  section root, so `6cqi` measured identical at full bleed (86.4px at 1440,
+  76.8px at 1280, 38.4px at 390, same box and position) and 38.4px rather than
+  86.4px in a 420px column — it converted. The third is `feature-zigzag`'s root `gap`,
+  which *cannot* be `cqi` — that rule is the element declaring `container-type`,
+  and an element never matches a container query against the container it
+  establishes itself, so `cqi` there would resolve against the viewport while
+  reading as if it tracked the block. `tests/checks/wp-craft-compositions.sh`
+  asserts every remaining `vw` carries that justification on its own line or the
+  line directly above it, so one justified ramp can no longer green-light every
+  other `vw` left in the same file.
+- **A present but malformed `--container-max` (`wide`, an empty string) unset
+  `padding-inline` to `0` at every viewport, phones included.** `var(--container-max,
+  1280px)` only ever guarded an *absent* token — `var()` still substitutes a
+  malformed one, which makes `calc()` invalid at computed-value time. A craft build
+  now emits `@property --container-max { syntax: "<length>"; inherits: true;
+  initial-value: 1280px; }` alongside `:root` in `commands/wp-demo.md`'s generated
+  demo and in `bin/composition-preview.mjs`'s preview harness, so an invalid value
+  falls back to `initial-value` instead of unsetting. Measured before/after with a
+  headless-Chrome probe: `1440px` → 240px (unchanged), `wide` → 320px (was 0px),
+  empty → 320px (was 0px). Where `@property` is unsupported, the `1280px` `var()`
+  fallback remains the only guard, and it still covers only the absent case.
+- **`unobserved` could not fire, so a section that only the harness could not read
+  was reported as a section that does not move.** `demo-verify.mjs`'s `probe()`
+  counted `samplable` over a document-wide `querySelectorAll('[data-motion]')`, so
+  `samplable === 0` required *every* device on the page to be unreadable — the kind
+  could only fire where `no-engine` already did, and a single live `reveal` child
+  anywhere closed the door for the whole document. A section carrying only pointer
+  devices (`tilt`, `magnet`, `spotlight` publish nothing a scroll walk can sample)
+  was therefore judged by whether some *other* section happened to be readable, and
+  fell to `dead-scroll`, which blocks: a blocking finding on a working section.
+  `probe()` now takes the section index `bounds` already carries and walks
+  `[data-motion]` inside that subtree only, root included. A section's frame
+  signature is its own as a result, instead of being perturbed by every other
+  section on the page. The cue sweep, the canvas sample, `clipped` and `overflow`
+  stay page-level facts and keep querying `document`.
+- **A plain `<section>` on a moving page is not a dead engine.** `bounds` walks
+  `section, [data-motion]`, so scoping the device count alone would have made
+  `no-engine` — a blocking finding — fire on every ordinary static section, which is
+  the false positive the whole gate exists to avoid. `probe()` returns a separate
+  document-wide `pageDevices` count and `no-engine` keeps testing that, so it still
+  means "this demo carries no motion at all". A section with no device of its own on
+  a page that does move is now reported as nothing at all, not even advisory.
+- **The two verification contracts said both counters were page-wide.** That is now
+  true only of `no-engine`. `skills/wp-demo-craft/references/verify.md` and
+  `commands/wp-demo-verify.md` record `unobserved` as a per-section judgment, name
+  the pointer devices that produce it, and state that a device-free section is not a
+  defect.
+- **`containerAudit()` never saw an `@container` rule nested inside `@media`,
+  `@supports` or `@layer`.** The lint walked only each stylesheet's top-level
+  `cssRules`, so a rule nested even one level down was silently unlinted — the
+  exact failure class `container-noop` exists to catch, and `proof-row`'s own CSS
+  already nests `@media` inside `@supports`. The sheet loop now recurses into
+  `CSSMediaRule`, `CSSSupportsRule` and `CSSLayerBlockRule` bodies and collects
+  every `@container` rule found at any depth, keeping the existing all-matches
+  (`querySelectorAll`) and `parentElement`-rooted ancestor walk unchanged.
+  `skills/wp-demo-craft/references/verify.md` and `CLAUDE.md` no longer record
+  the top-level-only scope as a known limit.
+
 - **A full-site build paid three times over for work the flow then discarded.** Measured
   on a real twelve-page bilingual Tailwind build: roughly 1.9M subagent tokens before a
   single template part existed, ~90% of it spent reading and rewriting demo HTML. Three
@@ -55,6 +229,74 @@
   template part the walk produced, counting distinct pages rather than files and touching
   class names only. Hand-invoked `/wp-section` is unchanged: a section added to a finished
   theme has the whole theme to grep and nothing to aggregate.
+
+- **The viewport-height gate judges every declaration on a line, not the first.**
+  A rule written on one line carries several, and judging only the first let a
+  block-axis declaration shield an inline one behind it: `.x { height: 100vh;
+  width: 50vh }` exempted the `width` because the `height` came first. Measured:
+  the same `width: 50vh` alone failed and behind a `height` passed.
+- **The self-container check parses declaration blocks, not lines.** Line-based
+  brace tracking made the verdict depend on formatting — `@supports (display:
+  grid) { .a { container-type: inline-size; } .b { gap: 1cqi; } }` on one line was
+  flagged while the byte-identical CSS across four lines passed. Two separate
+  rules are not one rule whatever the whitespace. It now matches innermost
+  `{...}` blocks, which are exactly declaration blocks, so at-rule wrappers are
+  ignored without having to understand at-rules.
+- **The reduced-motion rail affordance is attached only when a box actually
+  overflows.** Below `process-rail`'s own documented three-step minimum neither
+  the rail nor the frame scrolls, and attaching `tabindex`/`role="region"`
+  anyway shipped a focusable, named region that scrolls nothing — the same dead
+  tab stop the affordance was written to remove, reached by a different route.
+  Measured: a short rail selects `container` unguarded (which scrolls nothing)
+  and nothing at all guarded.
+- **The viewport-height units are gated by AXIS, not by spelling.** Excluding
+  `vh`/`dvh`/`svh`/`lvh`/`vb` outright is correct for block-axis declarations —
+  a pinned frame is one screen tall by definition and `container-type:
+  inline-size` gives it nothing to convert to — but it also let a height unit be
+  smuggled into an inline ramp, where it is as viewport-relative as `vw` and as
+  convertible. A height unit on a width, gap, font-size or inline padding now
+  has to justify itself like any other. Unit detection runs over a copy with
+  comment bodies blanked and line numbers preserved, so a unit merely *named* in
+  prose is not mistaken for a declaration.
+
+### Changed
+
+- **All 26 composition previews re-rendered against the changed CSS.** Nine moved,
+  all of them at 1440 and none at 390, and the split is arithmetic rather than luck.
+  A container query length resolves against the query container's *content* box, so
+  on the nine compositions whose root carries both `container-type: inline-size` and
+  the `padding-inline` content inset, `cqi` at a 1440 viewport is 13.44px against
+  `vw`'s 14.4 — every converted ramp inside an active `clamp()` band lands 4-7%
+  smaller, which is the conversion doing exactly what it says. `hero-split`,
+  `hero-type` and `process-rail` did not move because their inset sits on `__inner`
+  / `__frame` rather than on the container, so `cqi` there equals `vw`; `footer-line`
+  carries no fluid ramp at all. No preview moved at 390: at that width every
+  converted ramp is already pinned to its `clamp()` minimum under both units. No
+  composition changed structurally, which is the signal that no ramp was converted
+  in the wrong place.
+- **The before/after walk was measured on a composition corpus, not on the v1.15.0
+  client demo.** That demo no longer exists on disk — the project is now a WordPress
+  install and the demo was consumed into the theme — so the comparison was made
+  two-sided instead of historical: a five-page corpus assembled from the thirteen
+  in-repo compositions (`composition-gate.sh`'s document shape plus the generated
+  `:root`, `motion.css`, GSAP and `motion.js`) was walked twice, once with
+  `bin/demo-verify.mjs` as of 1.15.0 and once with this revision. Release: **0
+  findings, exit 0**. This revision: **16 `unobserved`, 0 of every other kind, exit
+  0** — advisory, so the exit code is unchanged. Every one of the 16 is a parallax
+  image that is its own bounds entry (`hero-bleed__bed`, and `hero-split`'s unclassed
+  `<img>`): a one-device subtree whose only device publishes no `--motion-p`, which
+  the document-wide count could never see because the reveals elsewhere on the page
+  kept `samplable` non-zero. That is the per-section scoping, on a real page, and
+  nothing else in the corpus moved: no `dead-scroll`, no `no-engine`, no
+  `container-noop` in either walk — the library's nested `@container` rules all match,
+  so the deeper recursion found nothing new to report on clean input. A composition
+  corpus is cleaner than a real client build, so this shows the harness changed
+  behaviour as intended without showing what a messy build now scores; the ceiling is
+  recorded in `CLAUDE.md`.
+- README and `docs/commands.md` no longer describe the fluid `vw` ramps as open work,
+  and state that `unobserved` is counted per section while `no-engine` stays
+  document-wide.
+
 
 ## [1.15.0] - 2026-09-10
 
