@@ -26,6 +26,32 @@ grep -Fq "utilities/motion.css'" "$r" \
 grep -Fq '${motionCss}' "$r" \
   || fail "$r reads utilities/motion.css but never inlines it into the page's <style> block"
 grep -Fq 'process.exit(2)' "$r" || fail "$r does not exit 2 with no browser"
+# --container-max is used by all thirteen compositions. A var() the :root never
+# defines is invalid at computed-value time, so padding-inline does not fall back
+# to the shorthand beside it — it unsets, and every preview renders edge to edge.
+# Anchored on the declaration inside :root, not the bare token name, which also
+# appears in this file's own comment and in the _preview.md prose.
+grep -Fq -- '--container-max:${t.container}' "$r" \
+  || fail "$r does not write --container-max into the preview :root, so every composition's padding-inline is invalid and collapses to zero"
+# Emitting the property is not the contract; emitting a LENGTH is. Delete the
+# reader and keep the emission and the :root gains --container-max:undefined,
+# which is invalid in calc() exactly like the missing token was — all 26 previews
+# re-render edge to edge and the two greps above stay green. The other half of
+# this pair (the front-matter value is a length) is in wp-craft-design-md.sh.
+grep -Fq -- "container: p('spacing.container'" "$r" \
+  || fail "$r no longer reads the content width out of _preview.md, so it emits --container-max:undefined"
+# And the assertion that outlives all of them: the emitted :root itself. Every
+# grep above reads source text, and source text has four recorded bypasses —
+# comment the line out, rename the key, reassign after the read, add a duplicate
+# key later in the object. `--tokens` prints the exact string the page embeds
+# (one function builds both), needs no browser, and none of the first three survives it.
+# Its ceiling: it observes what previewTokens() and rootBlock() produce, not a
+# later mutation of the token object at the render call site — the flag has
+# already exited by then, and seeing that would take the render itself.
+tokens="$(node "$r" --tokens)" \
+  || fail "$r --tokens does not print the preview :root, so the emitted tokens cannot be asserted at all"
+echo "$tokens" | grep -Eq -- '--container-max:[^;}]*[0-9](px|rem|em|ch|vw|vmin|%)' \
+  || fail "$r emits a --container-max that is not a CSS length: $(echo "$tokens" | tr '\n' ' ')"
 
 c=skills/wp-demo-craft/compositions
 [ -f "$c/README.md" ] || fail "$c/README.md (the role table) is missing"
@@ -109,5 +135,47 @@ grep -Fq -- '--fill' "$r" || fail "$r has no --fill flag to apply $c/fills.json"
 grep -Fq -- '--fill' "$c/README.md" || fail "$c/README.md documents a regenerate command that ignores fills.json"
 # Interior page head never pins.
 grep -Eq 'data-motion="pin"' "$c/page-head/section.html" && fail "page-head pins; interior pages have no pin"
+
+# Without a content-width token every composition pads by the gutter alone, so on
+# a wide monitor content spans edge to edge. The token has to exist and the
+# compositions have to use it; either alone is half a fix.
+# In the token LIST, which is what a build generates :root from — pinned to the
+# neighbour it is listed beside, not to `--container-max` alone with a trailing
+# comma. The bare-name form is satisfied by any other paragraph in the file that
+# happens to punctuate the token the same way, including the explanatory one this
+# task added directly beneath the list; the two-token form is not.
+grep -Fq -- '`--space-gutter`, `--container-max`,' skills/wp-demo-craft/references/design-md.md \
+  || fail "design-md.md does not list --container-max in the token mapping, so a craft build has no content width to set"
+# And the token needs a source. An undefined var() makes padding-inline invalid at
+# computed-value time — it unsets rather than degrading — so a build that cannot
+# find a container value anywhere has to be told what to write.
+grep -Fq -- 'write `1280px`' skills/wp-demo-craft/references/design-md.md \
+  || fail "design-md.md does not name the default content width, so a build with no client or catalogue value writes nothing"
+
+# The per-composition half. Three failures this has to catch, each of which passed
+# an earlier form of it:
+#   - the declaration parked in a /* comment */, which constrains nothing;
+#   - the declaration moved off the rule that carries the inline gutter onto a
+#     leaf element, which proves the token appears in the file and nothing more;
+#   - the var() with no fallback, which is the zero-padding-everywhere failure.
+# So: strip comments, extract the ONE rule that legitimately owns the gutter, and
+# require the fallback form inside it.
+strip_comments() { perl -0pe 's{/\*.*?\*/}{}gs' "$1"; }
+n=0
+for f in skills/wp-demo-craft/compositions/*/section.css; do
+  name=$(basename "$(dirname "$f")")
+  # hero-split and hero-type put no padding on the root at all (it is a bare
+  # grid holding 100dvh); process-rail's gutter lives on the rail because travel
+  # is `rail.scrollWidth - frame.clientWidth`. The other ten carry it on the root.
+  case "$name" in
+    hero-split|hero-type) sel="$name"__inner ;;
+    process-rail)         sel="$name"__rail ;;
+    *)                    sel="$name" ;;
+  esac
+  strip_comments "$f" | sed -n "/^\.$sel {\$/,/^}\$/p" \
+    | grep -Eq -- 'padding-inline:[^;]*var\(--container-max, *1280px\)' && n=$((n + 1))
+done
+[ "$n" -ge 13 ] \
+  || fail "only $n compositions constrain content width against var(--container-max, 1280px) on the rule that carries their inline gutter, expected 13"
 
 echo PASS

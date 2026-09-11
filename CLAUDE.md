@@ -200,6 +200,17 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   contract; the React libraries are never dependencies. A feeling curve that needs an
   eleventh role builds it by hand under the same contract with a reason in
   `demo/BRIEF.md`.
+- **The `@container` lint under-reports in one known way.** `containerAudit()`
+  in `bin/demo-verify.mjs` iterates only each stylesheet's top-level `cssRules`,
+  so an `@container` block nested inside `@media`, `@supports` or `@layer` is
+  never linted — and `proof-row` already nests `@media` inside `@supports`, so
+  generated demos plausibly will nest container queries too. That direction is
+  under-reporting, never a false positive; widening the lint's scope is open
+  work, recorded in `references/verify.md` rather than done. The other limit
+  once recorded here — judging a selector by `document.querySelector(sel)`, its
+  first match only — is retired: it was a *false positive*, since a selector
+  matching several elements applies as soon as one of them sits inside a
+  container, and `container-noop` blocks. The lint reads every match now.
 - **The evaluator reads headless sheets.** Real-device feel is still unproven, and
   Landing Gallery screenshots are inspiration only.
 - **`designlang` extracts what a site declares.** A site built on inline styles or
@@ -229,3 +240,17 @@ These are deliberate, documented limits — not bugs to "fix" on sight:
   `compositions/fills.json`, which points at remote placeholder images. The committed
   `preview-1440.png` / `preview-390.png` are the artifact; treat them as such rather
   than assuming a rebuild is always available.
+- **`var(--container-max, 1280px)` only guards an absent token, not a malformed one.**
+  The fallback covers a project whose `:root` never defines the variable. It does not
+  cover a project that defines it badly — `wide`, an empty string: `calc()` treats the
+  whole expression as invalid at computed-value time and `padding-inline` resets to its
+  initial `0`, gutter and all, the same failure the fallback exists to prevent. Measured,
+  not theoretical.
+- **`unobserved` is a confession, not a measurement.** A section that genuinely
+  does not move and a section the harness cannot read are still not distinguished
+  by the harness — only by which finding it emits and what the operator does next.
+- **Verification serves over HTTP; the delivered demo is a `file://` artifact.**
+  A defect that only appears when the file is double-clicked can pass a green walk.
+  `external-module` findings name the one case known to matter.
+- **The same-client rule reads the plan, which is prose.** It constrains a build
+  that argues honestly and does not stop one that does not.

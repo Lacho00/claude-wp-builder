@@ -116,6 +116,14 @@ Proceed with the normal flow (Step 0 → Step 1 → ...). No changes to existing
 
 ## Step 0: Check for Existing Demo
 
+**Stop if `demo/FAILED.md` exists.** Print its first ten lines and stop. Building
+a theme from a demo that never passed verification produces a verified-looking
+site on an unverified foundation, and every later audit measures the theme rather
+than the demo it came from. The marker is cleared only by a craft verify loop
+starting over (`/wp-demo iterate`, or a fresh craft run), which deletes it at its
+top — so it always describes the last loop. Do not delete it by hand to get past
+this gate.
+
 Before asking any project questions, check if a demo already exists.
 
 ### If `$ARGUMENTS` looks like a file path (ends in `.html` or `.htm`):

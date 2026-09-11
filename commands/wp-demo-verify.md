@@ -15,8 +15,11 @@ half a machine cannot grade.
 
 `$ARGUMENTS` is a file path or a URL. Default to `demo/index.html`. A URL lets this
 run against the converted WordPress page, which is the only way to prove the motion
-survived conversion. Serve files over HTTP when the page fetches anything; a
-`file://` page silently falls back and proves nothing.
+survived conversion. A local file or directory is always served over HTTP on an
+ephemeral `127.0.0.1` port rather than opened as `file://`: an external
+`<script type="module">` is a cross-origin fetch against an opaque `file://`
+origin, Chrome blocks it silently, and the engine never boots — every page then
+reports dead scroll with no trace of why.
 
 A directory (`demo/`) walks every `*.html` in it, one output folder per page
 under `demo/.verify/<page>/`, and `findings.json` carries a `pages[]` array. Craft
@@ -80,8 +83,9 @@ desktop width, then full-page shots at 375, 576, 768, 1024 and 1440 (this replac
 `<dir>/.verify/[<page>/]<width>/`, with `findings.json` and one `sheet.png` per
 width.
 
-Exit codes: `0` no machine findings, `1` findings printed, `2` no usable browser,
-`3` the walk itself crashed (not a findings report, something threw mid-walk).
+Exit codes: `0` nothing blocking — either no findings at all, or advisory ones
+only; `1` at least one blocking finding printed; `2` no usable browser; `3` the
+walk itself crashed (not a findings report, something threw mid-walk).
 
 **On exit code 2**, fall back in this order: the Chrome or Playwright MCP
 screenshot tools if either is connected, then ask the user for screenshots at the
@@ -93,6 +97,53 @@ branch: `/wp-demo` probes first and stops on 2.)
 - **dead scroll**: consecutive positions where nothing changed. Shorten the
   section's span or add a cue. Authored silence recorded in `demo/BRIEF.md` is not
   dead scroll; say so instead of "fixing" it.
+- `unobserved` — the page carries devices but none the harness can sample, and
+  the stalled section carries no scrubbed device of its own. Advisory: it never
+  fails a round. `reveal` was reported as `dead-scroll` for every section that
+  used it until v3.1, which is what taught a build to dismiss 392 findings in
+  prose. A gate that cannot tell a good page from a broken one gets overruled,
+  and then so does every gate beside it.
+- A stalled section that *does* carry `pin`/`pan`/`kinetic`/`wipe`/`drift` and
+  still has nothing samplable reports blocking `dead-scroll`, not `unobserved`.
+  `drive()` is contractually required to publish `--motion-p` for those devices,
+  so its absence means the engine never ran — the `file://`-blocked module script
+  failure this split exists to keep catching — not that the device is unreadable.
+- `no-engine` — the page carries no `data-motion` at all. Fails the round. A
+  motionless page used to walk clean, because an empty frame signature could
+  never accumulate a stall.
+- **`unobserved` and `no-engine` are page-wide judgments, printed per section.**
+  Both counters are taken from a document-wide `querySelectorAll`, so the
+  `section` field on those rows says where the walk was when the stall
+  accumulated, not what that section's own markup carries. Expect one row per
+  section and read them as a statement about the page.
+- A section carrying no `pin`/`pan`/`kinetic`/`wipe`/`drift` is not judged by the
+  walk at all. `reveal` is a one-shot entry transition a few pixels long — it
+  runs on the child's own `view()` progress, around `scrollY = top - viewport` —
+  so whether a sparse walk lands inside it is sampling luck, and a miss reported
+  dead scroll on a section that reveals perfectly. Such a section is judged by
+  two samples instead, below the fold and fully entered, and reports
+  `dead-scroll` only when no reveal child's **scroll-driven animation** advanced
+  between them — `getAnimations()` filtered to a `ViewTimeline`, not the computed
+  opacity or transform, which an unrelated `@keyframes` or a re-resolving
+  percentage transform could move on a section with no reveal wired at all. A
+  child with no scroll-driven animation reads as `none` at both points, so an
+  unwired reveal is reported rather than skipped. A section that already sits
+  above the fold on load is not judged: its entry happened before the walk could
+  see it.
+- **An advisory-only run exits 0.** `unobserved` and `external-module` are the
+  only advisory kinds; every other kind blocks and still exits 1. Advisory
+  findings are printed with `[advisory]` on the line, and their `findings.json`
+  rows carry `"advisory": true` (blocking rows carry no flag) — read the field
+  rather than matching on the kind. The summary reads `nothing blocking, N
+  advisory finding(s)` — read that as "nothing to fix here, and here is what I
+  could not see", not as a clean run.
+- `container-noop` — an `@container` rule whose subject has no ancestor
+  establishing a container. Fails the round: the rule provably never applies. An
+  element never matches a container query against the container it establishes
+  itself, so a block that queries its own root silently loses its breakpoints.
+- `external-module` — the page loads `<script type="module" src=…>`. Advisory.
+  Verification serves over HTTP so it runs, but a client double-clicking the
+  file gets an opaque origin and Chrome blocks it, and the engine never boots.
 - **cue never reaches full opacity**: the window is too narrow or the ramps eat
   it. Widen the window or set explicit ramps.
 - **horizontal overflow**: at any width, always a defect.
@@ -103,6 +154,17 @@ branch: `/wp-demo` probes first and stops on 2.)
 Read only the sheets for this step: not the source, not `demo/BRIEF.md`. Score
 every page pass/fail on each line and write the table to `demo/VERIFY.md`
 (one section per page, one row per line, a one-sentence reason on every fail):
+
+Each round appends under its own `## Round N` heading. Nothing on disk currently
+separates five walk runs from five rounds, and a build once spent its rounds
+without ever knowing which one it was in.
+
+A machine finding may be argued with, but not silently. Dismissing one requires a
+`## Findings judged to be capture artefacts` heading, one entry per finding, each
+carrying the measurement that justifies it. Arguing with a finding on evidence is
+legitimate and has been right before; what must not be possible is a green-looking
+result whose green came from prose. A reader must be able to count what was fixed
+against what was argued away.
 
 - **First paint complete.** Headline, primary visual and CTA inside the 1440x900
   fold and the 390x844 fold, none hidden behind a scroll trigger.

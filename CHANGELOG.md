@@ -1,5 +1,261 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **A repeat client can no longer be handed back the structure they rejected.** The
+  fingerprint gate compares palette and type across clients and nothing within one, and a
+  build that fails the rubric records no row — so a client who rejected a demo and had it
+  deleted got a rebuild reproducing the rejected build's recorded header silhouette almost
+  exactly, invisible on every axis including palette. `fingerprint.md` gains a same-client
+  rule: when a row already exists for this client, the new build's grammar and hero
+  composition must differ, and the plan must say how — read from the plan and from any
+  prior demo in `docs/` or git history, not from the registry alone, since a deleted
+  predecessor left no row to compare against. Structure stays uncompared across clients
+  and v1's six retired axes stay retired; this is one same-client rule, not a seventh axis.
+  `/wp-demo` Step 2.6's fingerprint gate states the requirement and rules out "it is a
+  fresh build" as an answer, since the previous rebuild was written fresh and converged on
+  the same silhouette anyway.
+- **A content width, an asset inventory, and no inherited placeholders — three client
+  complaints, three contract holes.** Craft is told to ignore plain mode's `:root` clause,
+  which was the only place `--container-max` was ever defined, so every composition padded
+  by the gutter alone and above about 1600px a heading sat hard left and an aside hard
+  right with a dead field between them. `--container-max` joins the craft token set in
+  `references/design-md.md` and the neutral `_preview.md`, and all thirteen compositions
+  now constrain content with
+  `padding-inline: max(var(--space-gutter), calc((100% - var(--container-max)) / 2))` —
+  on the root where the root carries the gutter, on `__inner` for `hero-split` and
+  `hero-type`, and on `__rail` in `100cqw` for `process-rail`, whose `width: max-content`
+  box would otherwise disagree with itself about a percentage padding and leave the
+  horizontal travel short. Second: `docs/` reached a craft build exactly once, in the mode
+  decision, and `design-md.md` read the logo only for its colours — so a 400x400
+  transparent PNG of a client's real logo sat unused while the same run listed it as owed
+  by the client. Step 2.6 gains an asset inventory that writes every image, SVG and font
+  under `docs/` into `demo/BRIEF.md` with a role, and the header chrome takes its logo
+  from that list. Third: craft's exemption list named only Step 4's single-file, no-CDN
+  and `:root` clauses, leaving Step 4's `Logo area (placeholder)` and "placeholder images
+  using CSS background colors" in force — which is how a hero rendering the words
+  "HERO PHOTOGRAPH PENDING" passed "First paint complete", a rubric line that asks only
+  that a primary visual be present. The exemption now covers the placeholder-content
+  clauses too, and `wp-demo-craft/SKILL.md` blocks a placeholder image, a placeholder
+  logo, or the words "pending", "placeholder" or "TBD" in rendered text.
+- **A craft build that fails verification writes `demo/FAILED.md` and cannot pass for a
+  finished one.** The loop already treated a rubric FAIL as a failing round, but nothing
+  downstream changed what reached the client: `demo/index.html` stayed on disk looking
+  finished, no command read `demo/VERIFY.md` as a gate, and the only recorded penalty was
+  an unwritten fingerprint row the client never sees. `/wp-demo` now writes
+  `demo/FAILED.md` at the three-round cap — naming every failing rubric line, every
+  outstanding `slop` warning, every `dead-scroll`/`no-engine`/`container-noop` finding, and
+  the round count reached — and leads its report with the failure instead of burying it as
+  a caveat. `/wp-yolo` carries its own copy of the same craft verify loop (a craft
+  `/wp-yolo` run never calls `/wp-demo`), and its loop now writes the same marker at its
+  own three-round cap, so the full-site build path gates identically to the single-demo
+  one instead of only consuming a marker it never produces. `/wp-init`, `/wp-section` and
+  `/wp-yolo` all stop on `demo/FAILED.md` before building a theme from an unverified demo.
+  `demo/VERIFY.md` now numbers its rounds under
+  `## Round N` headings and requires a `## Findings judged to be capture artefacts` heading,
+  with a measurement per entry, before a machine finding can be dismissed in prose.
+- **A composition gate proves the library passes its own slop rule.**
+  `bin/composition-gate.sh` assembles each `skills/wp-demo-craft/compositions/*/section.html` +
+  `section.css` pair into a complete document before scanning, because `impeccable detect`
+  scans zero files and exits 0 against the bare fragments — the reason `closing-block`'s and
+  `proof-row`'s infinite loop animations went uncaught. `tests/checks/wp-craft-composition-gate.sh`
+  runs it against the library, and against two synthetic libraries it must reject: one carrying
+  an infinite marquee (`rc=2`) and one with a 0-byte `section.html` behind a real
+  stylesheet (`rc=1`). A gate only ever watched passing cannot be told from a disabled
+  one — mutating the detector filter or zeroing `MIN_HTML_BYTES` left the old check green.
+  `bin/composition-gate.sh` takes a `COMPS_DIR` override for that, and loses its disk
+  recount, which could never disagree with the counter it was checking.
+
+### Documentation
+- **The `@container` lint's two blind spots are written down.** `containerAudit()` walks
+  only each stylesheet's top-level `cssRules`, so an `@container` nested inside `@media`,
+  `@supports` or `@layer` is never linted — and `proof-row`'s own CSS already nests
+  `@media` inside `@supports` — and it judges a selector by `document.querySelector(sel)`,
+  its first match only. Both under-report; neither fires falsely. Recorded in
+  `references/verify.md` beside the harness's other limits and in `CLAUDE.md`'s ceilings,
+  and deliberately not fixed here: a limit nobody wrote down is indistinguishable from a
+  bug, which is how a gate becomes untrustworthy enough to dismiss wholesale.
+- **`cramped-padding`'s dismissal gains a lower bound.** `verify.md` recorded it as a known
+  false-positive source on evidence of 56/57px and 131/129px — large paddings the detector
+  misread — which as written taught builds to dismiss the one machine signal that catches a
+  collapsed token, whose padding computes to **0px**. A measured padding under roughly 16px
+  is now stated to be a true positive, not a capture artefact.
+
+### Fixed
+- **`container-noop` stops firing on valid CSS.** `containerAudit()` resolved each
+  `@container` rule's selector with `document.querySelector(sel)` — the first match only —
+  and then walked that one element's ancestors, so a selector matching several elements was
+  reported dead whenever the first match sat outside any container and a later one sat
+  inside, even though the rule genuinely applies. `container-noop` blocks, so a verification
+  round failed on correct CSS — the same untrustworthy-gate failure this branch exists to
+  cure, recreated inside the cure. The lint now walks every match and reports the selector
+  only when none of them has a container-establishing ancestor; the ancestor walk still
+  starts at `parentElement`, because an element never matches a container query against the
+  container it establishes itself. Three fixtures pin both directions: `.orphan` (no
+  container anywhere) is still reported, `.good__inner` (parent establishes one) is still
+  not, and the multi-match `.card` is not. The first-match limit recorded in
+  `references/verify.md` and `CLAUDE.md` is retired there rather than left standing as a
+  known ceiling — it was a false positive, not an under-report — and
+  `tests/checks/wp-craft-detect.sh` fails if either file reasserts it.
+- **The verification server enforces path containment.** `serve()` stripped leading `../`
+  from the request path and then called `join(root, rel)`, which is not containment: a path
+  normalising to a Windows drive-absolute `/C:/Windows/...` lands outside the root, and a
+  symlink inside the root pointing outside it was followed and served (measured: a symlink
+  to `/etc/passwd` returned 200 with its contents). A page under test is untrusted markup,
+  and the plugin ships to other people's machines, so "we run Linux" was not an answer. The
+  handler now resolves the path, follows the links with `realpathSync`, and refuses anything
+  that is not the root or under it with 404; a missing file still answers 404 rather than
+  throwing. The whole existing traversal battery still 404s, `/` still 403s, `/index.html`
+  and a nested asset still 200, and `tests/checks/wp-demo-verify.sh` runs that battery
+  against `serve()` lifted verbatim out of the script instead of grepping for it.
+- **A failed bind no longer hangs the walk.** `serve()`'s promise took only `resolve`, so a
+  `server.listen` that failed — port exhaustion, a sandbox refusing the bind — never settled
+  it and the walk stopped with no answer at all. A verification that produces no answer is
+  the failure this branch exists to stop, and a hang is its worst shape because it looks
+  like progress. The promise now rejects on `server.once('error', …)`, and the handler is
+  removed once `listen` succeeds so a later runtime error cannot reject an already-settled
+  promise; the walk's `finally` still closes the server on the throw path.
+- **`bin/composition-gate.sh` returns a verdict on an unexpected detector payload.**
+  Parseable JSON without a `findings` array left `findings` bound to the dict itself and the
+  next loop raised `AttributeError` — an unhandled Python traceback instead of a gate
+  verdict. The payload is normalised to a list first: a list stays as-is, a dict yields
+  `findings` only when that is itself a list, and anything else is a scan that did not
+  happen and exits 1, the same code as "could not scan". Treating an unreadable payload as
+  zero findings would be a vacuous pass. `tests/checks/wp-craft-composition-gate.sh` runs
+  the real gate behind a stub `npx` that emits `{"ok": true}` and asserts rc 1, no
+  traceback, and a message that says why.
+- **`demo/FAILED.md` stops being a one-way latch.** Nothing anywhere deleted the marker,
+  so the branch's headline mechanism shipped without its inverse: a craft `/wp-yolo` run
+  that exhausted its three rounds wrote the marker at Step 2.6 and was then refused by its
+  own Step 0 gate forever, and a build that failed, was fixed and then passed on a later
+  `/wp-demo iterate` still left the marker on disk, with `/wp-init`, `/wp-section` and
+  `/wp-yolo` permanently refusing a demo that had since passed and nothing telling anyone
+  why. The craft verify loop now clears it at its top (`rm -f demo/FAILED.md`) rather than
+  on success, in both entry points, so the marker always describes the **last** loop and
+  never a past one; the three Step 0 gates say what clears it. `references/verify.md`
+  records the rule and `tests/checks/wp-craft-failed-build.sh` pins the literal deletion
+  in every file that runs the loop, so a rewording cannot satisfy the pin while the
+  deletion is gone.
+- **`tests/checks/wp-craft-detect.sh` greps a comment-stripped copy of
+  `bin/demo-verify.mjs`.** It stripped nothing, so all ~27 of its pins on that file fell to
+  comment-parking — write `<broken code> // <original line>` and every grep stays green.
+  Nine were verified to fall that way, one of them re-opening the dead-engine regression a
+  whole fix round had closed (dropping `&& !b.scrub` from `frame.samplable === 0 &&
+  !b.scrub`). The check now strips block comments and line comments once into a temp file
+  and greps that, leaving URLs and escaped slashes in regex literals intact.
+- **Four more text-pins become behaviour-pins.** A comment-stripped grep does not catch a
+  polarity inversion or a renamed constant, so each is pinned on the line that carries it:
+  the `view()` guard including its `!` and early return (dropping one character makes
+  `revealState` return the unjudged sentinel on every browser that *has* `view()` — every
+  browser the harness runs on — and reveal detection ceases with the suite green); the
+  `CSSContainerRule` comparison and the `if (!el) continue;` beneath it (either one
+  renamed or inverted silences the `@container` lint entirely); and `revealState`'s own
+  `[data-motion="reveal"]` queries, both the section-root `matches()` and the descendant
+  `querySelectorAll()` (renaming the attribute value collects zero devices and every
+  section is skipped). All four are the same defect as the `[type="module"]` pin this
+  branch already closed.
+- **`bin/composition-preview.mjs --tokens` prints the preview `:root` and exits 0 without a
+  browser**, and `tests/checks/wp-craft-compositions.sh` asserts that the emitted
+  `--container-max` is a CSS length. Every other assertion about that token reads source
+  text, which has four recorded bypasses — comment the line out, rename the key, reassign
+  after the read, add a duplicate key later in the object — and an output assertion
+  defeats all four at once. One `rootBlock()` builds both the flag's output and the page's
+  own `<style>`, so the two cannot drift.
+- **`dead-scroll` learns to tell a section that does not move from one the harness cannot
+  read.** `reveal` publishes no `--motion-p` and no composition carries a cue, so every
+  library-built section reported `dead-scroll` forever — 392 findings on a 12-page build
+  whose only clean section was its one hand-built pin. `bin/demo-verify.mjs`'s probe now
+  samples the reveal child the ruleset targets (`[data-motion="reveal"] > *`); a section
+  the harness still cannot read reports `unobserved` and stays advisory, and a page with
+  zero `data-motion` devices reports `no-engine` instead of walking clean on an empty
+  frame signature. Sampling the reveal child was necessary but not sufficient: `reveal`
+  is a one-shot entry transition a few pixels long, driven by the child's own `view()`
+  progress around `scrollY = top - viewport`, so a sparse walk caught it by luck and a
+  miss reported `dead-scroll` on a section that reveals perfectly. A section carrying no
+  `pin`/`pan`/`kinetic`/`wipe`/`drift` is now judged by two samples — below the fold and
+  fully entered — and reports `dead-scroll` only when no reveal child moved between them.
+  Scrubbed sections keep the walk and its stall logic unchanged.
+- **Advisory findings stop failing the round.** `unobserved` raised `demo-verify.mjs`'s
+  exit code exactly like `dead-scroll`, so a page the harness merely could not read still
+  failed — the false positive moved rather than left. The blocking/advisory split is named
+  once, at the top of the file; advisory lines print with `[advisory]` and land in
+  `findings.json` like any other, a run whose findings are all advisory exits `0` and says
+  `nothing blocking, N advisory finding(s)` instead of looking clean, and any blocking
+  finding still exits `1`.
+- **The compositions that failed the library's own slop gate are scroll-linked now.**
+  `closing-block` ran a 7s infinite conic sweep and `proof-row` a 38s infinite translate,
+  both reported by `impeccable` as `marquee` at `category=slop`/`severity=warning` — the
+  shape that fails a verification round before a screenshot is taken — so every build
+  using the closing or proof role failed by construction. Both are now scroll-linked
+  through the view timeline: the beam sweeps once on entry, the name track drifts while
+  its section is on screen. No device, no span, no motion-cost change, so the role table
+  stays true. `proof-row` loses its hover/focus pause block, which existed only because
+  the movement was automatic.
+- **A page whose motion engine never ran fails again, and a spoofed reveal stops passing.**
+  Making the harness stop crying wolf had also stopped it barking at a real intruder: a
+  demo carrying `pin`/`kinetic` markup whose `motion.js` never booted — a `file://`-blocked
+  module script, the failure that shipped a demo the client rejected — reported `unobserved`
+  and exited `0`. `drive()` is contractually required to publish `--motion-p` for
+  `pin`/`pan`/`kinetic`/`wipe`/`drift`, so a stalled section carrying one of those with
+  nothing samplable now reports blocking `dead-scroll`; `unobserved` stays for the section
+  the harness genuinely cannot read. The two-point reveal check now compares the reveal
+  child's scroll-driven animation (`getAnimations()` filtered to a `ViewTimeline`) instead
+  of its computed opacity and transform, which any decorative `@keyframes` on the same
+  children — or a percentage transform re-resolving after a lazy image loads — could move
+  on a section with no reveal wired at all. `findings.json` rows now carry
+  `"advisory": true`, so a consumer reads the field instead of keeping its own copy of the
+  kind list. Scrubbed sections keep today's geometry and stall logic.
+- **A reveal on a browser without `view()` is unjudged, not dead.** `revealState` reads
+  `getAnimations()` for a `ViewTimeline`, but `motion.js` drives `reveal` in GSAP whenever
+  `CSS.supports('animation-timeline', 'view()')` is false, and a GSAP tween is rAF-driven
+  and invisible to `getAnimations()` — so on such a browser a working section read
+  `none|none` and was reported `dead-scroll`. It now returns the unjudged sentinel there,
+  the same one the above-the-fold and `parallax` ceilings return, and `verify.md` records
+  it as the fourth limit. Latent on the current harness, where `view()` is supported.
+  `tests/checks/wp-craft-detect.sh` also pins the two-point block's own guard by polarity
+  and by what it gates: inverting `!b.scrub` or wrapping the condition in `false &&` left
+  every existing assertion green while reveal detection disappeared entirely.
+- **`bin/demo-verify.mjs` lints dead `@container` rules and serves the walk over HTTP.**
+  An `@container` rule whose subject has no ancestor declaring `container-type` never
+  applies and said nothing about it — this cost a previous effort a whole task and cost a
+  real client build six blocks that never rendered, found only from screenshots. A new
+  `container-noop` finding, blocking, reports the selector; the ancestor walk starts at
+  `parentElement`, never at the element itself, because a container query never matches
+  the container an element establishes on its own. Separately, the walk loaded pages as
+  `file://`, where an external `<script type="module">` is a cross-origin fetch against
+  an opaque origin, so Chrome blocks it silently, the engine never boots, and every page
+  reports dead scroll with no trace of why — the exact failure this branch exists to fix,
+  and it cost an hour to diagnose. Local targets are now served on an ephemeral
+  `127.0.0.1` port instead; the contact sheet stays on `file://`, since it is a locally
+  generated file with inlined images. A new advisory `external-module` finding names any
+  module script that survives into a built demo, since it works served and breaks the
+  moment a client double-clicks the file.
+- **A malformed percent-encoding no longer kills the walk.** `demo-verify.mjs`'s demo
+  server decoded the request path outside its `try`, so a request carrying a bare `%` —
+  a stray character in an href or asset path is enough — threw `URIError` out of the
+  request handler and Node killed the process mid-run. The decode is inside the guard
+  now and answers `400`; traversal vectors still `404` and a directory still `403`.
+  Three assertions in `tests/checks/wp-craft-detect.sh` also stopped being text-pins:
+  the container lint's polarity (`if (!found)`), the module-script selector
+  (`script[type="module"][src]`) and the once-per-page `staticChecked` gate are each
+  anchored on the token whose inversion or typo silently switches the check off.
+- **The 392-finding client baseline re-walked at 33.** `bin/demo-verify.mjs demo/` against
+  `next step credit solution/demo/` (12 pages, the build this branch exists to fix) now
+  reports 32 `dead-scroll` and 1 `container-noop`, zero `unobserved` and zero
+  `external-module`. The drop is real and traces mostly to serving over HTTP: with the
+  module script no longer blocked, `motion.js` boots and most sections read as moving
+  outright, with no finding at all, rather than falling back to `unobserved`. None of the
+  32 remaining `dead-scroll` findings moved to `unobserved` on this walk, because
+  `unobserved` requires the probe's page-wide `samplable` count to be zero — a whole-page
+  "the engine produced nothing readable" state that a booted engine essentially never
+  reaches, even on a page carrying a genuine dead section elsewhere. The remaining findings
+  are one real design defect repeated across pages (`closing-block__inner`, dead on 9 of 12)
+  and one page with two additional dead sections (`index.html`'s `how` and `steps__title`).
+  This walk does not exercise the `unobserved` path at all; that it fires correctly when a
+  page's engine is genuinely unreadable is asserted by `tests/checks/wp-craft-detect.sh`,
+  not demonstrated by this baseline.
+
 ## [1.14.0] - 2026-09-09
 
 ### Added

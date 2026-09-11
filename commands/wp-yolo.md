@@ -31,6 +31,14 @@ The command is named `/wp-yolo`; that name is NOT the `--yolo` flag. A bare
 `/wp-yolo <folder>` with no flags runs the Step 3 checkpoint and waits for the
 user. Only the literal `--yolo` token in `$ARGUMENTS` skips it.
 
+**Stop if `demo/FAILED.md` exists.** Print its first ten lines and stop. Building
+a theme from a demo that never passed verification produces a verified-looking
+site on an unverified foundation, and every later audit measures the theme rather
+than the demo it came from. The marker is cleared only by a craft verify loop
+starting over (`/wp-demo iterate`, or a fresh craft run), which deletes it at its
+top — so it always describes the last loop. Do not delete it by hand to get past
+this gate.
+
 Read `.claude/CLAUDE.md` at the project root. If it does not exist, refuse:
 ```
 Error: No .claude/CLAUDE.md found. Run /wp-init first to scaffold the project.
@@ -182,8 +190,12 @@ and never build a craft demo blind. `--yolo` does not waive this. The
 verify loop that follows is `/wp-demo-verify demo/` over the directory, at most
 **three rounds**, reading the pass/fail table it writes to `demo/VERIFY.md` and
 fixing every failed line before the next round; after three rounds with failures,
-stop and report rather than converting a demo the rubric never passed. That loop is
-the gate this mode exists for, and it blocks — unlike Step 5's
+stop and write `demo/FAILED.md` — in the same shape `/wp-demo` Step 2.6 defines —
+rather than converting a demo the rubric never passed. Open the loop with
+`rm -f demo/FAILED.md`, exactly as `/wp-demo` Step 2.6 defines: the marker
+describes this run and not a past one, and clearing it is the only thing that
+lets a run which wrote the marker get back past this command's own Step 0 gate.
+That loop is the gate this mode exists for, and it blocks — unlike Step 5's
 `/wp-responsive-check`, whose findings are folded into the Step 6 review list. The
 rules are stated here in the same terms `/wp-demo` Step 2.6 uses on purpose, because
 the two entry points must gate identically — do not restate them a third way.
@@ -613,7 +625,10 @@ Run, in order:
 5. **`/wp-polish`** — MANDATORY. Same dispatch. Cleans the seeded site and theme
    (menus, placeholders, leftovers) after seeding, so it runs after item 1, never before.
 6. **`/wp-responsive-check`** — MANDATORY. Same dispatch; it forwards to
-   `/wp-demo-verify` against the built site. Fold every finding it reports into Step 6.
+   `/wp-demo-verify` against the built site. Fold every **blocking** finding it reports
+   into Step 6. Findings printed `[advisory]` (rows flagged `"advisory": true` in
+   `findings.json`) are what the harness could not read, not what the page got wrong —
+   list them under Review, do not "fix" them.
 7. **`/wp-audit --all --security-level recommended`** — MANDATORY. Same dispatch. This
    is the only step that measures SEO, Core Web Vitals/performance, accessibility,
    security and coding standards; nothing earlier does. Its Step 9 fix prompt is

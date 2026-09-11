@@ -80,6 +80,11 @@ before writing any markup.
    `${CLAUDE_PLUGIN_ROOT}/skills/wp-demo-craft/references/fingerprint.md`, which
    owns the row shape, the header and the comparison. On a failure change the
    type pair or the accent, not the log.
+
+   If the registry already holds a row for this client, or the project shows a prior
+   demo in `docs/` or in git history, the plan states how this build's grammar and
+   hero composition differ from it. "It is a fresh build" is not an answer — the
+   previous rebuild was written fresh and converged on the same silhouette anyway.
 3. **Brief.** Self-author `demo/BRIEF.md` from the project docs: person, pain,
    promise, vibe words, two or three named references and what to take from
    each, assets owned, the feeling curve (one line per section: emotion, then
@@ -87,6 +92,16 @@ before writing any markup.
    where ___", authored silence. Mark anything invented "Self-authored, not
    interviewed". Ask, in one pass, only what the docs cannot answer. Show the
    brief once and proceed on a yes.
+
+   **3.5. Inventory the assets on disk.** List every image, SVG and font under the
+   project's `docs/` with a role — `logo`, `hero`, `portrait`, `product`, `texture`,
+   `font` — and write the list into `demo/BRIEF.md` under `## Assets on disk`. The
+   build uses them; any file left unused is named there with the reason. The header
+   chrome takes its logo from this list.
+
+   A previous build set the wordmark as live text while a 400x400 transparent PNG of
+   the client's real logo sat in `docs/`, and listed "transparent-PNG logo" as owed
+   by the client in the same run. Nothing in the flow had told it the file existed.
 4. **Classify the domain.** If `.wp-create.json` already has `"domain"` — a prior
    `/wp-demo` or `/wp-yolo` run against this same project recorded it — read it and
    move on; **do not re-classify**. The manifest is the shared source of truth, and a
@@ -138,7 +153,8 @@ before writing any markup.
    exists to fix, and step 7 walks the whole directory. Every page carries the
    header and footer chrome from Step 4 (logo, nav, language switcher, hamburger
    at mobile, footer columns) and Step 4's responsive breakpoints; ignore Step
-   4's single-file, no-CDN and `:root` token clauses, which are the plain path.
+   4's single-file, no-CDN, `:root` token and placeholder-content clauses, which
+   are the plain path.
    Generate `:root` from `demo/DESIGN.md` onto the token names in
    `${CLAUDE_PLUGIN_ROOT}/skills/wp-demo-craft/references/design-md.md` — the
    craft tokens (`--color-canvas`, `--color-ink`, `--font-display` and the rest),
@@ -160,7 +176,12 @@ before writing any markup.
    carries the `reveal` device wherever the browser supports scroll-driven
    animation; without it, a demo in a modern browser reveals nothing, because
    `motion.js` yields that device to the stylesheet.
-7. **Loop.** At most three rounds. Each round runs `/wp-demo-verify demo/` — the
+7. **Loop.** At most three rounds. **Clear the marker before the first round**:
+   `rm -f demo/FAILED.md`. The marker describes the **last** verify loop, never a
+   past one — a build that failed, was fixed and now passes must not leave a file
+   on disk that `/wp-init`, `/wp-section` and `/wp-yolo` permanently refuse to
+   build on, and a `/wp-yolo` run that wrote it must be able to re-enter its own
+   Step 0 gate. Nothing else deletes it. Each round runs `/wp-demo-verify demo/` — the
    directory, so every page is walked — for the `impeccable detect` gate and the
    contact sheets. That command is the one place the detector and rubric
    contract is written; run it, do not restate it here. **Dispatch its critique
@@ -169,14 +190,25 @@ before writing any markup.
    with one sentence per failure, which is what goes into `demo/VERIFY.md`. The
    context that wrote the markup and the brief cannot grade the render — that is
    the self-assessment the rubric exists to remove. Read `demo/VERIFY.md`, fix
-   every failed line and repeat. After three rounds with failures, stop, report
-   what still fails, and go to step 9 without recording.
+   every failed line and repeat. After three rounds with failures, stop and write
+   `demo/FAILED.md` before going to step 9 without recording. It names every
+   failing rubric line, every outstanding `slop` finding at `warning` severity,
+   every `dead-scroll`, `no-engine` and `container-noop` finding, and the round
+   count reached. A craft build that failed verification is not a deliverable,
+   and the only thing that made a previous one look like one was that nothing on
+   disk said otherwise.
 8. **Record.** Only for a passing build: append the build's row to
    `~/.claude/wp-builder/FINGERPRINTS.md` in the shape `fingerprint.md` defines,
    and write the same fields into `.wp-create.json` under `"fingerprint"`. A
    build that failed after three rounds records no fingerprint, in either place.
 9. **Report.** The intended curve, the felt curve from `demo/VERIFY.md`, the
-   diff, the detector summary, and what could not be verified.
+   diff, the detector summary, and what could not be verified. When
+   `demo/FAILED.md` exists, the summary opens with the failure and its numbers —
+   the count of failing rubric lines out of seven, and the outstanding finding
+   count — before anything the build did well. A previous build disclosed "I ran
+   2 of 3 rounds… did not re-grade independently" as the third of three caveats
+   under a completion banner, and the client read it as a finished demo.
+   Disclosure that has to be inferred is not disclosure.
 
 A craft build is finished here. Steps 3 and 4 are the plain path: take Step 4's
 header, footer and responsive requirements (step 6 above says so) and nothing
