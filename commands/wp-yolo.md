@@ -216,9 +216,7 @@ rule always wins over the no-demo-HTML rule.
 
 ## Step 2.6: Phase 1.6 — Demo conversion (tailwind template only)
 
-Skip this step entirely when `template == basic`, and skip it when the walk produced no
-`template-parts/section-*.php` files — an author-mode agent handed an empty file list has
-nothing to promote and reports as though it did.
+Skip this step entirely when `template == basic`.
 
 Skip it entirely when `demo mode` is **craft**, too, and say so in one line. A craft
 demo is built from `skills/wp-demo-craft/compositions/`, whose CSS is already

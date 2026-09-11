@@ -89,6 +89,15 @@ grep -Fq 'Only the `class` attribute is written' <<<"$s26" \
 for a in id 'aria-*' title; do
   grep -Fq "$a" <<<"$s26" || fail "Step 2.6's untouched-attribute list omits $a"
 done
+# Step 2.6 runs before the section walk, so it cannot know what the walk produced.
+# An unbounded edit once copied Step 4.4's skip clause up here, which would have
+# skipped the whole tailwind demo conversion on a condition that cannot be evaluated.
+if grep -Fq 'template-parts/section-*.php` files' <<<"$s26"; then
+  fail "Step 2.6 carries Step 4.4's promotion skip condition; it cannot evaluate it yet"
+fi
+if grep -Fq 'nothing to promote' <<<"$s26"; then
+  fail "Step 2.6 talks about promotion, which does not exist until after the walk"
+fi
 
 # --- 4. one @apply promotion pass, not one per section --------------------
 # The ladder promotes a group seen "3+ times, or on 2+ distinct pages" — a
