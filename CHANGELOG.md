@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.17.0] - 2026-09-13
 
 ### Added
 
@@ -63,15 +63,6 @@
   `WP-046` hunts the broken one, with a render probe rather than a lint. `WP-047` reports
   class names a template part emits that no stylesheet defines — a section that ships
   completely unstyled while every check passes.
-
-### Changed
-
-- **`SEO-023` names the pages and covers posts.** It reported `18/24 pages have meta
-  descriptions` — a count the reader had to re-derive to act on — and its query filtered
-  `post_type='page'`, so a money page published as a post was never examined at all. It now
-  lists every published post and page without a description, with its URL and title. Where a
-  description is missing Google writes the snippet itself, and on a non-Spanish crawl of a
-  Spanish page it will often write it in English.
 
 - **The site-name signal is checked, and written from one source.** Nothing in the plugin
   read `og:site_name` — the signal that decides whether an engine prints the brand or the
@@ -165,6 +156,15 @@
   has to a human.
 - Optional Firecrawl (MCP or `firecrawl_url`) and DataForSEO (MCP) tiers improve
   extraction and local competitor discovery. No API key is ever requested.
+
+### Changed
+
+- **`SEO-023` names the pages and covers posts.** It reported `18/24 pages have meta
+  descriptions` — a count the reader had to re-derive to act on — and its query filtered
+  `post_type='page'`, so a money page published as a post was never examined at all. It now
+  lists every published post and page without a description, with its URL and title. Where a
+  description is missing Google writes the snippet itself, and on a non-Spanish crawl of a
+  Spanish page it will often write it in English.
 
 ### Fixed
 
