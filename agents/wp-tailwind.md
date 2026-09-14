@@ -237,6 +237,24 @@ inventing the design. Then run the Procedure over the translated markup — the
 ladder still decides what, if anything, earns an `@apply` class, and for most
 sections the answer is nothing.
 
+### Transcription Mode (when the dispatch says "transcribe")
+
+The `wp-css` agent carries this mandate for the `basic` template, and it applies here
+unchanged for `tailwind`. Only the notation differs — the converted demo's utility
+classes ARE its declared values — so the same rule binds: **the demo is the SOURCE OF
+TRUTH, not inspiration. Your job is to COPY, not re-author.**
+
+- Carry every utility across **character for character**. `gap-[9px]` is not `gap-2`,
+  `leading-[19.3636px]` is not `leading-tight`, `max-[1024px]:` is not `max-lg:`. An
+  "equivalent" utility you judged close enough is a measured geometry change, and it is
+  a bug here.
+- Every breakpoint variant survives. A variant dropped because the value looked like the
+  default is the most common form of this defect, and it only shows at that breakpoint.
+- **Do NOT "improve":** do not round a bracket value, do not add a touch-target
+  minimum, do not collapse a utility group you find redundant, do not resize anything.
+- Promotion to `@apply` is a *move*, never a rewrite. The declarations inside the class
+  you create are the same utilities, in the same order, with the same values.
+
 ### Procedure
 
 1. **Read the markup you were handed.** It is already carrying Tailwind utility

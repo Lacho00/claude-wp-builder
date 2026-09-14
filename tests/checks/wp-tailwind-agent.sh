@@ -443,4 +443,20 @@ if ! printf '%s' "$flatf" | grep -Eq 'assets/css/src/tailwindcss/main\.css[^.]{0
   echo "FAIL: the colour-mapping step does not send the agent to <theme>/assets/css/src/tailwindcss/main.css for the @theme values — .claude/CLAUDE.md names that file but holds no colour values, so an agent reading only it falls through to Tailwind's built-in palette"; exit 1
 fi
 
+# Section Authoring Mode shipped with NO fidelity mandate at all. `wp-css` carried one
+# ("the demo is the SOURCE OF TRUTH, not inspiration. Your job is to COPY, not
+# re-author"), and that agent runs only on `basic` — so every tailwind project was built
+# by agents that were never told to copy. The drift was always in the same direction:
+# an "equivalent" utility instead of the declared one, a dropped breakpoint variant.
+# Assert the mandate and the two substitutions that defeated it.
+if ! printf '%s' "$flatf" | grep -qF 'SOURCE OF TRUTH'; then
+  echo "FAIL: agents/wp-tailwind.md never calls the demo the SOURCE OF TRUTH — the mandate agents/wp-css.md carries for \`basic\`, absent on the path that builds every tailwind project"; exit 1
+fi
+if ! printf '%s' "$flatf" | grep -qF 'character for character'; then
+  echo "FAIL: agents/wp-tailwind.md does not require utilities carried across character for character — without it, an 'equivalent' utility is a silent geometry change"; exit 1
+fi
+if ! printf '%s' "$flatf" | grep -qF 'breakpoint variant survives'; then
+  echo "FAIL: agents/wp-tailwind.md does not require every breakpoint variant to survive — a variant dropped as 'the default' only shows at that breakpoint, which is where these defects hid"; exit 1
+fi
+
 echo PASS

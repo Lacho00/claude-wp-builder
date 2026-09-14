@@ -22,6 +22,35 @@
   rungs the wording described. The grant assumes the conventional server ids; a server
   registered under a different id is not matched and degrades to the rung below, which is the
   intended behaviour when a server is genuinely absent.
+- **The `tailwind` transcription path had a licence the `basic` path never had, and every
+  section built through it drifted.** `/wp-section`'s overlay called the converted demo "a
+  geometry reference, **not** a source of verbatim declarations" and told the agents to
+  "reproduce this geometry using Tailwind utilities", never to "copy the declared values
+  verbatim". That sentence is true about the notation — the conversion leaves no raw
+  declarations behind, only utility classes — and false about the mandate, and it was read
+  as the second thing: an agent that may reproduce geometry may also substitute a utility
+  it judges equivalent. On `basic` the same overlay says the demo CSS is the SOURCE OF
+  TRUTH and its declared values are copied exactly, so only one of the two paths was ever
+  bound to the demo.
+
+  The converted demo is now the source of truth on both paths, with the tailwind notation
+  spelled out: its utility classes ARE its declared values, carried across character for
+  character, element structure included. `gap-[9px]` is not `gap-2`, `max-[1024px]:` is not
+  `max-lg:`, and two siblings that swap at a breakpoint stay two elements.
+
+- **`agents/wp-tailwind.md` shipped Section Authoring Mode with no fidelity mandate at
+  all.** `agents/wp-css.md` carries one — "the demo is the SOURCE OF TRUTH, not
+  inspiration. Your job is to COPY, not re-author" — and that agent runs only on `basic`,
+  so every project on the `tailwind` template was authored by an agent that was never told
+  to copy. It now carries the same mandate, including that promotion to `@apply` is a move
+  and never a rewrite.
+
+- **`agents/wp-template.md` bound only CPT teasers to the demo's markup.** It owns the
+  element tree for every section on both templates, and nothing outside the teaser rule
+  told it to preserve one, so a wrapper judged redundant or two siblings merged into one
+  passed every gate — the defect renders correctly at the breakpoint being looked at. It
+  now requires the demo's elements, class attributes and breakpoint variants to survive
+  intact, and one ACF field per distinct string rather than one field and a shortened copy.
 
 ## [1.17.0] - 2026-09-13
 

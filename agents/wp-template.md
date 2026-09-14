@@ -330,6 +330,25 @@ dropdown control. A `menu_class` or submenu class that diverges from this leaves
 CSS targeting selectors the walker never emits (dead selectors — the Layer-1 nav-contract
 gate fails).
 
+## Markup Fidelity (every section, both templates)
+
+The demo markup you are handed is the SOURCE OF TRUTH, not inspiration. Your job on the
+markup is to COPY; the authoring you own is the WordPress layer wrapped around it — the
+ACF calls, the escaping, the i18n helpers, the loops.
+
+- **Every element the demo renders becomes an element here.** Do not collapse a wrapper
+  you judge redundant, and do not merge two siblings into one. Two `<span>`s that swap at
+  a breakpoint are two `<span>`s; one of them plus a CSS guess is a defect that only
+  appears at that breakpoint.
+- **Every class attribute is copied character for character.** On `tailwind` that
+  includes each breakpoint variant (`max-md:`, `lg:`, `max-[1024px]:`) and each bracket
+  value — an "equivalent" utility is a measured geometry change.
+- **Two labels in the demo need two fields.** When an element's text differs between
+  breakpoints or states, the section gets one ACF field per distinct string, not one
+  field and a shortened copy. Say so in your report so `wp-acf` defines both.
+- A demo element you believe is a mistake is still transcribed. Report it; do not correct
+  it silently.
+
 ## Teaser Fidelity (CPT teaser / archive cards)
 
 CPT single-post teasers (used in archive/blog loops, e.g. `.blog__card` above) MUST transcribe the demo's own teaser layout for that content type — matching its markup structure, image treatment, and meta fields (date, category, author, etc.) exactly as shown in the demo HTML. Do not reuse a generic archive card template for a CPT that has its own teaser design in the demo. Only fall back to a generic card (like the `WP_Query` example above) when the demo has no dedicated teaser markup for that post type.
