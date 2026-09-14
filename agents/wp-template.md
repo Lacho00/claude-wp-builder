@@ -348,6 +348,20 @@ ACF calls, the escaping, the i18n helpers, the loops.
   field and a shortened copy. Say so in your report so `wp-acf` defines both.
 - A demo element you believe is a mistake is still transcribed. Report it; do not correct
   it silently.
+- **In a repeated block, what varies BETWEEN items is data, not noise.** A grid of cards
+  is not one card drawn N times: the demo's six practice cards used three `<img>` SVGs and
+  three icon-font glyphs, at three different glyph sizes, and three of the six carried a
+  second, longer heading for phones. Normalising that to one icon type at one size and one
+  heading is the single most expensive form of this defect, because the markup looks right
+  and every card is wrong. Walk the repeated block item by item, list what differs, and
+  report each axis of variation so `wp-acf` defines a field for it.
+- **A list's ORDER and COUNT come from the demo, never from the query's defaults.**
+  `get_posts()` and `get_terms()` order by date and by name; the demo's order is editorial
+  and almost never either. When the section shows fewer items than exist, the default
+  ordering is not just rearranging the list — it is choosing which item never appears. Read
+  the demo's order off the markup, report it as seed data with an explicit order field, and
+  report the demo's item count so the section's count field is seeded to it rather than
+  guessed. Count the rendered items; do not eyeball the screenshot.
 
 ## Teaser Fidelity (CPT teaser / archive cards)
 

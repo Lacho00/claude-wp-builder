@@ -338,4 +338,17 @@ if ! printf '%s' "$tflat" | grep -qF 'Two labels in the demo need two fields'; t
   echo "FAIL: agents/wp-template.md does not require one ACF field per distinct string — one field and a shortened copy is how a demo's two breakpoint labels became one overflowing button"; exit 1
 fi
 
+
+# A repeated block is not one item drawn N times, and a list's order is not the query's
+# default. Both were normalised away on a real build: six cards rendered with one icon
+# type at one size where the demo mixed SVG art with glyphs at three sizes, and a section
+# showing six of seven terms let \`get_terms()\` sort by name — which did not reorder the
+# cards so much as choose which term never reached the front page.
+if ! printf '%s' "$tflat" | grep -qF 'varies BETWEEN items is data'; then
+  echo "FAIL: agents/wp-template.md does not say per-item variation inside a repeated block is data — normalising a grid to one variant looks right and makes every card wrong"; exit 1
+fi
+if ! printf '%s' "$tflat" | grep -qF "ORDER and COUNT"; then
+  echo "FAIL: agents/wp-template.md does not bind a list's order and count to the demo — with a limit, the query's default ordering picks which item is never shown"; exit 1
+fi
+
 echo PASS
