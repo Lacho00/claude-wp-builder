@@ -449,8 +449,8 @@ fi
 # by agents that were never told to copy. The drift was always in the same direction:
 # an "equivalent" utility instead of the declared one, a dropped breakpoint variant.
 # Assert the mandate and the two substitutions that defeated it.
-if ! printf '%s' "$flatf" | grep -qF 'SOURCE OF TRUTH'; then
-  echo "FAIL: agents/wp-tailwind.md never calls the demo the SOURCE OF TRUTH — the mandate agents/wp-css.md carries for \`basic\`, absent on the path that builds every tailwind project"; exit 1
+if ! printf '%s' "$flatf" | grep -qE '### Transcription Mode.*SOURCE OF TRUTH'; then
+  echo "FAIL: agents/wp-tailwind.md does not call the demo the SOURCE OF TRUTH in Transcription Mode — the mandate agents/wp-css.md carries for \`basic\`, absent on the path that builds every tailwind project"; exit 1
 fi
 if ! printf '%s' "$flatf" | grep -qF 'character for character'; then
   echo "FAIL: agents/wp-tailwind.md does not require utilities carried across character for character — without it, an 'equivalent' utility is a silent geometry change"; exit 1

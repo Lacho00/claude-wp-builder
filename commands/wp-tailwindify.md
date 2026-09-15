@@ -150,7 +150,8 @@ path:
    and `rgba()` for the same colour are the same pixels, and the gate already resolves
    both through a canvas, but a `visually-hidden` heading that no one can see is still
    going to differ. Read them; do not paste them.
-6. Only if 2, 3 and 4 all hold, move the temporary file over the output path. Otherwise
+6. Only if 2, 3, 4 and 5 all hold — or 5 exited 2 and you reported that the rendering
+   gate could not run — move the temporary file over the output path. Otherwise
    discard it, leave the output path untouched, and report the conversion as failed —
    never a partial success.
 7. **Move with `\mv -f`, then prove the move happened.** An interactive shell aliases

@@ -48,6 +48,7 @@
   rungs the wording described. The grant assumes the conventional server ids; a server
   registered under a different id is not matched and degrades to the rung below, which is the
   intended behaviour when a server is genuinely absent.
+
 - **A reset rule is converted declaration by declaration, not as a whole.**
   `agents/wp-tailwind.md` now requires each declaration in a reset to be either matched
   to the preflight rule that already sets it or carried across, and names what preflight

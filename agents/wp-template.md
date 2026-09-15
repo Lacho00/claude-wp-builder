@@ -340,9 +340,11 @@ ACF calls, the escaping, the i18n helpers, the loops.
   you judge redundant, and do not merge two siblings into one. Two `<span>`s that swap at
   a breakpoint are two `<span>`s; one of them plus a CSS guess is a defect that only
   appears at that breakpoint.
-- **Every class attribute is copied character for character.** On `tailwind` that
+- **Every class attribute is preserved in structure and value.** On `tailwind` that
   includes each breakpoint variant (`max-md:`, `lg:`, `max-[1024px]:`) and each bracket
-  value — an "equivalent" utility is a measured geometry change.
+  value — an "equivalent" utility is a measured geometry change. On `basic`, apply the
+  `--block` BEM scoping rename required by `/wp-section` instead of copying the original
+  BEM names verbatim.
 - **Two labels in the demo need two fields.** When an element's text differs between
   breakpoints or states, the section gets one ACF field per distinct string, not one
   field and a shortened copy. Say so in your report so `wp-acf` defines both.

@@ -49,8 +49,9 @@ const VALUE_FLAGS = new Set(['--against', '--widths', '--json']);
 const positional = args.filter((a, i) => !a.startsWith('--') && !VALUE_FLAGS.has(args[i - 1]));
 
 const converted = resolve(positional[0] || 'demo/index.html');
-const original = resolve(opt('--against', ''));
-if (!original) { console.error('tailwindify-parity: --against is required'); process.exit(3); }
+const against = opt('--against', '');
+if (!against) { console.error('tailwindify-parity: --against is required'); process.exit(3); }
+const original = resolve(against);
 for (const p of [converted, original]) {
   if (!existsSync(p)) { console.error('tailwindify-parity: no such path: ' + p); process.exit(3); }
 }
@@ -190,6 +191,10 @@ const relTo = (root, file) => {
 const pairs = names
   ? names.map((f) => [relTo(cRoot, f), relTo(oRoot, f), f])
   : [[relTo(cRoot, basename(converted)), relTo(oRoot, basename(original)), basename(converted)]];
+if (!pairs.length || !widths.length) {
+  console.error('tailwindify-parity: no comparable pages or widths');
+  process.exit(3);
+}
 
 /** Leaf elements that carry their own words, keyed by tag + text. A key that
  *  appears twice on a page is dropped: an ambiguous join reports noise, and noise
