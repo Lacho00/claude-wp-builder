@@ -22,6 +22,7 @@
   rungs the wording described. The grant assumes the conventional server ids; a server
   registered under a different id is not matched and degrades to the rung below, which is the
   intended behaviour when a server is genuinely absent.
+
 - **`/wp-robin` reported every attachment as missing from disk while every file was
   there.** Step 4 carries the attachment metadata base64-encoded so it cannot drag a tab
   or a newline into the tab-separated read, but `TO_BASE64()` wraps its own output every

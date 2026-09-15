@@ -21,8 +21,10 @@ cd "$(dirname "$0")/../.."
 script=skills/wp-robin/scripts/robin-fix.sh
 [ -f "$script" ] || { echo "FAIL: $script is missing"; exit 1; }
 
-grep -q "REPLACE(TO_BASE64(" "$script" \
-  || { echo "FAIL: $script calls TO_BASE64() without stripping its 76-character wrap — every row decodes to garbage and every attachment is reported as missing from disk"; exit 1; }
+grep -Fq "REPLACE(TO_BASE64(pm.meta_value), CHAR(10), '')" "$script" \
+  || { echo "FAIL: $script does not strip TO_BASE64() wrapping with CHAR(10) — a string replacement depends on MySQL backslash mode"; exit 1; }
+grep -Fq 'str_replace("\\n", "", $p[2] ?? "")' "$script" \
+  || { echo "FAIL: $script does not strip client-escaped literal backslash-n sequences before base64 decoding"; exit 1; }
 
 # The mime list must be built once, from the setting. A literal list inside a query is
 # the bug: it cannot follow allowed_formats, and nothing downstream notices.
@@ -32,6 +34,8 @@ hits=$(grep -n "post_mime_type IN ('image/" "$script" 2>/dev/null || true)
 
 grep -q 'ALLOWED_SQL+=' "$script" \
   || { echo "FAIL: $script no longer builds ALLOWED_SQL from \${SETTINGS[allowed_formats]}"; exit 1; }
+grep -Fq '^(image/png|image/jpeg|image/jpg|image/gif)$' "$script" \
+  || { echo "FAIL: $script interpolates allowed_formats into SQL without a strict MIME allowlist"; exit 1; }
 
 # An emptied setting must not widen the query to every attachment on the site.
 grep -q '\[\[ -z "\$ALLOWED_SQL" \]\]' "$script" \

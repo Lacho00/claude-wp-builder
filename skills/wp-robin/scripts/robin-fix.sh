@@ -158,6 +158,9 @@ IFS=',' read -ra ALLOWED_FMTS <<< "${SETTINGS[allowed_formats]}"
 for fmt in "${ALLOWED_FMTS[@]}"; do
 	fmt="${fmt// /}"
 	[[ -z "$fmt" ]] && continue
+	# The value is interpolated into SQL below, so accept only source formats
+	# Robin can convert. This also keeps already-WebP files out of the queue.
+	[[ "$fmt" =~ ^(image/png|image/jpeg|image/jpg|image/gif)$ ]] || continue
 	ALLOWED_SQL+="${ALLOWED_SQL:+,}'${fmt}'"
 	[[ "$fmt" == "image/jpeg" ]] && ALLOWED_SQL+=",'image/jpg'"
 done
@@ -267,7 +270,8 @@ NOW=$(date +%s)
 DECODE_META='while (($l = fgets(STDIN)) !== false) {
 	$l = rtrim($l, "\n"); if ($l === "") continue;
 	$p = explode("\t", $l);
-	$raw = base64_decode(preg_replace("/[^A-Za-z0-9+\/=]/", "", $p[2] ?? ""));
+	$encoded = str_replace("\\n", "", $p[2] ?? "");
+	$raw = base64_decode(preg_replace("/[^A-Za-z0-9+\/=]/", "", $encoded));
 	$m = @unserialize($raw, ["allowed_classes" => false]);
 	if (!is_array($m)) { $m = json_decode($raw, true); }
 	if (!is_array($m)) { $m = []; }
@@ -313,7 +317,7 @@ flush_batch() {
 ATTACH_ROWS=$(mktemp)
 trap 'rm -f "$ATTACH_ROWS"' EXIT
 if ! db_q "
-	SELECT p.ID, p.post_mime_type, COALESCE(MAX(REPLACE(TO_BASE64(pm.meta_value), '\n', '')), '')
+	SELECT p.ID, p.post_mime_type, COALESCE(MAX(REPLACE(TO_BASE64(pm.meta_value), CHAR(10), '')), '')
 	FROM ${POSTS_TABLE} p
 	LEFT JOIN ${TABLE_PREFIX}postmeta pm
 	       ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
